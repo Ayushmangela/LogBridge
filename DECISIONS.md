@@ -116,3 +116,9 @@ The whole middle column (x36–43) is an open corridor running from the north co
 ### D20 — The Wi-Fi-drop test is automated and runs on every commit
 **Why:** it's the single test that distinguishes a distributed system from a demo. Everything built on top assumes the system tells the truth about what happened.
 **Would change it:** nothing.
+
+### D22 — A desktop app is a thin Electron wrapper around `apps/web`, not a second UI
+`apps/desktop` loads the exact same page `apps/server` already serves at `/` — no separate codebase, no duplicated rendering logic. On first launch it asks for a server URL (like "sign in to a workspace" in Slack/Discord) and remembers it; it does not default to `localhost`, because most people running the desktop app are *not* the one machine hosting the server — they're connecting to somebody else's spare laptop over Tailscale.
+**Why:** this is the same pattern Gather, Slack and Discord actually use — the desktop app is a convenience shell (dock icon, its own window, no browser tab to lose) around the identical web product, not a fork of it. Building a second UI would double the maintenance surface for zero new capability.
+**Explicitly not built:** code signing, notarization, or auto-update. For 3-4 friends, an unsigned local build that each person runs once ("right-click → Open" past Gatekeeper) is the right amount of infrastructure. Revisit only if this ever leaves the friend group.
+**Would change it:** wanting the desktop app to work fully offline with cached state — that's a real feature, not a wrapper concern, and would need its own design.

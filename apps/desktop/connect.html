@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Connect — LogBridge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-dark: #0d0f18;
+    --panel-bg: rgba(18, 22, 36, 0.85);
+    --panel-border: rgba(255, 255, 255, 0.08);
+    --accent-cyan: #00e5ff;
+    --accent-red: #ff5252;
+    --text-main: #f0f4fc;
+    --text-muted: #8a99b5;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(circle at 30% 20%, #141828 0%, var(--bg-dark) 65%);
+    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: var(--text-main);
+    -webkit-app-region: drag;
+  }
+  .card {
+    -webkit-app-region: no-drag;
+    width: 420px;
+    background: var(--panel-bg);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--panel-border);
+    border-radius: 16px;
+    padding: 32px;
+  }
+  .logo {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 800;
+    font-size: 13px;
+    letter-spacing: 0.12em;
+    color: var(--accent-cyan);
+    margin-bottom: 6px;
+  }
+  h1 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+  p.sub { color: var(--text-muted); font-size: 13px; margin-bottom: 22px; line-height: 1.5; }
+  label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+  input {
+    width: 100%;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 11px 12px;
+    color: var(--text-main);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    outline: none;
+  }
+  input:focus { border-color: var(--accent-cyan); }
+  .hint { font-size: 11px; color: var(--text-muted); margin-top: 8px; line-height: 1.5; }
+  button {
+    width: 100%;
+    margin-top: 18px;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent-cyan);
+    color: #04222a;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .error {
+    display: none;
+    margin-top: 14px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(255, 82, 82, 0.12);
+    border: 1px solid rgba(255, 82, 82, 0.3);
+    color: var(--accent-red);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .error.show { display: block; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">LOGBRIDGE</div>
+    <h1>Connect to a workspace</h1>
+    <p class="sub">Enter the address of the central server you want to join — usually your team's spare-laptop hub, reachable over Tailscale.</p>
+    <label for="url">Server URL</label>
+    <input id="url" type="text" placeholder="https://ayush-mbp.tail1234.ts.net" autofocus>
+    <div class="hint">Running the server on this machine? Use <code>http://localhost:8787</code>.</div>
+    <div class="error" id="error"></div>
+    <button id="go">Connect</button>
+  </div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const input = document.getElementById('url');
+    const errorEl = document.getElementById('error');
+    const btn = document.getElementById('go');
+
+    if (params.get('err') === '1' && params.get('url')) {
+      input.value = params.get('url');
+      showError("Couldn't reach that server. Check the URL and that the server is running.");
+    }
+
+    function showError(msg) {
+      errorEl.textContent = msg;
+      errorEl.classList.add('show');
+    }
+
+    async function connect() {
+      btn.disabled = true;
+      btn.textContent = 'Connecting…';
+      const res = await window.logbridgeDesktop.setServerUrl(input.value);
+      if (!res.ok) {
+        showError(res.error);
+        btn.disabled = false;
+        btn.textContent = 'Connect';
+      }
+      // on success the main process navigates the window away from this page.
+    }
+
+    btn.addEventListener('click', connect);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') connect(); });
+  </script>
+</body>
+</html>

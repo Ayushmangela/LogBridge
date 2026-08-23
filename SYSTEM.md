@@ -127,7 +127,8 @@ workspace/
 ├── packages/protocol/     ← zod schemas. server + runner + web all import this
 ├── apps/server/           ← the central server (spare laptop)
 ├── apps/runner/           ← the node daemon (every person's machine)
-└── apps/web/              ← your friend's Pixi office lives here
+├── apps/web/              ← your friend's Pixi office lives here
+└── apps/desktop/          ← downloadable Electron shell around apps/web, not a separate UI
 ```
 
 `packages/protocol` is the single most important thing in the project. Everything validates against it, on send **and** on receive.

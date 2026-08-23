@@ -24,8 +24,9 @@ workspace/
 ├── packages/protocol/      # zod schemas — server + runner + web all import this
 ├── apps/server/            # central server (spare laptop)
 ├── apps/runner/            # node daemon (every person's machine)
-├── apps/web/               # office UI
+├── apps/web/               # office UI (served by apps/server at "/")
 │   └── public/assets/      # ← FRIEND OWNS THIS FOLDER. Nobody else touches it.
+├── apps/desktop/           # downloadable Electron shell around apps/web — see README "Two ways in"
 └── docs/                   # these markdown files
 ```
 

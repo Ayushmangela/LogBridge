@@ -125,4 +125,15 @@ Use these words consistently — most integration confusion is two people meanin
 
 Not done yet: node runner (leases, the Wi-Fi-drop test — see `SYSTEM.md` §3), real agent execution, chat/spec-proposal UI, cross-machine delegation, GitHub mirror. Office structure and furniture are finished (`DESIGN-GUIDE.md`); the renderer still paints the background from the composited `preview.png` rather than the live tile layers — a per-tile Pixi renderer is the next visual upgrade, tracked as future work.
 
-**Run it:** `npm run dev:server` from the repo root, then open `http://localhost:8787`.
+**Run it:** `npm run dev:server` from the repo root, then either open `http://localhost:8787` in a browser, or launch the desktop app (`cd apps/desktop && npm run dev`) and point it at that same URL.
+
+### Two ways in — same product, like Gather/Slack/Discord
+
+| | Website | Desktop app |
+|---|---|---|
+| What it is | `apps/server` serving `apps/web` at `/` | `apps/desktop` — an Electron shell around the identical page |
+| Where state lives | On the server, always | Also on the server — the app has none of its own |
+| First run | Just open the URL | Asks once for the server's address, then remembers it |
+| Install | Nothing | `cd apps/desktop && npm run build:mac` → unsigned `.app` in `dist/` |
+
+There's one product. The desktop app doesn't add features — it adds a dock icon and its own window so the workspace isn't living in a browser tab. See `DECISIONS.md` D22 for why it's built this way, and deliberately not code-signed or auto-updating yet.

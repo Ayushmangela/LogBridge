@@ -1,0 +1,23 @@
+{
+  "name": "@logbridge/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LogBridge desktop client — a thin Electron shell around the same page apps/server serves in a browser.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron .",
+    "build:mac": "electron-builder --mac --dir",
+    "dist:mac": "electron-builder --mac"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "dev.logbridge.desktop",
+    "productName": "LogBridge",
+    "directories": { "output": "dist" },
+    "files": ["main.js", "preload.js", "connect.html", "icon.png"],
+    "mac": { "category": "public.app-category.developer-tools", "target": ["dmg"] }
+  }
+}
