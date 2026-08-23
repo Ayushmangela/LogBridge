@@ -1,7 +1,7 @@
 # The Contract
 ### Single source of truth for everything exchanged between the office and the system.
 
-**Version 1.2** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
+**Version 1.5** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
 
 > **Rule: never change this file alone.** Both people present, both agree, bump the version, add a changelog line. A contract one person edited is not a contract.
 
@@ -147,11 +147,11 @@ function zoneFor(a): ZoneId {
 |---|---|---|---|
 | `needs_human` | **the cabin named by `zoneAnchor`** | *(uses `cabin` rects)* | A specific person must decide. **Pulses while occupied** |
 | `working` | Open office, 4 desk pods | `working` × 4 *(`order` 0–3)* | Actively working right now |
-| `reviewing` | Review room | 1 | Reviewing code |
+| `blocked` | Atrium, upper half | 1 | Waiting on CI, a build, a dependency |
+| `reviewing` | Atrium, lower half | 1 | Reviewing code |
 | `collaborating` | Meeting room | 1 | Agents on **different machines** working together |
-| `blocked` | Lounge | 1 | Waiting on CI, a build, a dependency |
 | `idle` | Cafeteria | 1 | Online, nothing to do |
-| `done` | Table tennis room | 1 | Finished recently; fades after ~2 min |
+| `done` | Chill room *(table tennis)* | 1 | Finished recently; fades after ~2 min |
 | *(humans)* | The 4 private cabins | `cabin` × 4 *(`index` 0–3)* | A person's office. `HumanView.cabin` says whose |
 
 **13 rectangles in the map, 7 distinct names.**
@@ -173,11 +173,24 @@ function zoneFor(a): ZoneId {
 |---|---|---|
 | `floor` | tilelayer | ✅ |
 | `walls` | tilelayer | ✅ |
-| `props` | tilelayer | ✅ |
+| `props` | tilelayer | ✅ furniture |
+| `props2` | tilelayer | ✅ desktop clutter + wall decor, drawn **above** `props` |
 | `zones` | objectgroup | ✅ **13** named rects |
 | `markers` | objectgroup | ✅ `spawn` point |
 
-**64 × 40 tiles**, 16 × 16 px. Object `x`/`y` are in **pixels** — divide by 16 for tile coords.
+**64 × 40 tiles at 32 × 32 px** = 2048 × 1280 px. Object `x`/`y` are in **pixels** — divide by **32** for tile coords.
+
+Five tilesets are registered in the map, all 32 px:
+
+| Tileset | Tiles | Used for |
+|---|---|---|
+| `RoomBuilderOffice` | 224 | office wall/floor styles |
+| `RoomBuilderFloors` | 600 | the floor library |
+| `RoomBuilderWalls` | 1280 | the wall library |
+| `ModernOffice` | 848 | desks, chairs, sofas, screens, plants |
+| `Generic` | 1248 | spare furniture |
+
+**Tile gids may carry rotation flags.** Vertical wall runs are stored rotated 90° (`FLIP_D | FLIP_H`). Always mask with `gid & 0x1FFFFFFF` before looking a tile up, and apply the rotation when drawing. ~180 tiles are affected.
 
 ---
 
@@ -195,6 +208,9 @@ function zoneFor(a): ZoneId {
 
 | Version | Change | Why |
 |---|---|---|
+| **1.5** | Added a **`props2`** tile layer, drawn above `props`. White walls replace charcoal | Monitors, keyboards and papers have to sit *on* a desk, and wall posters *on* a wall — one prop layer can only hold one of the two, so the clutter was erasing the furniture underneath |
+| **1.4** | **Tile size 16 → 32 px.** Map is now 2048 × 1280 px. Five 32px tilesets replace the three 16px ones | The full LimeZu Modern Interiors / Modern Office set arrived — proper office desks, swivel chairs, sofas, screens, glass partitions. Zone rects are unchanged in *tile* coordinates; their pixel values doubled |
+| **1.3** | Floor plan restructured: review room and lounge removed, replaced by a central **atrium** corridor that holds `blocked` and `reviewing`; cafeteria and chill room enlarged to 23 × 8 | The atrium gives one walkable spine from the north corridor to the social wing, and frees floor area for the two social rooms. **No message-shape change** — only which room each zone maps to |
 | **1.2** | Cabins belong to real people. Added `HumanView.cabin` and `AgentView.zoneAnchor`; `needs_human` now resolves to a specific person's cabin. Map is 64×40 with 13 rects | The four cabins are the team's private offices. Routing `needs_human` to the right cabin turns "someone is needed" into "**Sam** is the bottleneck" |
 | **1.1** | Added `collaborating` zone → meeting room | Cross-machine AI collaboration had no visual representation. It's the headline feature and was invisible |
 | **1.0** | Initial | — |

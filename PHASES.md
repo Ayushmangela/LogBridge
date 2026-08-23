@@ -66,7 +66,7 @@ Each one has a hard acceptance test. **If it doesn't pass, don't move to the nex
 
 | | |
 |---|---|
-| **Friend delivers** | All 11 rooms enclosed with walls and door gaps. Still greybox art |
+| **Friend delivers** | All 11 areas enclosed with walls and door gaps; atrium open at both ends. Still greybox art |
 | **You deliver** | A machine enrolls. A fake `echo` task runs, leases, heartbeats. **The Wi-Fi-drop test is automated and green** |
 | **Test** | Kill Wi-Fi 10s into a 60s task, restore after 90s → complete ordered event stream, visible reconnect marker, **exactly one result** |
 | **Demo** | Still nothing visual. This is the most important week of the project and it has nothing to show. Accept that |
@@ -77,7 +77,7 @@ Each one has a hard acceptance test. **If it doesn't pass, don't move to the nex
 
 | | |
 |---|---|
-| **Friend delivers** | **Real tileset.** Floors, glass walls and furniture for all 11 rooms — boss cabin done properly. Drop-in over the greybox |
+| **Friend delivers** | **Real tileset.** Floors, glass walls and furniture for all 11 areas — boss cabin done properly. Drop-in over the greybox |
 | **You deliver** | Renderer draws the map, places agents by `zone` and `slot`, tweens on change. Real agents doing real work in a real repo |
 | **Test** | Start a real task on your laptop → the character walks into the open office → finishes → moves to the table tennis room. Nothing else in the room moves |
 | **Demo** | **First real demo.** Show someone the office while an agent actually edits a file |

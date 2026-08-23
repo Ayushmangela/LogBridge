@@ -26,7 +26,7 @@ You do **not** wait for the backend. Step 2 gives you a mock server that speaks 
 
 # THE CONTRACT (frozen — identical in Ayush's doc)
 
-> **This is a copy for reading convenience. [`CONTRACT.md`](CONTRACT.md) is the source of truth — if they ever disagree, that file wins.** Current version: **1.2**. Never change it without the other person present.
+> **This is a copy for reading convenience. [`CONTRACT.md`](CONTRACT.md) is the source of truth — if they ever disagree, that file wins.** Current version: **1.5**. Never change it without the other person present.
 
 This is the only thing the two halves share. **Neither side changes it alone.**
 
@@ -132,10 +132,12 @@ Send `position` **at most 5× per second** (throttle it), and only when the posi
 
 | zone | label | colour | meaning |
 |---|---|---|---|
-| `idle` | IDLE | grey | agent online, nothing to do |
-| `working` | WORKING | green | actually running right now |
-| `reviewing` | REVIEWING | blue | reviewing someone's code |
+| `working` | WORKING | green | actually running right now — open office |
+| `reviewing` | REVIEWING | blue | reviewing someone's code — atrium, lower half |
 | `collaborating` | MEETING | purple | working *with an agent on someone else's machine* — the meeting room |
+| `blocked` | BLOCKED | amber | waiting on CI or a build — atrium, upper half |
+| `idle` | IDLE | grey | nothing to do — cafeteria |
+| `done` | DONE | faded green | just finished — chill room |
 | `blocked` | BLOCKED | amber | waiting on CI, a delegate, a dependency |
 | `needs_human` | ⚑ NEEDS HUMAN | red, **pulses** | a *specific* person must answer — the agent stands in **their** cabin. The only animated thing in the room |
 | `done` | COMPLETED | faded green | finished recently; fades out after ~2 min |
@@ -242,7 +244,30 @@ You need three things. **Check the license on every page before you use it** —
 - **Human characters:** 8 sprites, **4-direction walk cycle** (4 frames each = 16 frames per character).
 - **Agent characters:** 6 sprites (one per role), **single idle frame each. Agents don't walk, so they need no walk cycle at all.** This saves you most of the character work.
 
-> Pick **one** tile size — 16×16 or 32×32 — and never mix. Render at 2× or 3× scale so it looks crisp. `PIXI.TextureSource.defaultOptions.scaleMode = "nearest"` or everything will be blurry.
+> The map is **32 × 32**. Never mix sizes. Render at 2× or 3× scale so it looks crisp. `PIXI.TextureSource.defaultOptions.scaleMode = "nearest"` or everything will be blurry.
+
+---
+
+## Step 3.5 — ⚠ Handle the tile rotation flags *(15 min — skip this and every vertical wall renders wrong)*
+
+LimeZu's wall tiles carry their dark outline on the **top and bottom edges only**, so every vertical wall run in the map is stored **rotated 90°**. Tiled encodes that in the top three bits of the gid:
+
+```ts
+const FLIP_H = 0x80000000, FLIP_V = 0x40000000, FLIP_D = 0x20000000;
+
+function drawTile(rawGid: number, x: number, y: number) {
+  const flipH = !!(rawGid & FLIP_H);
+  const flipV = !!(rawGid & FLIP_V);
+  const flipD = !!(rawGid & FLIP_D);
+  const gid   = rawGid & 0x1FFFFFFF;        // ← always mask before lookup
+  const sprite = spriteFor(gid);
+  // diagonal + horizontal == 90° clockwise, which is all this map uses
+  if (flipD && flipH) { sprite.rotation = Math.PI / 2; sprite.anchor.set(0.5); }
+  ...
+}
+```
+
+**If you look up a gid without masking, you get an out-of-range index and a blank tile.** About 180 tiles in the map are rotated — all of them walls and door leaves.
 
 ---
 

@@ -20,16 +20,15 @@ An office floor, and where a character stands tells you what's actually happenin
 | 👔 **Boss cabin** *(corner office, biggest — the repo admin's)* | that person's office. Agents waiting on **them** stand here |
 | 🚪 **Senior cabins ×3** | the other three people's offices, same rule |
 | 🏢 **Open office** — 4 desk pods | agents actively working right now |
-| 🔍 **Review room** | agents reviewing code |
+| 🚶 **Atrium** *(central corridor)* | upper half: blocked on CI or a build · lower half: reviewing code |
 | 🤝 **Meeting room** | agents on **two different laptops** working together |
-| 🛋 **Lounge** | blocked on CI or a build |
 | ☕ **Cafeteria** | idle, nothing to do |
-| 🏓 **Table tennis** | just finished a job |
+| 🏓 **Chill room** | just finished a job |
 | 🛎 **Lobby** | reception, where people arrive |
 
 **Nothing moves unless something really happened.** There is no animation loop, no wandering, no idle motion — position is computed from real task state, so the office cannot show activity that isn't real.
 
-Glance at it and you know the day: *cafeteria full = quiet · **one person's cabin crowded = that person is the bottleneck** · lounge full = stuck on builds · meeting room busy = the machines are talking to each other.*
+Glance at it and you know the day: *cafeteria full = quiet · **one person's cabin crowded = that person is the bottleneck** · atrium busy = stuck or under review · meeting room busy = the machines are talking to each other.*
 
 ---
 
@@ -48,6 +47,8 @@ Glance at it and you know the day: *cafeteria full = quiet · **one person's cab
 | Doc | Who | What |
 |---|---|---|
 | **[OFFICE-MAP.md](OFFICE-MAP.md)** | friend | Building the office map and art in Tiled. No code |
+| **[DESIGN-GUIDE.md](DESIGN-GUIDE.md)** | whoever designs | Which software, the workflow, and the generated greybox starting point |
+| **[ASSETS.md](ASSETS.md)** | whoever designs | Review of the downloaded art packs — what's usable, what's missing, licenses |
 | **[OFFICE.md](OFFICE.md)** | you | The Pixi renderer that draws the office from live state |
 | **[SYSTEM.md](SYSTEM.md)** | you | Protocol, server, runner, real agents, cross-machine collaboration |
 
@@ -95,6 +96,8 @@ Use these words consistently — most integration confusion is two people meanin
 | **Envelope** | One typed, validated message on the wire |
 | **Capability** | Something an agent can do *in its environment* — `run_integration_tests` |
 | **Zone** | A work state, mapped to a physical room in the office |
+| **Tile** | 32 × 32 px. The map is 64 × 40 tiles = 2048 × 1280 px |
+| **Atrium** | The central corridor. The building's spine and the only route from the offices to the social wing |
 | **Cabin** | A private office belonging to one real person. Cabin 0 is the boss cabin — biggest room, the repo admin's |
 | **Slot** | Stable position within a zone, so sprites don't overlap or jump |
 | **Delegate** | Ask another person's agent to do work on their machine |

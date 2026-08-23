@@ -66,7 +66,7 @@ Agents are *placed*, never animated. Humans move freely.
 **Would change it:** nothing. This is the second axiom.
 
 ### D12 — Hybrid: the four cabins belong to people, every other room is a work state
-Cabin 0 (boss, biggest, corner office) = the GitHub repo admin. Cabins 1–3 = the other three. Open office = working, review room = reviewing, meeting room = collaborating, lounge = blocked, cafeteria = idle, table tennis = done.
+Cabin 0 (boss, biggest, corner office) = the GitHub repo admin. Cabins 1–3 = the other three. Open office = working, atrium upper = blocked, atrium lower = reviewing, meeting room = collaborating, cafeteria = idle, chill room = done.
 **Why:** pure state-mapping loses *who*. Pure person-mapping loses the glance-read of the day. The hybrid keeps both — and routing `needs_human` to the specific person's cabin is strictly better than one generic room, because "three agents in Sam's office" says *Sam is the bottleneck*, which is actionable.
 **Cost:** two extra contract fields — `HumanView.cabin` and `AgentView.zoneAnchor`. Worth it.
 **Would change it:** growing past ~6 people, where there aren't enough cabins.
@@ -106,6 +106,12 @@ Friend owns `public/assets/**`. You own everything else.
 ### D19 — Greybox map on day 2, art later
 **Why:** it unblocks the entire renderer immediately, and the real art is a drop-in replacement. Standard game-dev practice, and the highest-leverage scheduling decision in the plan.
 **Would change it:** nothing.
+
+### D21 — One central atrium instead of a review room and a lounge
+The whole middle column (x36–43) is an open corridor running from the north corridor down into the cafeteria and chill room.
+**Why:** two small rooms cost floor area and needed their own doors, while the building had no single walkable route from the offices to the social wing. The atrium solves circulation, separates the open office from the meeting room, and freed enough area to grow the cafeteria and chill room from 23 × 6 to 23 × 8. `blocked` and `reviewing` live in its upper and lower halves — both are "not actively coding", which suits a breakout space.
+**Cost:** two zones share one undivided room, so they read slightly less distinctly than they did with walls between them.
+**Would change it:** if the atrium gets visually noisy, drop a low partition at y23 to split it — the zone rects already sit either side of that line.
 
 ### D20 — The Wi-Fi-drop test is automated and runs on every commit
 **Why:** it's the single test that distinguishes a distributed system from a demo. Everything built on top assumes the system tells the truth about what happened.

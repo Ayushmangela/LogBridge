@@ -19,7 +19,7 @@ Rule 2 is what makes "no agent gets unrestricted access to another person's comp
 
 # THE CONTRACT (frozen — identical in your friend's doc)
 
-> **This is a copy for reading convenience. [`CONTRACT.md`](CONTRACT.md) is the source of truth — if they ever disagree, that file wins.** Current version: **1.2**. Never change it without the other person present.
+> **This is a copy for reading convenience. [`CONTRACT.md`](CONTRACT.md) is the source of truth — if they ever disagree, that file wins.** Current version: **1.4**. Never change it without the other person present.
 
 You **produce** this. He **consumes** it. Neither of you changes it alone.
 

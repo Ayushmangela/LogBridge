@@ -575,7 +575,7 @@ Read-only on the server, permanently. **Writes are performed by local agents usi
 - **Agents don't walk — they're placed.** No pathfinding, no wander loops, no idle animation. An agent appears in the zone its state maps to, and tweens between zones only when a real event arrives.
 - **Humans may walk.** Human position is self-reported, and that's legitimate — it's a real signal about a real person's intent. It's also the only movement needing input handling, keeping the client simple.
 - **Rooms are projects**, one per repo. Not "Development Room / Research Room" — role-named rooms are decorative, because a QA agent working on the API project belongs *with the API project*, not with other QA agents.
-- **Zones are the states from requirement 14:** Idle · Working · Waiting · Blocked · Needs Human · Reviewing · Completed. Zone population *is* the metric.
+- **Zones are the states from requirement 14**, mapped onto a real floor plan: open office = Working · atrium upper = Blocked · atrium lower = Reviewing · meeting room = Collaborating · cafeteria = Idle · chill room = Completed · **each person's own cabin = Needs Human, for that person**. Zone population *is* the metric.
 - **Everything is a link** — click any avatar for its record: task, event stream, machine, owner, spend, GitHub item. The office is a navigation surface over real data.
 
 ```

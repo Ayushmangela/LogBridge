@@ -49,7 +49,7 @@ You only need Tiled. The rest are for touching up sprites the asset pack is miss
 
 | | |
 |---|---|
-| **Tile size** | **16 × 16 px** |
+| **Tile size** | **32 × 32 px** |
 | **Map size** | **64 × 40 tiles** |
 | **Orientation** | Orthogonal, top-down |
 | **Render order** | Right Down |
@@ -61,71 +61,75 @@ You only need Tiled. The rest are for touching up sprites the asset pack is miss
 
 # The floor plan
 
-Four bands: a **lobby** down the west side, **private cabins** along the north, the **work floor** through the middle, and the **social wing** along the south.
+**64 × 40 tiles at 32 px** (2048 × 1280 px). A lobby down the west side, private cabins along the north, the work floor through the middle, and the social wing along the south — all linked by a central **atrium** that runs top to bottom.
 
 ```
-  x0  x2       x14 x15     x23 x24 x25    x33 x34 x35    x43 x44 x45          x61 x63
-  ┌───┬──────────┬────────────┬─────────────┬────────────┬──────────────────────┐ y0
-  │   │▤ RECEPT. │▓▓▓▓▓▓▓▓▓▓▓▓│▓▓▓▓▓▓▓▓▓▓▓▓▓│▓▓▓▓▓▓▓▓▓▓▓▓│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│
-  │   │          │            │             │            │                      │ y2
-  │   │  ✿    ✿  │  SENIOR 1  │  SENIOR 2   │  SENIOR 3  │      BOSS CABIN      │
-  │   │          │            │             │            │    ★ corner office   │
-  │   │  ▬▬▬▬▬   │  cabin 1   │   cabin 2   │  cabin 3   │       cabin 0        │
-  │   │  sofas   │            │             │            │                      │
-  │   │          │   9 × 12   │   9 × 12    │   9 × 12   │       17 × 12        │
-  │   │  ✿       │            │             │            │   (nearly 2× a       │
-  │   │          │▓▓▓╡ ╞▓▓▓▓▓▓│▓▓▓▓╡ ╞▓▓▓▓▓▓│▓▓▓╡ ╞▓▓▓▓▓▓│▓▓▓▓▓▓▓╡ ╞▓▓▓▓▓▓▓▓▓▓▓▓│ y13
-  │ L │          ├──────────────────────────────────────┬──────────────────────-│ y14
-  │ O │  ✿       │       ←   NORTH CORRIDOR   →         │                       │ y16
-  │ B │          ├───────────────────────────┬──────────┼───────────────────────│ y17
-  │ B │  ▬▬▬▬▬   │  ┌──────┐    ┌──────┐     │  REVIEW  │                       │
-  │ Y │          │  │ POD A│    │ POD B│     │   ROOM   │     MEETING ROOM      │
-  │   │          │  └──────┘    └──────┘     │   8 × 6  │        17 × 13        │ y22
-  │12 │  ✿       │     OPEN OFFICE           ╞══════════╡                       │ y23
-  │wid│          │        20 × 13            │  LOUNGE  │      ▬▬▬▬▬▬▬▬▬        │
-  │   │  ★spawn  │  ┌──────┐    ┌──────┐     │ (waiting)│      conference       │
-  │   │          │  │ POD C│    │ POD D│     │   8 × 6  │                       │ y29
-  │   │          │  └──────┘    └──────┘     │          │                       │
-  │   │          ├──────────────────────────────────────┴───────────────────────│ y30
-  │   │  ✿       │       ←   SOUTH CORRIDOR   →                                 │ y31
-  │   │          ├─────────────────────────────┬────────────────────────────────│ y32
-  │   │  ▤ ▤     │        CAFETERIA            │       TABLE TENNIS             │
-  │   │          │          23 × 7             │           23 × 7               │ y38
-  └───┴──────────┴─────────────────────────────┴────────────────────────────────┘ y39
-                                             x38 x39
+  x0  x2       x14 x15     x23 x24 x25    x33 x34 x35 x36   x43 x44 x45        x61 x63
+  ┌───┬──────────┬────────────┬─────────────┬───────────┬───┬──────────────────────┐ y0
+  │   │▓▓▓▓▓▓▓▓▓▓│▓▓▓▓▓▓▓▓▓▓▓▓│▓▓▓▓▓▓▓▓▓▓▓▓▓│▓▓▓▓▓▓▓▓▓▓▓│▓▓▓│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│
+  │   │          │            │             │           │   │                      │ y2
+  │   │  LOBBY   │  SENIOR 1  │  SENIOR 2   │ SENIOR 3  │   │      BOSS CABIN      │
+  │   │          │            │             │           │   │    ★ corner office   │
+  │   │  12 × 37 │  cabin 1   │   cabin 2   │  cabin 3  │   │        cabin 0       │
+  │   │          │   9 × 11   │   9 × 11    │  9 × 11   │   │       17 × 11        │ y12
+  │   │          │▓▓▓╡ ╞▓▓▓▓▓▓│▓▓▓▓╡ ╞▓▓▓▓▓▓│▓▓▓╡ ╞▓▓▓▓▓│▓▓▓│▓▓▓▓▓▓▓╡ ╞▓▓▓▓▓▓▓▓▓▓▓▓│ y13
+  │   │          ├──────────────────────────────────────────────────────────────── │ y14
+  │   │          │              ←   NORTH CORRIDOR   →                            │ y16
+  │   │          ├────────────────────────────────┐   ┌──────────────────────────-│ y17
+  │   │          │                                │ A │                           │ y18
+  │   │          │                                │ T │                           │
+  │   │          │        OPEN OFFICE             │ R │      MEETING ROOM         │
+  │   │          │          20 × 12               │ I │        17 × 12            │
+  │   │          │      (4 desk pods)             │ U │                           │
+  │   │          │                                │ M │                           │ y29
+  │   │          ├────────────────────────────────┘8×14  └───────────────────────-│ y30
+  │   │          ├────────────────────────────────┬──────────────────────────────-│ y31
+  │   │          │          CAFETERIA             │        CHILL ROOM             │
+  │   │          │            23 × 8              │  (table tennis)  23 × 8       │ y38
+  └───┴──────────┴────────────────────────────────┴───────────────────────────────┘ y39
 
-    ▓ = glass wall (see into the cabins)    ✿ = plant    ▬ = seating    ▤ = counter
+    ▓ = glass wall (see into the cabins)      ╡ ╞ = door gap
 ```
 
 ### Exact coordinates
 
 | Area | x range | y range | Size |
 |---|---|---|---|
-| **Lobby / reception** | 2 – 13 | 2 – 38 | 12 × 37 |
-| **Senior cabin 1** *(cabin 1)* | 15 – 23 | 2 – 13 | 9 × 12 |
-| **Senior cabin 2** *(cabin 2)* | 25 – 33 | 2 – 13 | 9 × 12 |
-| **Senior cabin 3** *(cabin 3)* | 35 – 43 | 2 – 13 | 9 × 12 |
-| **★ BOSS CABIN** *(cabin 0)* | **45 – 61** | **2 – 13** | **17 × 12** |
-| North corridor | 15 – 61 | 14 – 16 | 47 × 3 |
-| **Open office** | 15 – 34 | 17 – 29 | 20 × 13 |
-| **Review room** | 36 – 43 | 17 – 22 | 8 × 6 |
-| **Lounge** | 36 – 43 | 24 – 29 | 8 × 6 |
-| **Meeting room** | 45 – 61 | 17 – 29 | 17 × 13 |
-| South corridor | 15 – 61 | 30 – 31 | 47 × 2 |
+| **Lobby / reception** | 2 – 13 | 3 – 38 | 12 × 36 |
+| **Senior cabin 1** *(cabin 1)* | 15 – 23 | 3 – 12 | 9 × 10 |
+| **Senior cabin 2** *(cabin 2)* | 25 – 33 | 3 – 12 | 9 × 10 |
+| **Senior cabin 3** *(cabin 3)* | 35 – 43 | 3 – 12 | 9 × 10 |
+| **★ BOSS CABIN** *(cabin 0)* | **45 – 61** | **3 – 12** | **17 × 10** |
+| North corridor | 15 – 61 | 15 – 16 | 47 × 2 |
+| **Open office** | 15 – 34 | 19 – 29 | 20 × 11 |
+| **Atrium** *(central corridor)* | 36 – 43 | 15 – 31 | 8 × 17 |
+| **Meeting room** | 45 – 61 | 19 – 29 | 17 × 11 |
 | **Cafeteria** | 15 – 37 | 32 – 38 | 23 × 7 |
-| **Table tennis** | 39 – 61 | 32 – 38 | 23 × 7 |
+| **Chill room** *(table tennis)* | 39 – 61 | 32 – 38 | 23 × 7 |
 
-**Walls:** outer x0–1, x62–63, y0–1, y39 · lobby divider **x14** · cabin dividers **x24, x34** · cabin fronts along **y13** · open-office/review divider **x35** · review/lounge divider **y23** · **x44 runs continuously from y2 to y29** · cafeteria/TT divider **x38** · south-band front wall **y31**.
+**Walls are 2 tiles tall where they run horizontally** — the top tile is the wall face, the one below is its base with skirting. That's LimeZu's own convention and it's what gives the rooms depth instead of a flat blueprint look.
+
+| Run | Tiles | Rows |
+|---|---|---|
+| Outer shell, top | capped face + base | y1–2 |
+| Outer shell, bottom | thin | y39 |
+| Outer shell, sides | thin, rotated 90° | x1, x62 |
+| Cabin fronts | **glass** face + wooden sill | y13–14 |
+| Corridor ↔ office / meeting | capless face + base | y17–18 |
+| Office / meeting ↔ south band | capless face + base | y30–31 |
+| Lobby divider | thin, rotated | x14 (y3–38) |
+| Cabin dividers | thin, rotated | x24, x34, x44 (y3–14) |
+| Atrium sides | thin, rotated | x35, x44 (y17–31) |
+| Cafeteria ↔ chill | thin, rotated | x38 (y32–38) |
 
 ### Why it's laid out this way
 
-- **The boss cabin is a corner office at nearly double the size** — 17 × 12 against 9 × 12. Best corner, glass on two sides, its own wing. It should read as the boss's office with no label at all.
-- **`x44` is one continuous wall from the top of the map to y29**, separating the boss cabin *and* the meeting room from everything else. That single architectural line creates a legible "executive wing" and stops the map looking like a grid of boxes.
-- **The lobby is a full-height band, not a corner.** Strong vertical anchor, somewhere for people to arrive, and a real home for sofas and plants instead of wasted floor.
-- **Cabin fronts are glass.** You see who's in their office from the corridor — that's the entire point of a presence display.
-- **Desks are pods of four, not long rows.** Real offices cluster; long rows read as a spreadsheet. Four pods also give four separate `working` zones, so agents spread out instead of stacking in one line.
-- **Review room above, lounge below, split by a half-wall.** Quiet work over waiting.
-- **The social wing is the whole south band** — cafeteria and table tennis side by side, away from the desks, like a real office.
+- **The atrium is the spine.** It runs unbroken from the north corridor down to the cafeteria and chill room, so you can walk the whole building without passing through a working room. It also physically separates the open office from the meeting room.
+- **The boss cabin is a corner office at nearly double the size** — 17 × 11 against 9 × 11. Best corner, glass on two sides, its own wing.
+- **`x44` is one continuous line from y2 to y30**, separating the boss cabin and meeting room into an executive wing. One confident architectural line stops the map reading as a grid of boxes.
+- **The lobby is a full-height band**, not a corner — a strong vertical anchor and somewhere for people to arrive.
+- **Cabin fronts are glass.** You see who's in their office from the corridor, which is the point of a presence display.
+- **The social wing is the whole south band**, both rooms enlarged to 23 × 8 and both opening directly off the atrium.
 
 ---
 
@@ -139,39 +143,34 @@ The four cabins are **personal offices for the four humans on the team.** They a
 
 | Cabin | `index` | Who gets it |
 |---|---|---|
-| **Boss cabin** *(corner office)* | `0` | **The GitHub repo admin/owner.** Biggest room — that's the joke, and it's also true |
+| **Boss cabin** *(corner office)* | `0` | **The GitHub repo admin/owner.** Biggest room |
 | Senior cabin 1 | `1` | second collaborator |
 | Senior cabin 2 | `2` | third collaborator |
 | Senior cabin 3 | `3` | fourth collaborator |
 
-You just draw four rectangles named `cabin` with an `index` property. **The code decides which person sits in which cabin** — you never need their names.
+Draw four rectangles named `cabin` with an `index` property. **The code decides who sits where** — you never need their names.
 
-Two things happen in a cabin:
+Two things happen in a cabin: that person's avatar idles there, and **an AI agent that needs a decision from that person walks into that person's cabin.**
 
-- **That person's avatar** idles there when they're online but haven't moved.
-- **An AI agent that needs a decision from that person walks into that person's cabin.**
-
-> So you can see *who* is being waited on, not just that someone is. Three agents standing in Sam's office means **Sam is the bottleneck**, and you can read that from across the room. That's much better than one generic "needs a human" room.
+> So you see *who* is being waited on. Three agents in Sam's office means **Sam is the bottleneck**, readable from across the room.
 
 ## Everywhere else is a work state
 
 | Room | Zone name | Rects | What it means |
 |---|---|---|---|
 | Open office — 4 desk pods | `working` | 4 *(`order` 0–3)* | Actively working right now |
-| Review room | `reviewing` | 1 | Reviewing someone's code |
+| Atrium — upper half | `blocked` | 1 | Waiting on CI, a build, a dependency |
+| Atrium — lower half | `reviewing` | 1 | Reviewing someone's code |
 | **Meeting room** | `collaborating` | 1 | Agents on **different people's machines** working together |
-| Lounge | `blocked` | 1 | Waiting on CI, a build, a dependency |
 | Cafeteria | `idle` | 1 | Online, nothing to do |
-| Table tennis | `done` | 1 | Just finished; fades after ~2 min |
+| **Chill room** | `done` | 1 | Just finished; fades after ~2 min |
 | The 4 cabins | `cabin` | 4 *(`index` 0–3)* | People's offices — and where agents go to ask them something |
 
 **13 rectangles, 7 distinct names.**
 
 Someone glancing at this office should read the whole day instantly:
 
-> **Cafeteria full** = quiet day · **one cabin crowded** = *that person* is the bottleneck · **lounge full** = stuck on builds · **meeting room busy** = the machines are talking to each other · **table tennis busy** = a lot just shipped
-
-The meeting room is the best thing this office does. Cross-machine AI collaboration is the hardest feature in the project and normally completely invisible — here you watch two characters from two different laptops stand in a room together.
+> **Cafeteria full** = quiet day · **one cabin crowded** = *that person* is the bottleneck · **atrium busy** = things are stuck or under review · **meeting room busy** = the machines are talking to each other · **chill room busy** = a lot just shipped
 
 ---
 
@@ -189,7 +188,7 @@ The meeting room is the best thing this office does. Cross-machine AI collaborat
 | Tile layer format | CSV |
 | Tile render order | Right Down |
 | Map size | Fixed, **64 × 40** |
-| Tile size | **16 × 16** |
+| Tile size | **32 × 32** |
 
 Save as `office.tmx`.
 
@@ -204,7 +203,7 @@ Save as `office.tmx`.
 | Name | `office` |
 | Type | Based on Tileset Image |
 | Source | your `tileset.png` |
-| Tile width / height | 16 / 16 |
+| Tile width / height | 32 / 32 |
 | Margin / Spacing | usually 0 / 0 — **check the pack's readme** |
 | **Embed in map** | ✅ **ON** |
 
@@ -244,18 +243,18 @@ Fill all 64 × 40. **No gaps** — a hole renders as a black square.
 
 Give each area its own floor so rooms are distinguishable without reading labels:
 
-| Area | Floor |
+All structure and furniture come from the **LimeZu Modern Interiors / Modern Office 32px set** — charcoal walls, glass cabin fronts, wooden doors, and a full office furniture library. Horizontal walls are **2 tiles tall** (face + base); vertical runs are stored **rotated 90°**.
+
+| Area | Floor *(already applied by the build script)* |
 |---|---|
-| **Boss cabin** | Dark hardwood or premium carpet — visibly the nicest floor in the building |
-| Senior cabins | Grey or blue carpet |
-| Lobby | Polished marble or large tile |
-| Open office | Light neutral carpet |
-| Review room | Muted darker carpet — quiet room |
-| Lounge | Warm rug tones |
-| Meeting room | Dark carpet or wood, matching the boss cabin's wing |
-| Corridors | Polished concrete |
-| Cafeteria | Checkerboard or kitchen tile |
-| Table tennis | Sports wood or green |
+| **Boss cabin** | Herringbone wood — the nicest floor in the building |
+| Senior cabins ×3 | Light concrete |
+| Lobby | Cream tile |
+| Open office | Checkered office floor *(Desk Essentials)* |
+| **Atrium** + north corridor | Dark concrete — reads as circulation |
+| Meeting room | Herringbone wood, matching the boss wing |
+| Cafeteria | Teal pattern |
+| **Chill room** | Warm brick — social and distinct |
 
 Sprinkle 2–3 variant tiles into large areas so they don't look like a spreadsheet.
 
@@ -264,14 +263,11 @@ Sprinkle 2–3 variant tiles into large areas so they don't look like a spreadsh
 ## Step 6 — Walls, glass and doors *(2–3 hours)*
 
 - Outer wall around the whole map.
-- **Lobby divider x14**, full height, with door gaps around y8, y22 and y35.
-- **Cabin dividers x24, x34**, and **x44 running continuously y2 → y29.**
-- **Cabin fronts along y13**, each with a 2-tile door gap.
-- **Open-office/review divider x35** (y17–29), door gap around y20.
-- **Review/lounge half-wall y23** (x36–43) — waist height or a glass partition.
-- **Meeting-room door** in the x44 wall, around y23.
-- **Cafeteria/TT divider x38** (y32–38).
-- **South front wall y31**, door gaps into each room.
+- **Lobby divider x14**, full height, door gaps at y8, y22, y35.
+- **Cabin dividers x24, x34, x44** (y2–13); **cabin fronts along y13** in glass, each with a 2-tile door gap.
+- **Atrium side walls x35 and x44** (y17–30), each with a door gap at y22–23 so the office and the meeting room open onto the atrium.
+- **Central band top y17 and bottom y30** — but only across x15–34 and x45–61. **The atrium passes straight through both**, which is what connects the north corridor to the cafeteria and chill room.
+- **Cafeteria/chill divider x38** (y31–38), door gap at y34–35.
 
 **Glass matters.** Use window/glass tiles for the cabin fronts and the meeting room's north wall. You should be able to see people inside their offices from the corridor — this is a presence display, and glass is how it reads.
 
@@ -298,34 +294,31 @@ Desk + chair · monitor · small bookshelf · one plant · a poster · a visitor
 ### Lobby *(x2–13, full height)*
 Reception desk with a counter near the top · a waiting sofa cluster with a coffee table · **several large plants** · a rug · wall clock · noticeboard · maybe a water cooler. This is the first thing anyone sees — make it welcoming and keep the centre clear.
 
-### Open office *(x15–34, y17–29)*
+### Open office *(x15–34, y18–29)*
 **Four pods of 4 desks** — desks facing each other in pairs, like real offices:
 
 | Pod | Desks occupy |
 |---|---|
-| A | x17–23, y18–21 |
-| B | x27–33, y18–21 |
+| A | x17–23, y19–22 |
+| B | x27–33, y19–22 |
 | C | x17–23, y25–28 |
 | D | x27–33, y25–28 |
 
-Keep **x24–26 clear** as a vertical walking lane and **y22–24 clear** horizontally. Monitors, keyboards, mugs, papers, a chair per desk. Add a printer, a water cooler, 2–3 plants between pods.
+Keep **x24–26 clear** as a vertical walking lane and **y23–24 clear** horizontally. Monitors, keyboards, mugs, papers, a chair per desk. Add a printer, a water cooler, 2–3 plants between pods.
 
-### Review room *(x36–43, y17–22)*
-2 desks with large monitors · a whiteboard · one plant. Quiet and sparse — it should feel different from the busy open office.
+### Atrium *(x36–43, y17–30 — the central corridor)*
+Keep the middle **clear** — it's the main walkway. Line the edges: plants along both walls, a bench or two against the x35 side, a noticeboard, a water cooler, wall art. Two zones live here, so leave standing room in the upper and lower halves.
 
-### Lounge *(x36–43, y24–29)*
-2–3 sofas or armchairs around a low table · **a big plant** · a magazine rack or coffee machine · a rug. Somewhere you'd genuinely wait.
-
-### Meeting room *(x45–61, y17–29 — 17 × 13)*
-**Long conference table down the centre**, roughly x49–57, y21–25, with **8 chairs** around it · large screen or projector on the far wall · whiteboard · a plant in each corner · water jug and glasses on the table.
+### Meeting room *(x45–61, y18–29 — 17 × 12)*
+**Long conference table down the centre**, roughly x49–60, y22–23, with **8 chairs** around it · large screen or projector on the far wall · whiteboard · a plant in each corner · water jug and glasses on the table.
 
 This is the only room where characters from *different machines* stand together. Make it feel like a proper boardroom.
 
-### Cafeteria *(x15–37, y32–38)*
+### Cafeteria *(x15–37, y31–38)*
 3 tables with chairs · counter with stools · fridge · coffee machine · microwave · vending machine · a plant. Warm and social.
 
-### Table tennis room *(x39–61, y32–38)*
-**Table tennis table around x48–54, y33–34** — draw one if your pack lacks it · paddles and ball on it · bench along the wall · sports poster · water bottle · a plant. **Keep the floor south of the table clear** so characters can stand there.
+### Chill room *(x39–61, y31–38)*
+**Table tennis table around x48–54, y34–36** — draw one if your pack lacks it · paddles and ball on it · sofas and benches along the walls · a TV or arcade cabinet · sports poster · water bottle · plants. It's 23 × 8 now, so there's room for a proper games-and-sofas corner. **Keep the floor around the table clear** so characters can stand there.
 
 > **Leave open floor everywhere.** Check the capacity numbers in Step 8 — that many characters must fit without standing on furniture.
 
@@ -337,19 +330,19 @@ Select the `zones` object layer, use **Insert Rectangle (R)**. For each: draw ov
 
 | Draw over | Name | Property | Rect | Fits |
 |---|---|---|---|---|
-| Boss cabin open floor | `cabin` | `index` = `0` | x48 y5 · 11×6 | 5 |
-| Senior 1 floor | `cabin` | `index` = `1` | x17 y5 · 5×5 | 2 |
-| Senior 2 floor | `cabin` | `index` = `2` | x27 y5 · 5×5 | 2 |
-| Senior 3 floor | `cabin` | `index` = `3` | x37 y5 · 5×5 | 2 |
-| Pod A desks | `working` | `order` = `0` | x17 y19 · 6×2 | 3 |
-| Pod B desks | `working` | `order` = `1` | x27 y19 · 6×2 | 3 |
-| Pod C desks | `working` | `order` = `2` | x17 y26 · 6×2 | 3 |
-| Pod D desks | `working` | `order` = `3` | x27 y26 · 6×2 | 3 |
-| Review room floor | `reviewing` | — | x37 y19 · 6×3 | 4 |
-| Lounge floor | `blocked` | — | x37 y25 · 6×4 | 4 |
-| Meeting room, around the table | `collaborating` | — | x47 y20 · 13×7 | 8 |
+| Boss cabin open floor | `cabin` | `index` = `0` | x48 y6 · 11×5 | 5 |
+| Senior 1 floor | `cabin` | `index` = `1` | x17 y6 · 5×5 | 2 |
+| Senior 2 floor | `cabin` | `index` = `2` | x27 y6 · 5×5 | 2 |
+| Senior 3 floor | `cabin` | `index` = `3` | x37 y6 · 5×5 | 2 |
+| Pod A | `working` | `order` = `0` | x17 y21 · 6×2 | 3 |
+| Pod B | `working` | `order` = `1` | x27 y21 · 6×2 | 3 |
+| Pod C | `working` | `order` = `2` | x17 y26 · 6×2 | 3 |
+| Pod D | `working` | `order` = `3` | x27 y26 · 6×2 | 3 |
+| Atrium, upper half | `blocked` | — | x37 y18 · 6×4 | 4 |
+| Atrium, lower half | `reviewing` | — | x37 y25 · 6×4 | 4 |
+| Meeting room centre | `collaborating` | — | x47 y21 · 13×7 | 8 |
 | Cafeteria open floor | `idle` | — | x17 y34 · 19×4 | 8 |
-| TT room, south of the table | `done` | — | x41 y35 · 19×3 | 6 |
+| Chill room open floor | `done` | — | x41 y34 · 19×4 | 8 |
 
 ### Rules
 
@@ -421,7 +414,7 @@ Plus `CREDITS.md` if anything needs attribution.
 ### Sanity-check the export
 
 ```json
-{ "width": 64, "height": 40, "tilewidth": 16, "tileheight": 16,
+{ "width": 64, "height": 40, "tilewidth": 32, "tileheight": 32,
   "layers": [
     { "name": "floor",   "type": "tilelayer",   "data": [ ... ] },
     { "name": "walls",   "type": "tilelayer",   "data": [ ... ] },
@@ -439,25 +432,26 @@ Plus `CREDITS.md` if anything needs attribution.
 
 If any of the five layer names is missing, or `zones` has fewer than **13** objects, fix it before handing over.
 
-> Object `x`/`y` are in **pixels**, not tiles — Tiled does this automatically. The coder divides by 16. Don't "fix" it.
+> Object `x`/`y` are in **pixels**, not tiles — Tiled does this automatically. The coder divides by 32. Don't "fix" it.
 
 ---
 
 # Definition of done
 
-- [ ] Map exactly 64 × 40, tiles exactly 16 × 16
+- [ ] Map exactly 64 × 40, tiles exactly 32 × 32
 - [ ] All five layers, exact lowercase names
 - [ ] Floor filled everywhere — **zero gaps**
-- [ ] All 11 rooms enclosed, each with a visible door gap
+- [ ] All 11 areas enclosed, each with a visible door gap; **the atrium is open at both ends**
 - [ ] Cabin fronts and the meeting room use **glass** — you can see inside
 - [ ] Each area has a distinct floor, recognisable without labels
 - [ ] **Boss cabin is 17 × 12 and obviously the nicest room in the building**
 - [ ] The 3 senior cabins are visibly different from each other
-- [ ] Open office has 4 pods of 4 desks with clear walking lanes at x24–26 and y22–24
+- [ ] Open office has 4 pods of 4 desks with clear walking lanes at x24–26 and y23–24
+- [ ] Atrium centre kept clear — it is the building's main walkway
 - [ ] Lobby has reception, sofas and plants; centre kept clear
 - [ ] Meeting room has a long table with 8 chairs and a screen
-- [ ] Cafeteria has tables, counter, fridge, coffee machine
-- [ ] TT room has a table with clear floor to the south
+- [ ] Cafeteria (23 × 8) has tables, counter, fridge, coffee machine
+- [ ] Chill room has a table-tennis table plus sofas, with clear floor around the table
 - [ ] Exactly **13 zone rectangles**, exact lowercase names, on open floor, non-overlapping
 - [ ] `cabin` rects have `index` 0–3; `working` rects have `order` 0–3
 - [ ] `spawn` point in the lobby
@@ -478,6 +472,7 @@ If any of the five layer names is missing, or `zones` has fewer than **13** obje
 | Any animation except the human walk cycles | AI characters need one frame each |
 | Sound | No |
 | More rooms than the eleven listed | Ask first |
+| Walling off the atrium | It must stay open at both ends — it is the only route to the south rooms |
 | A second map | Finish this one |
 
 ---
@@ -491,8 +486,9 @@ If any of the five layer names is missing, or `zones` has fewer than **13** obje
 5. **Missing `index` / `order` properties** → cabins and pods can't be told apart.
 6. **Zones drawn over furniture** → characters stand on desks.
 7. **Rooms too cramped** → 5 characters won't fit in the boss cabin. Check the "Fits" column.
-8. **Forgetting to embed the tileset** → broken map.
-9. **Mixing 16×16 and 32×32** → nothing lines up. Pick one, forever.
+8. **Blocking the atrium with furniture** → it is the only path from the offices to the cafeteria and chill room. Edges only.
+9. **Forgetting to embed the tileset** → broken map.
+10. **Mixing 16×16 and 32×32** → nothing lines up. Pick one, forever.
 
 ---
 
