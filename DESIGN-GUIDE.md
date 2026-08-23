@@ -69,7 +69,7 @@ Everything is now **LimeZu Modern Tiles** — no hand-drawn tiles at all.
 | Vertical walls | `Room_Builder_Walls` | group 1, **col 5**, row 34, rotated 90° | 1 tile |
 | Cabin front glass | `Room_Builder_Walls` | group 3, **col 27**, rows 8 + 9 | 2 tiles |
 | Door leaves | `Room_Builder_Walls` | group 2, **col 16**, row 22 (wood) | 1 tile |
-| Floors | `Room_Builder_Floors` | 4 column groups × ~18 styles | — |
+| Floors | `agentroom/FloorAndGround.png` | **cols 5–7, rows 36–37** — one light grey tile everywhere | — |
 | Furniture | `Modern_Office_Black_Shadow` | see `P` in the build script | — |
 
 **Two prop layers.** `props` holds the furniture; `props2` holds what sits *on top of* it — monitors, keyboards, papers, and wall posters.

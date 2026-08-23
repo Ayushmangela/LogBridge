@@ -185,7 +185,8 @@ Five tilesets are registered in the map, all 32 px:
 | Tileset | Tiles | Used for |
 |---|---|---|
 | `RoomBuilderOffice` | 224 | office wall/floor styles |
-| `RoomBuilderFloors` | 600 | the floor library |
+| `RoomBuilderFloors` | 600 | alternate floor library |
+| `FloorAndGround` | 2560 | the floor in use |
 | `RoomBuilderWalls` | 1280 | the wall library |
 | `ModernOffice` | 848 | desks, chairs, sofas, screens, plants |
 | `Generic` | 1248 | spare furniture |

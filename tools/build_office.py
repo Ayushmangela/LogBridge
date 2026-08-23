@@ -16,6 +16,7 @@ SETS = [                                    # name, path, cols, rows
     ("RoomBuilderWalls",  "archive/Room_Builder_Walls.png",         32, 40),
     ("ModernOffice",      "tilesets/Modern_Office_Black_Shadow.png",16, 53),
     ("Generic",           "tilesets/Generic.png",                   16, 78),
+    ("FloorAndGround",    "tilesets/agentroom/FloorAndGround.png",  64, 40),
 ]
 FIRST, g = {}, 1
 for n, f, c, r in SETS: FIRST[n] = g; g += c * r
@@ -26,6 +27,7 @@ RBF = lambda c, r: gid("RoomBuilderFloors", c, r)
 RBW = lambda c, r: gid("RoomBuilderWalls",  c, r)
 MO  = lambda c, r: gid("ModernOffice",      c, r)
 GEN = lambda c, r: gid("Generic",           c, r)
+FG  = lambda c, r: gid("FloorAndGround",    c, r)
 FLIP_H, FLIP_D = 0x80000000, 0x20000000
 def rot90(x): return x | FLIP_D | FLIP_H
 
@@ -33,14 +35,9 @@ def rot90(x): return x | FLIP_D | FLIP_H
 #    each a stack of styles in row PAIRS. cols within a group are variants.
 def flr(col, row): return [RBF(col, row), RBF(col+1, row), RBF(col+2, row),
                            RBF(col, row+1), RBF(col+1, row+1)]
-F_LOBBY  = flr( 8, 22)   # white/grey maze tile
-F_CABIN  = flr(12,  4)   # grey checkerboard
-F_BOSS   = flr(12, 26)   # dark rich wood
-F_MEET   = flr(12, 26)   # dark wood — executive wing
-F_CORR   = flr(12,  6)   # plain grey
-F_OPEN   = flr(12, 22)   # light grey office tile
-F_CAFE   = flr( 8, 24)   # cyan star tile
-F_CHILL  = flr( 8, 10)   # orange herringbone
+# One floor throughout — FloorAndGround, column group 2 (cols 5-7), last style.
+F_MAIN = [FG(5,36), FG(6,36), FG(7,36), FG(5,37), FG(6,37), FG(7,37)]
+F_LOBBY = F_CABIN = F_BOSS = F_MEET = F_CORR = F_OPEN = F_CAFE = F_CHILL = F_MAIN
 
 # ── walls: Room_Builder_Walls has 3 column GROUPS of 10, each a stack of styles
 #    in row pairs.  Group 1 = cols 0-9, group 2 = 11-20, group 3 = 22-31.
