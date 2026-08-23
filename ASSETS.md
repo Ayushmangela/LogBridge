@@ -11,7 +11,7 @@
 | `archive/Room_Builder_Walls.png` | 32 × 40 | **All walls.** 3 column groups of 10, ~18 styles each in row pairs. Currently: charcoal (group 1, rows 34–35), glass (group 3, rows 8–9), wood doors (group 2, row 22) |
 | `archive/Room_Builder_Floors.png` | 15 × 40 | **All floors.** 4 column groups (0–2, 4–6, 8–10, 12–14), ~18 styles each |
 | `archive/Room_Builder_Office.png` | 16 × 14 | Office-specific wall + floor styles (spare) |
-| `tilesets/Modern_Office_Black_Shadow.png` | 16 × 53 | **Furniture.** Desks, swivel chairs (dark + orange), sofas, low tables, shelves, screens, printers, server racks, cabinets, counters, plants, glass partitions |
+| `tilesets/Modern_Office_Black_Shadow.png` | 16 × 53 | **Furniture.** Key coordinates: desks `(6,1)/(1,5)/(6,5)/(11,1)` 3×2 · overhead hutch `(7,12)` with items, `(7,15)` plain · swivel chairs seen from behind `(0..3,8)` dark and `(0..3,10)` orange · desktop clutter `(8,26)/(10,26)/(13,28)/(10,30)/(10,32)/(14,26)` · whiteboard `(15,0)` · corkboard `(15,2)` · screens `(10,12)/(10,14)` · sofas `(0,17)` · plants `(6,8)/(6,12)` · printer `(9,23)` · server rack `(0,23)` |
 | `tilesets/Generic.png` | 16 × 78 | Spare general furniture |
 | `tilesets/Basement.png`, `Classroom_and_library.png` | — | Unused, available |
 | `map/FloorAndGround.png` | 64 × 40 | Unused |

@@ -72,7 +72,20 @@ Everything is now **LimeZu Modern Tiles** — no hand-drawn tiles at all.
 | Floors | `Room_Builder_Floors` | 4 column groups × ~18 styles | — |
 | Furniture | `Modern_Office_Black_Shadow` | see `P` in the build script | — |
 
-**Two prop layers.** `props` holds the furniture; `props2` holds what sits *on top of* it — monitors, keyboards, papers, and wall posters. A workstation is desk (3×2 on `props`) + a clutter cluster (on `props2`, same cell) + a swivel chair one row below. `station()` in the build script does all three.
+**Two prop layers.** `props` holds the furniture; `props2` holds what sits *on top of* it — monitors, keyboards, papers, and wall posters.
+
+**A workstation is four pieces stacked, 6 rows tall.** `station()` in the build script assembles them:
+
+| Rows | Piece | Layer | Tile |
+|---|---|---|---|
+| y, y+1 | overhead hutch / shelving | `props` | `MO(7,12)` with items, `MO(7,15)` plain |
+| y+2, y+3 | desk, 3 wide | `props` | `MO(6,1)` tan · `MO(1,5)` wood · `MO(6,5)` white · `MO(11,1)` dark |
+| y+2, y+3 | desktop clutter — monitor, keyboard, papers, lamp, photo | `props2` | `MO(8,26)` `MO(10,26)` `MO(13,28)` `MO(10,30)` `MO(10,32)` `MO(14,26)` |
+| y+4, y+5 | swivel chair, seen from behind | `props2` | `MO(0..3, 8)` dark · `MO(0..3, 10)` orange |
+
+Pass `hutch=None` for a low open desk — that variant is only 4 rows tall, which is how the back row of the open office is built.
+
+**Wall decor goes on the wall's lower row**, not the room's first floor row. Get this wrong and posters float inside the room.
 
 **Everything is 32 × 32 now.** The map is 64 × 40 tiles = 2048 × 1280 px.
 

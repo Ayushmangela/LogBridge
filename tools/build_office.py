@@ -128,8 +128,12 @@ P = dict(
     # desktop clutter — monitors, keyboards, lamps, papers, photos
     DT_A=( 8,26,2,2), DT_B=(10,26,3,2), DT_C=(13,28,3,2),
     DT_D=(10,30,3,2), DT_E=(10,32,3,2), DT_F=(14,26,2,2),
-    # single swivel chairs
-    CH_D=( 8,34,1,2), CH_O=( 9,34,1,2),
+    # swivel chairs seen from behind — the reference set
+    CH_D=( 0, 8,1,2), CH_D2=( 1, 8,1,2), CH_D3=( 2, 8,1,2), CH_D4=( 3, 8,1,2),
+    CH_O=( 0,10,1,2), CH_O2=( 1,10,1,2), CH_O3=( 2,10,1,2), CH_O4=( 3,10,1,2),
+    # overhead hutch / shelving above a desk
+    HUTCH=( 7,12,3,2), HUTCH_P=( 7,15,3,2),
+    LAMP =(11,15,1,2),
     # wall-mounted
     WHITEBOARD=(15,0,1,2), CORKBOARD=(15,2,1,2),
     SCREEN=(10,12,3,2), SHELF=( 7,12,3,2), POSTER=( 0,12,2,2),
@@ -145,33 +149,41 @@ def furn(layer,key,x,y):
     for dy in range(h):
         for dx in range(w): put(layer,x+dx,y+dy, MO(c+dx,r+dy))
 
-def station(x,y,desk,top,chair="CH_D"):
-    """desk + clutter on the surface + chair pulled up below"""
-    furn(props, desk, x, y)
-    furn(props2, top, x, y)
-    furn(props2, chair, x+1, y+2)
+def station(x,y,desk,top,chair="CH_D",hutch=None):
+    """optional overhead hutch, then desk, clutter on the surface, chair below.
+       hutch 2 rows + desk 2 rows + chair 2 rows = 6 rows tall."""
+    dy = 0
+    if hutch:
+        furn(props, hutch, x, y); dy = 2
+    furn(props,  desk, x, y+dy)
+    furn(props2, top,  x, y+dy)
+    furn(props2, chair, x+1, y+dy+2)
 
 # ── open office (15-34, 19-29): two rows of four workstations ──
-tops = ["DT_B","DT_D","DT_C","DT_E"]
-for r,(yy,desk) in enumerate(((20,"DESK_TAN"),(25,"DESK_WHT"))):
-    for i,xx in enumerate((16,20,24,28)):
-        station(xx,yy,desk,tops[(i+r)%4], "CH_O" if r else "CH_D")
+tops   = ["DT_B","DT_D","DT_C","DT_E"]
+chairsD = ["CH_D","CH_D2","CH_D3","CH_D4"]
+chairsO = ["CH_O","CH_O2","CH_O3","CH_O4"]
+for i,xx in enumerate((16,20,24,28)):          # front row — full cubicles
+    station(xx,19,"DESK_TAN",tops[i],chairsD[i],"HUTCH" if i%2==0 else "HUTCH_P")
+for i,xx in enumerate((16,20,24,28)):          # back row — open desks
+    station(xx,26,"DESK_WHT",tops[(i+2)%4],chairsO[i])
 for x,dec in ((17,"WHITEBOARD"),(21,"SCREEN"),(26,"CORKBOARD"),(30,"SHELF")):
     furn(props2,dec,x,18)
 furn(props,"RACK",33,20); furn(props,"PRINTER",32,26)
 furn(props,"PLANT_TALL",15,24); furn(props,"COOLER",33,24)
 
 # ── boss cabin (45-61, 3-12) ──
-station(51,5,"DESK_DARK","DT_C")
+station(51,4,"DESK_DARK","DT_C","CH_D4","HUTCH")
 furn(props2,"SCREEN",56,2); furn(props2,"WHITEBOARD",47,2); furn(props2,"POSTER",49,2)
-furn(props,"SHELF",53,3)
+furn(props,"LAMP",55,6)
 furn(props,"SOFA",46,7); furn(props,"LOWTABLE",50,9)
 furn(props,"CABINET",59,4); furn(props,"PLANT_TALL",58,10); furn(props,"PLANT",45,5)
 furn(props,"GLASSDIV",45,9)
 
 # ── senior cabins ──
 for i,x in enumerate((16,26,36)):
-    station(x+2,5,("DESK_TAN","DESK_WOOD","DESK_CHK")[i],("DT_B","DT_D","DT_F")[i])
+    station(x+2,4,("DESK_TAN","DESK_WOOD","DESK_CHK")[i],("DT_B","DT_D","DT_F")[i],
+            ("CH_D","CH_D3","CH_D2")[i], "HUTCH")
     furn(props2,("WHITEBOARD","CORKBOARD","POSTER")[i], x+6, 2)
     furn(props2,("POSTER","WHITEBOARD","CORKBOARD")[i], x+1, 2)
     furn(props,("SHELF","CABINET","LOCKERS")[i], x, 3 if i==0 else 4)
@@ -180,14 +192,14 @@ for i,x in enumerate((16,26,36)):
 # ── meeting room (45-61, 19-29) ──
 for x in (47,50,53,56): furn(props,"DESK_DARK",x,22)
 furn(props2,"DT_A",48,22); furn(props2,"DT_F",55,22)
-for x in (47,50,53,56):
-    furn(props2,"CH_D",x+1,20); furn(props2,"CH_D",x+1,24)
+for j,x in enumerate((47,50,53,56)):
+    furn(props2,chairsD[j],x+1,20); furn(props2,chairsD[(j+1)%4],x+1,24)
 furn(props2,"SCREEN",52,18); furn(props2,"WHITEBOARD",48,18); furn(props2,"CORKBOARD",57,18)
 furn(props,"PLANT_TALL",45,21); furn(props,"PLANT_TALL",60,21)
 furn(props,"COUNTER",56,27); furn(props,"COOLER",45,27)
 
 # ── lobby (2-13, 3-38) ──
-furn(props,"COUNTER",5,4); furn(props2,"DT_A",6,4); furn(props2,"CH_D",7,6)
+furn(props,"COUNTER",5,4); furn(props2,"DT_A",6,4); furn(props2,"CH_D3",7,6)
 furn(props2,"POSTER",3,2); furn(props2,"WHITEBOARD",9,2)
 furn(props,"SOFA",4,10); furn(props,"LOWTABLE",8,11)
 furn(props,"PLANT_TALL",3,8); furn(props,"PLANT_TALL",12,8)
@@ -199,7 +211,7 @@ furn(props,"CABINET",10,32); furn(props,"COOLER",3,32)
 # ── cafeteria (15-37, 32-38) ──
 furn(props,"COUNTER",16,33); furn(props,"COUNTER",21,33); furn(props,"CABINET",26,33)
 for x in (17,24,31):
-    furn(props,"DESK_WOOD",x,36); furn(props2,"CH_D",x+1,34)
+    furn(props,"DESK_WOOD",x,36); furn(props2,"CH_D2",x+1,34)
 furn(props,"PLANT_TALL",35,34)
 furn(props2,"CORKBOARD",20,31); furn(props2,"POSTER",27,31)
 
