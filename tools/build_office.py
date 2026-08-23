@@ -17,6 +17,9 @@ SETS = [                                    # name, path, cols, rows
     ("ModernOffice",      "tilesets/Modern_Office_Black_Shadow.png",16, 53),
     ("Generic",           "tilesets/Generic.png",                   16, 78),
     ("FloorAndGround",    "tilesets/agentroom/FloorAndGround.png",  64, 40),
+    ("GatherFloors",      "gather-town/map/floorstilemap.png",      40, 64),
+    ("VictorianWalls",    "gather-town/map/VictorianWallConsolidationGreytop.png", 33, 19),
+    ("Minimalist",        "tilesets/minimalist_tileset.png",         4,  4),
 ]
 FIRST, g = {}, 1
 for n, f, c, r in SETS: FIRST[n] = g; g += c * r
@@ -28,6 +31,9 @@ RBW = lambda c, r: gid("RoomBuilderWalls",  c, r)
 MO  = lambda c, r: gid("ModernOffice",      c, r)
 GEN = lambda c, r: gid("Generic",           c, r)
 FG  = lambda c, r: gid("FloorAndGround",    c, r)
+GT  = lambda c, r: gid("GatherFloors",      c, r)
+VIC = lambda c, r: gid("VictorianWalls",    c, r)
+MIN = lambda c, r: gid("Minimalist",        c, r)
 FLIP_H, FLIP_D = 0x80000000, 0x20000000
 def rot90(x): return x | FLIP_D | FLIP_H
 
@@ -39,44 +45,35 @@ def flr(col, row): return [RBF(col, row), RBF(col+1, row), RBF(col+2, row),
 F_MAIN = [FG(37, 4)]   # flat light grey
 F_LOBBY = F_CABIN = F_BOSS = F_MEET = F_CORR = F_OPEN = F_CAFE = F_CHILL = F_MAIN
 
-# ── walls: Room_Builder_Walls has 3 column GROUPS of 10, each a stack of styles
-#    in row pairs.  Group 1 = cols 0-9, group 2 = 11-20, group 3 = 22-31.
-#    Inside a group: 2-tall middle is the 2nd column, 1-tall middle the 6th.
-#    The columns either side of those are END CAPS — never use them mid-run.
-G1, G2, G3 = 0, 11, 22
-def w2(g, row): return [RBW(g+1, row)], [RBW(g+1, row+1)]   # 2-tall: top, bottom
-def w1(g, row): return [RBW(g+5, row)]                      # 1-tall middle
-WHITEW, GLASSROW, DOORROW = 2, 8, 22
-W2_TOP, W2_BOT = w2(G1, WHITEW)                # capped — outer shell
-WI_TOP         = w1(G1, WHITEW)                # capless face — interior
-WI_BOT         = W2_BOT                          # base row with skirting
-WG_TOP         = w1(G3, GLASSROW)                # cabin fronts — pale blue glass
-WG_BOT         = w2(G3, GLASSROW)[1]
-W1             = w1(G1, WHITEW)                # vertical runs, rotated
-WDOOR          = w1(G2, DOORROW)                 # warm wood door leaf
+# ── walls: Ultra-thin 1-Tile Minimalist Slate Walls & Connected 8px Vertical Dividers ──
+W_PLAIN = [MIN(0, 0), MIN(1, 0)]                # 1-tile minimalist smooth slate wall
+V_SLIM  = [MIN(1, 1)]                           # clean connected 8px vertical divider
+V_SOLID = [MIN(3, 1)]                           # solid vertical wall (perimeter + lobby divider)
 
 ROOMS = {                          # x0 x1  y0 y1  floor
-    "lobby":     (2,13,  3,44, F_LOBBY),
-    "senior1":  (15,23,  3,12, F_CABIN),
-    "senior2":  (25,33,  3,12, F_CABIN),
-    "senior3":  (35,43,  3,12, F_CABIN),
-    "boss":     (45,61,  3,12, F_BOSS),
-    "corr_n":   (15,61, 15,22, F_CORR),
-    "open":     (15,35, 17,35, F_OPEN),      # open plan — no walls
+    "lobby":     (2,13,  2,44, F_LOBBY),
+    "senior1":  (15,23,  2,12, F_CABIN),
+    "senior2":  (25,33,  2,12, F_CABIN),
+    "senior3":  (35,43,  2,12, F_CABIN),
+    "boss":     (45,61,  2,12, F_BOSS),
+    "corr_n":   (15,61, 14,22, F_CORR),
+    "open":     (15,35, 15,35, F_OPEN),      # open plan — no walls
     "atrium":   (36,44, 15,35, F_CORR),
-    "meeting":  (46,61, 23,33, F_MEET),
-    "cafeteria":(15,37, 36,44, F_CAFE),      # walled, 9 rows
-    "chill":    (39,61, 36,44, F_CHILL),     # walled, 9 rows
+    "meeting":  (46,61, 22,33, F_MEET),
+    "cafeteria":(15,37, 35,44, F_CAFE),      # walled, 9 rows
+    "chill":    (39,61, 35,44, F_CHILL),     # walled, 9 rows
 }
 HSHELL = [(1,62,1)]
 HWALL  = [(45,61,21), (15,34,34), (45,61,34)]      # meeting top; cafeteria + chill top
-HGLASS = [(15,61,13)]
+HFRONT = [(15,61,13)]                              # cabin fronts
 HTHIN  = [(1,62,45)]
-VWALL  = [(1,1,45),(62,1,45),(14,3,44),(24,3,14),(34,3,14),(44,3,14),
-          (45,21,33),(38,36,44)]
+VWALL_SOLID = [(1,1,45),(62,1,45),(14,1,45),(45,21,34),(38,34,45)]
+VWALL_SLIM  = [(24,2,12),(34,2,12),(44,2,12)]     # cabin vertical dividers (between top and bottom walls)
+# Horizontal doors (cabins + meeting + cafeteria + chill)
 DOORS_H = [(18,19,13),(28,29,13),(38,39,13),(51,52,13),
            (52,53,21),(22,23,34),(52,53,34)]
-DOORS_V = [(14,8,9),(14,22,23),(14,38,39),(45,24,25),(38,39,40)]
+# Vertical doors: ONLY corridor entry at (14,15,16) — middle and bottom entries removed!
+DOORS_V = [(14,15,16),(45,24,25),(38,38,39)]
 ZONES = [
     ("cabin",         48, 6,11,5,{"index":0}), ("cabin",  17,6,5,5,{"index":1}),
     ("cabin",         27, 6, 5,5,{"index":2}), ("cabin",  37,6,5,5,{"index":3}),
@@ -93,29 +90,44 @@ def pick(t): return t[0] if rng.random()<.72 else rng.choice(t)
 def put(b,x,y,v):
     if 0<=x<W and 0<=y<H: b[y*W+x]=v
 
+# 1. Fill entire playable office with base floor first (prevents any black background voids)
+for y in range(1, 46):
+    for x in range(1, 63):
+        put(floor, x, y, pick(F_MAIN))
+
+# 2. Paint specific room floor zones
 for _n,(x0,x1,y0,y1,t) in ROOMS.items():
     for y in range(y0,y1+1):
         for x in range(x0,x1+1): put(floor,x,y,pick(t))
-def hw(x0,x1,y,top,bot):
-    for x in range(x0,x1+1): put(walls,x,y,pick(top)); put(walls,x,y+1,pick(bot))
-for x0,x1,y in HSHELL: hw(x0,x1,y, W2_TOP, W2_BOT)
-for x0,x1,y in HWALL:  hw(x0,x1,y, WI_TOP, WI_BOT)
-for x0,x1,y in HGLASS: hw(x0,x1,y, WG_TOP, WG_BOT)
-for x0,x1,y in HTHIN:
-    for x in range(x0,x1+1): put(walls,x,y,pick(W1))
-for x,y0,y1 in VWALL:
-    for y in range(y0,y1+1): put(walls,x,y,rot90(pick(W1)))
+def hw1(x0,x1,y,t):
+    for x in range(x0,x1+1): put(walls,x,y,pick(t))
+
+for x0,x1,y in HSHELL: hw1(x0,x1,y, W_PLAIN)
+for x0,x1,y in HWALL:  hw1(x0,x1,y, W_PLAIN)
+for x0,x1,y in HFRONT: hw1(x0,x1,y, W_PLAIN)
+for x0,x1,y in HTHIN:  hw1(x0,x1,y, W_PLAIN)
+for x,y0,y1 in VWALL_SOLID:
+    for y in range(y0,y1+1): put(walls,x,y,pick(V_SOLID))
+for x,y0,y1 in VWALL_SLIM:
+    for y in range(y0,y1+1): put(walls,x,y,pick(V_SLIM))
+
+# Place T-junction connection caps where vertical dividers meet horizontal wall at y=13:
+for x in [24, 34, 44]:
+    put(walls, x, 13, MIN(2, 1))
+
+# Render horizontal doors with minimalist wooden doors:
 for x0,x1,y in DOORS_H:
     for x in range(x0,x1+1):
-        put(walls,x,y,0); put(walls,x,y+1,0)
-        for yy in (y,y+1):
-            if floor[yy*W+x]==0: put(floor,x,yy,pick(F_CORR))
-        put(deco,x,y,pick(WDOOR))
+        put(walls, x, y, 0)
+        if floor[y*W+x]==0: put(floor,x,y,pick(F_CORR))
+    put(props, x0, y, MIN(0, 2))
+    put(props, x1, y, MIN(1, 2))
+
+# Render vertical doors (clean open doorway walkthroughs):
 for x,y0,y1 in DOORS_V:
     for y in range(y0,y1+1):
         put(walls,x,y,0)
         if floor[y*W+x]==0: put(floor,x,y,pick(F_CORR))
-        put(deco,x,y,rot90(pick(WDOOR)))
 
 # ══════════════════ FURNITURE ══════════════════
 # entries are (tileset, col, row, w, h)
@@ -220,14 +232,12 @@ carpet(15,18,20,15,CARPET_SAGE)
 # east wall: vending, snacks, printer, cooler in one tidy run
 furn(props,"RACK",   33,19); furn(props,"LOCKERS",33,23)
 furn(props,"PRINTER",33,27); furn(props,"COOLER", 34,27)
-furn(props,"TREE",15,19); furn(props,"TREE2",15,30)
-
 
 # ── BOSS CABIN (45-61, 3-12) ──
 carpet(52,4,9,7,CARPET_DIA)
 cubicle_row((48,), 5, "DESK_DARK", ["DT_C"], ["CH_D4"])
 furn(props,"SOFA_L",53,5); furn(props,"LOWTABLE",57,6)
-furn(props,"CABINET",59,9); furn(props,"CABINET2",60,9); furn(props,"PALM",45,9); furn(props,"TREE",58,9)
+furn(props,"CABINET",59,9); furn(props,"CABINET2",60,9)
 furn(props,"LAMP",51,10)
 
 # ── SENIOR CABINS ──
@@ -236,7 +246,6 @@ for i,x in enumerate((16,26,36)):
                 [("DT_B","DT_D","DT_F")[i]], [("CH_D","CH_D3","CH_D2")[i]])
     carpet(x+4,8,5,4,CARPET_PURP)
     furn(props,("ARMCHAIR","STOOL","ARMCHAIR")[i], x+5, 9)
-    furn(props,("TREE","TREE2","TREE")[i], x+7, 4)
     furn(props,("LOCKERS","CABINET","RACK")[i], x, 8)
     furn(props,"CABINET2" if i==1 else "CABINET3", x+2 if i==1 else x+2, 8)
 
@@ -247,27 +256,19 @@ for j,x in enumerate((47,50,53,56)):
     furn(props3,chairsD[j],      x+1,25)
     furn(props3,chairsD[(j+1)%4],x+1,29)
 furn(props2,"DT_A",48,27); furn(props2,"DT_F",55,27)
-furn(props,"PALM",47,23); furn(props,"TREE",60,23); furn(props,"TREE2",60,30)
 furn(props,"COUNTER",56,32); furn(props,"COOLER",47,32)
 
 # ── LOBBY (2-13, 3-38) ──
 carpet(2,8,12,7,CARPET_DIA)
 carpet(2,17,12,8,CARPET_PURP)
-carpet(2,33,12,10,CARPET_DIA)# ── CAFETERIA (15-37, 32-38) ── chairs hard against each table
+carpet(2,33,12,10,CARPET_DIA)
+
+# ── CAFETERIA (15-37, 32-38) ── chairs hard against each table
 carpet(15,36,23,9,CARPET_TAN)
 
-
 # ── CHILL ROOM (39-61, 32-38) ──
-# lounge group 1 — sofa facing a low table on a rug
 carpet(39,36,10,9,CARPET_PLUM)
-# lounge group 2 — red sofa, coffee table, stools
 carpet(49,36,13,9,CARPET_PLUM)
-# games table
-
-
-# ── ATRIUM: edges only, middle stays walkable ──
-for y in (17,22,27,31): furn(props,"TREE" if y%2 else "TREE2",36,y)
-for y in (19,24,29): furn(props,"TREE2" if y%2 else "TREE",43,y)
 
 def tl(n,d,i): return {"id":i,"name":n,"type":"tilelayer","visible":True,"opacity":1,
                        "x":0,"y":0,"width":W,"height":H,"data":d}
