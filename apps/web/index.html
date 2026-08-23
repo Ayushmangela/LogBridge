@@ -568,14 +568,99 @@
     };
     let spawnTile = { x: 8, y: 30 };
 
-    async function loadZonesFromOfficeJson() {
+    // Tiled's rotation flags, packed into the top bits of a gid.
+    // Walls store vertical runs rotated 90deg (FLIP_D|FLIP_H) — see DESIGN-GUIDE.md.
+    const FLIP_H = 0x80000000, FLIP_V = 0x40000000, FLIP_D = 0x20000000;
+    const GID_MASK = 0x1fffffff;
+
+    // ---------------- real tileset atlas: built from office.json's own tileset list ----------------
+    // No hardcoded tileset names or gid ranges — whatever tilesets the map actually
+    // references get loaded, in the order it references them. Add a tileset to the
+    // map and this renderer picks it up with no code change.
+    let tilesetRanges = [];   // [{ firstgid, lastgid, columns, baseTexture }], sorted by firstgid
+    const textureCache = new Map(); // maskedGid -> PIXI.Texture (flip is applied on the sprite, not the texture)
+
+    async function loadTilesets(map) {
+      const loaded = await Promise.all(
+        map.tilesets.map(async (t) => {
+          const baseTexture = await PIXI.Texture.fromURL(`/assets/${t.image}`);
+          return {
+            firstgid: t.firstgid,
+            lastgid: t.firstgid + t.tilecount - 1,
+            columns: t.columns,
+            tileWidth: t.tilewidth,
+            tileHeight: t.tileheight,
+            baseTexture: baseTexture.baseTexture,
+          };
+        })
+      );
+      tilesetRanges = loaded.sort((a, b) => a.firstgid - b.firstgid);
+    }
+
+    function textureForGid(maskedGid) {
+      if (maskedGid === 0) return null;
+      let cached = textureCache.get(maskedGid);
+      if (cached) return cached;
+      // firstgid ranges don't overlap, so a linear scan over 9 tilesets is cheap
+      // and only runs once per unique gid (results are cached above).
+      const ts = tilesetRanges.find((t) => maskedGid >= t.firstgid && maskedGid <= t.lastgid);
+      if (!ts) { console.warn('gid out of range, no tileset owns it:', maskedGid); return null; }
+      const localIndex = maskedGid - ts.firstgid;
+      const col = localIndex % ts.columns;
+      const row = Math.floor(localIndex / ts.columns);
+      const rect = new PIXI.Rectangle(col * ts.tileWidth, row * ts.tileHeight, ts.tileWidth, ts.tileHeight);
+      const tex = new PIXI.Texture(ts.baseTexture, rect);
+      textureCache.set(maskedGid, tex);
+      return tex;
+    }
+
+    // Draws one tile layer as real sprites — not a flattened image. Order matters:
+    // layers are added in office.json's own order (floor -> deco -> walls -> props
+    // -> props2 -> props3), so later layers correctly draw over earlier ones.
+    function renderTileLayer(layer) {
+      const container = new PIXI.Container();
+      container.name = layer.name;
+      for (let i = 0; i < layer.data.length; i++) {
+        const raw = layer.data[i];
+        if (!raw) continue;
+        const flipH = !!(raw & FLIP_H);
+        const flipD = !!(raw & FLIP_D);
+        const tex = textureForGid(raw & GID_MASK);
+        if (!tex) continue;
+
+        const col = i % COLS, row = Math.floor(i / COLS);
+        const sprite = new PIXI.Sprite(tex);
+        if (flipD && flipH) {
+          // 90deg clockwise: the only rotation this map actually uses (vertical walls)
+          sprite.anchor.set(0.5);
+          sprite.x = col * TILE + TILE / 2;
+          sprite.y = row * TILE + TILE / 2;
+          sprite.rotation = Math.PI / 2;
+        } else {
+          sprite.x = col * TILE;
+          sprite.y = row * TILE;
+        }
+        container.addChild(sprite);
+      }
+      return container;
+    }
+
+    async function loadMap() {
       const res = await fetch('/assets/office.json');
       const map = await res.json();
+
+      await loadTilesets(map);
+
+      // real tiles, drawn in the map's own layer order, floor first
+      for (const layer of map.layers) {
+        if (layer.type !== 'tilelayer') continue;
+        worldContainer.addChild(renderTileLayer(layer));
+      }
 
       const wallLayer = map.layers.find((l) => l.name === 'walls');
       if (wallLayer && wallLayer.data) {
         for (let i = 0; i < wallLayer.data.length; i++) {
-          if (wallLayer.data[i] > 0) wallCollisionGrid[i] = 1;
+          if (wallLayer.data[i] & GID_MASK) wallCollisionGrid[i] = 1;
         }
       }
 
@@ -631,7 +716,6 @@
     // ---------------- Global App State ----------------
     let app;
     let worldContainer;
-    let mapSprite;
     let playerSprite;
     let wallCollisionGrid = new Uint8Array(COLS * ROWS);
     let currentCharacter = 'nancy';
@@ -848,19 +932,13 @@
       worldContainer = new PIXI.Container();
       app.stage.addChild(worldContainer);
 
-      // Background: a composited render of the real office.json tile layers.
-      // (Built by tools/build_office.py — see DESIGN-GUIDE.md. A live per-tile
-      // renderer is future work; the layout below is driven by the same file.)
-      const mapTexture = await PIXI.Texture.fromURL('/assets/preview.png');
-      mapSprite = new PIXI.Sprite(mapTexture);
-      mapSprite.width = MAP_WIDTH;
-      mapSprite.height = MAP_HEIGHT;
-      worldContainer.addChild(mapSprite);
-
+      // Real tiles: every floor, wall, glass and prop sprite is drawn from
+      // office.json's own layer data and the actual tileset PNGs it references —
+      // nothing here is a flattened screenshot. See loadMap() above.
       try {
-        await loadZonesFromOfficeJson();
+        await loadMap();
       } catch (err) {
-        console.error('failed to load office.json — zones unavailable', err);
+        console.error('failed to load office.json — map unavailable', err);
       }
       for (let y = 0; y < ROWS; y++) {
         for (let x = 0; x < COLS; x++) {
@@ -1034,6 +1112,10 @@
     }
 
     function initMinimap() {
+      // Deliberate exception: the main scene is real tiles (loadMap), but a
+      // 240x140 thumbnail gains nothing from per-tile fidelity — the flattened
+      // composite is correct here and cheaper than re-drawing thousands of
+      // sprites at minimap scale.
       const mc = document.getElementById('minimap-canvas');
       const ctx = mc.getContext('2d');
       mc.width = 240; mc.height = 140;
