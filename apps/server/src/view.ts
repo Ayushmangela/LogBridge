@@ -105,8 +105,12 @@ export function buildView(db: Db, positions: Positions, meId: string): Workspace
       list.forEach((av, i) => (av.slot = i));
     }
 
+    // scoped to THIS project: only machines that actually run an agent here —
+    // showing every machine in every room was the bug (a machine with no
+    // agents on this project has no business appearing in it).
+    const machineIdsInRoom = new Set(roomAgents.map((a) => a.machine_id));
     const roomMachines: MachineViewT[] = machines
-      .filter((m) => m.owner_id && users.some((u) => u.id === m.owner_id))
+      .filter((m) => machineIdsInRoom.has(m.id))
       .map((m) => ({
         id: m.id,
         name: m.name,

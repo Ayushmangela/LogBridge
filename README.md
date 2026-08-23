@@ -117,4 +117,12 @@ Use these words consistently — most integration confusion is two people meanin
 
 ## Status
 
-Pre-build. Next step: `PHASES.md` week 0 — both of you read `CONTRACT.md` out loud together.
+**Phase 0 (protocol + server skeleton) is up and passing its own tests.**
+
+- `packages/protocol` — envelope, task state machine, view types, zod schemas. 13/13 tests green.
+- `apps/server` — Fastify + WebSocket + SQLite, `buildView()` computing real zones/slots from seeded state. 4/4 tests green.
+- `apps/web` — the office renderer (`index.html`, served directly by `apps/server` at `/`, no separate dev server yet). Draws agents and humans from the live `WorkspaceView` stream over `/ws` — nothing is simulated; a sprite only moves because a `view` message said to.
+
+Not done yet: node runner (leases, the Wi-Fi-drop test — see `SYSTEM.md` §3), real agent execution, chat/spec-proposal UI, cross-machine delegation, GitHub mirror. Office structure and furniture are finished (`DESIGN-GUIDE.md`); the renderer still paints the background from the composited `preview.png` rather than the live tile layers — a per-tile Pixi renderer is the next visual upgrade, tracked as future work.
+
+**Run it:** `npm run dev:server` from the repo root, then open `http://localhost:8787`.

@@ -24,6 +24,14 @@ await app.register(fastifyStatic, {
   decorateReply: false,
 });
 
+const webRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "web");
+await app.register(fastifyStatic, {
+  root: webRoot,
+  prefix: "/",
+  decorateReply: true,
+});
+app.get("/", async (_req, reply) => reply.sendFile("index.html"));
+
 registerGateway(app, db, positions, browserSockets);
 
 app.listen({ port: PORT, host: "0.0.0.0" }).catch((err) => {

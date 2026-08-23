@@ -81,6 +81,29 @@ describe("buildView", () => {
     expect(doc?.zoneAnchor).toBe(0); // sam's cabin
   });
 
+  test("machines are scoped to rooms where they actually run an agent", () => {
+    const db = openDb(":memory:");
+    seed(db);
+    // a second project + a second machine that has NO agent on prj_acme_api
+    db.prepare("INSERT INTO projects (id, gh_repo, name, layout) VALUES (?, ?, ?, ?)").run(
+      "prj_other", "acme/other", "acme/other", "office"
+    );
+    db.prepare(
+      "INSERT INTO machines (id, owner_id, name, last_seen, online) VALUES (?, ?, ?, ?, ?)"
+    ).run("node_unrelated", "usr_ayush", "ayush-desktop", new Date().toISOString(), 1);
+    db.prepare(
+      "INSERT INTO agents (id, machine_id, owner_id, project_id, name, role, status) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run("agt_other", "node_unrelated", "usr_ayush", "prj_other", "other-agent", "developer", "idle");
+
+    const view = buildView(db, new Positions(), "usr_ayush");
+    const acmeApi = view.rooms.find((r) => r.id === "prj_acme_api")!;
+    const other = view.rooms.find((r) => r.id === "prj_other")!;
+
+    expect(acmeApi.machines.map((m) => m.id)).toEqual(["node_sams_mbp"]);
+    expect(acmeApi.machines.map((m) => m.id)).not.toContain("node_unrelated");
+    expect(other.machines.map((m) => m.id)).toEqual(["node_unrelated"]);
+  });
+
   test("empty database yields a valid view with zero agents", () => {
     const db = openDb(":memory:");
     const view = buildView(db, new Positions(), "you");
