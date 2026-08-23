@@ -19,6 +19,8 @@ Rule 2 is what makes "no agent gets unrestricted access to another person's comp
 
 # THE CONTRACT (frozen — identical in your friend's doc)
 
+> **This is a copy for reading convenience. [`CONTRACT.md`](CONTRACT.md) is the source of truth — if they ever disagree, that file wins.** Current version: **1.2**. Never change it without the other person present.
+
 You **produce** this. He **consumes** it. Neither of you changes it alone.
 
 ```ts
@@ -37,6 +39,7 @@ type HumanView = {
   id: string; name: string; avatar: number
   presence: "online" | "away" | "offline"
   position: { x: number; y: number } | null
+  cabin: number | null                       // ★ 0-3, their private office. 0 = boss
 }
 type AgentView = {
   id: string; name: string
@@ -44,8 +47,10 @@ type AgentView = {
   machineId: string; machineName: string
   role: "developer"|"research"|"qa"|"review"|"docs"|"planner"
   status: "idle"|"working"|"waiting"|"blocked"|"needs_input"|"reviewing"|"completed"|"failed"
-  zone: "idle"|"working"|"reviewing"|"blocked"|"needs_human"|"done"   // ★ YOU compute this
+  zone: "idle"|"working"|"reviewing"|"collaborating"
+      | "blocked"|"needs_human"|"done"                                // ★ YOU compute this
   slot: number                                                        // ★ YOU compute this
+  zoneAnchor: number | null   // ★ when zone==="needs_human": which cabin (0-3)
   task: { id: string; title: string; elapsedSec: number; costUsd: number; note: string|null } | null
   waitingOn: string | null
   githubRef: { kind: "pr"|"issue"; ref: string } | null
@@ -71,14 +76,45 @@ type ClientMessage =                       // what the browser sends you
 1. **Full snapshot on every change, no deltas.** At 4 people the view is a few KB. Deltas are a week of bugs for zero benefit at this size. Revisit at 50 users, never before.
 2. **The server computes `zone` and `slot`, not the client.** The status→zone mapping lives in exactly one place, so the office literally cannot invent a position. This is how "no fake activity" becomes structural.
 3. **`slot` must be stable.** Same agent, same zone, same slot across updates — otherwise sprites jump around for no reason. Sort agents by `id` within a zone and index them.
+4. **Cabins belong to people, and you assign them.** Four private offices, `index` 0–3, with **0 = the boss cabin (biggest room) = the GitHub repo admin**. Put the mapping in server config:
 
 ```ts
-const ZONE: Record<AgentStatus, ZoneId> = {
-  idle: "idle", working: "working", waiting: "idle",
-  reviewing: "reviewing", blocked: "blocked",
-  needs_input: "needs_human", completed: "done", failed: "done",
-};
+const CABINS = { ayush: 0, sam: 1, priya: 2, dev: 3 };   // 0 = repo admin
 ```
+
+Emit it as `HumanView.cabin`. Then when an agent needs a decision, set `zoneAnchor` to that person's cabin index:
+
+```ts
+if (a.status === "needs_input") {
+  view.zone = "needs_human";
+  view.zoneAnchor = CABINS[ownerOf(a.blockedOnUserId)];   // whose office to stand in
+}
+```
+
+That turns *"an agent needs someone"* into *"**Sam** is the bottleneck"* — three sprites in Sam's office, visible from across the room. It's one field and it's the highest-value line in `buildView()`.
+
+5. **`working` has four rectangles** (the desk pods). You still just emit `slot: 0,1,2…`; the renderer spreads them across pods. Don't pick a pod server-side.
+
+```ts
+function zoneFor(a: AgentRow): ZoneId {
+  // an agent blocked on ANOTHER PERSON'S agent is "in a meeting", not stuck.
+  // waitingOn looks like "qa-api@sams-mbp" for a peer, "CI" / "human: ayush" otherwise.
+  if (a.status === "blocked" && a.waitingOn?.includes("@")) return "collaborating";
+  if (a.status === "working" && a.hasLiveDelegation)        return "collaborating";
+  switch (a.status) {
+    case "idle": case "waiting":  return "idle";
+    case "working":               return "working";
+    case "reviewing":             return "reviewing";
+    case "blocked":               return "blocked";
+    case "needs_input":           return "needs_human";
+    case "completed": case "failed": return "done";
+  }
+}
+```
+
+**Why `collaborating` is derived rather than a new status:** requirement 14 fixes the status list, so don't add to it. The distinction the office needs — *waiting on a build* versus *working with another person's agent* — is already recoverable from `waitingOn` and from whether a child delegation is live. Derive it in `buildView()` and the status enum stays exactly as specified.
+
+This is the zone that makes your headline feature visible. Two agents from two laptops standing in the meeting room together is the whole AI↔AI story in one glance — worth the six lines.
 
 ---
 

@@ -26,6 +26,8 @@ You do **not** wait for the backend. Step 2 gives you a mock server that speaks 
 
 # THE CONTRACT (frozen — identical in Ayush's doc)
 
+> **This is a copy for reading convenience. [`CONTRACT.md`](CONTRACT.md) is the source of truth — if they ever disagree, that file wins.** Current version: **1.2**. Never change it without the other person present.
+
 This is the only thing the two halves share. **Neither side changes it alone.**
 
 ## What you receive
@@ -59,7 +61,8 @@ type HumanView = {
   name: string                 // "sam"
   avatar: number               // 0-7, pick a character sprite by index
   presence: "online" | "away" | "offline"
-  position: { x: number; y: number } | null   // TILE coords, null = not in this room
+  position: { x: number; y: number } | null   // TILE coords, null = at their cabin desk
+  cabin: number | null         // 0-3, which private office is theirs. 0 = boss cabin
 }
 
 type AgentView = {
@@ -73,6 +76,7 @@ type AgentView = {
   status: AgentStatus
   zone: ZoneId                 // ★ WHERE YOU PUT IT. Server decides. You obey.
   slot: number                 // 0,1,2… position within the zone, so sprites don't overlap
+  zoneAnchor: number | null    // when zone === "needs_human": WHICH cabin (0-3) to stand in
   task: {
     id: string
     title: string              // "Add JWT auth"
@@ -89,7 +93,8 @@ type AgentStatus =
   | "needs_input" | "reviewing" | "completed" | "failed"
 
 type ZoneId =
-  | "idle" | "working" | "reviewing" | "blocked" | "needs_human" | "done"
+  | "idle" | "working" | "reviewing" | "collaborating"
+  | "blocked" | "needs_human" | "done"
 
 type MachineView = {
   id: string
@@ -130,11 +135,14 @@ Send `position` **at most 5× per second** (throttle it), and only when the posi
 | `idle` | IDLE | grey | agent online, nothing to do |
 | `working` | WORKING | green | actually running right now |
 | `reviewing` | REVIEWING | blue | reviewing someone's code |
+| `collaborating` | MEETING | purple | working *with an agent on someone else's machine* — the meeting room |
 | `blocked` | BLOCKED | amber | waiting on CI, a delegate, a dependency |
-| `needs_human` | ⚑ NEEDS HUMAN | red, **pulses** | a person must answer. The only animated thing in the room |
+| `needs_human` | ⚑ NEEDS HUMAN | red, **pulses** | a *specific* person must answer — the agent stands in **their** cabin. The only animated thing in the room |
 | `done` | COMPLETED | faded green | finished recently; fades out after ~2 min |
 
 **`needs_human` is the most important zone in the product.** Make it impossible to miss.
+
+**`collaborating` is the most impressive one.** It means two agents on two different laptops are working together right now — the hardest feature in the project, and the only place you can actually see it happen.
 
 ---
 
@@ -315,6 +323,23 @@ function slotPosition(zone: ZoneRect, slot: number, tileSize: number) {
 ```
 
 The server guarantees `slot` is stable and unique within a zone, so sprites never overlap and never jump around for no reason.
+
+**Two zones have more than one rectangle in the map:**
+
+- **`working`** — 4 rects (the desk pods), each with an `order` property. Sort by `order` and fill in sequence: slots 0–2 in pod A, 3–5 in pod B, and so on.
+- **`cabin`** — 4 rects, each with an `index` property. These are the team's **private offices**, and they are used for two things:
+  - a human whose `cabin` equals that `index` idles there when their `position` is null
+  - **an agent with `zone === "needs_human"` stands in the cabin matching its `zoneAnchor`**
+
+```ts
+function rectFor(a: AgentView) {
+  if (a.zone === "needs_human") return cabinRects[a.zoneAnchor!];   // whose office
+  if (a.zone === "working")     return workingRects[Math.floor(a.slot / 3)];
+  return singleRects[a.zone];
+}
+```
+
+> There is **no rectangle named `needs_human`** in the map. Routing it to a specific cabin is what makes *"three agents are waiting on Sam"* readable — instead of just *"someone is needed."* Pulse the cabin that's occupied, not a generic room.
 
 **✅ Done when:** agents from the mock server appear in the right zones with names and machine labels.
 
