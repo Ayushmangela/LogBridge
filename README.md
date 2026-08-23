@@ -117,15 +117,27 @@ Use these words consistently — most integration confusion is two people meanin
 
 ## Status
 
-**Phase 0 (protocol + server skeleton) is up and passing its own tests.**
+**Phase 0 and the first slice of Phase 1 are up, tested, and verified end to end.**
 
 - `packages/protocol` — envelope, task state machine, view types, zod schemas. 13/13 tests green.
-- `apps/server` — Fastify + WebSocket + SQLite, `buildView()` computing real zones/slots from seeded state. 4/4 tests green.
-- `apps/web` — the office renderer (`index.html`, served directly by `apps/server` at `/`, no separate dev server yet). Draws agents and humans from the live `WorkspaceView` stream over `/ws` — nothing is simulated; a sprite only moves because a `view` message said to.
+- `apps/server` — Fastify + WebSocket + SQLite. Two gateways: `/ws` for browsers, `/node-ws` for machines (Ed25519 signed-challenge auth, lease sweep, task-lifecycle handling, late-result reconciliation). 4/4 tests green.
+- `apps/runner` — **the node daemon actually runs real child processes now.** Generates a real keypair, authenticates, publishes agent cards, accepts task offers, heartbeats, enforces a hard wall-clock budget kill, and survives a genuine network partition — verified with a real TCP chaos proxy, not just a dropped socket. 3/3 tests green, including the Wi-Fi-drop test every planning doc points to as the one that matters.
+- `apps/web` — the office renderer, drawing real per-tile sprites from `office.json`'s own layers (all 9 tilesets, generically). Agents and humans render strictly from the live `WorkspaceView` stream — nothing is simulated.
+- `apps/desktop` — a thin Electron shell around the same page, for anyone who'd rather have a dock icon than a browser tab.
 
-Not done yet: node runner (leases, the Wi-Fi-drop test — see `SYSTEM.md` §3), real agent execution, chat/spec-proposal UI, cross-machine delegation, GitHub mirror. Office structure and furniture are finished (`DESIGN-GUIDE.md`); the renderer still paints the background from the composited `preview.png` rather than the live tile layers — a per-tile Pixi renderer is the next visual upgrade, tracked as future work.
+**20/20 tests pass across the whole monorepo. Zero vulnerabilities in production dependencies** (`npm audit --omit=dev`).
 
-**Run it:** `npm run dev:server` from the repo root, then either open `http://localhost:8787` in a browser, or launch the desktop app (`cd apps/desktop && npm run dev`) and point it at that same URL.
+Not done yet: real enrollment codes (machines currently trust-on-first-sight — see `DECISIONS.md` D23), a real LLM harness (the runner spawns a controllable fake worker, deliberately — see `SYSTEM.md` §3e), chat/spec-proposal UI, cross-machine delegation, GitHub mirror. The web renderer's minimap thumbnail is the one remaining flattened image (a deliberate, documented exception — recompositing a 240×140 thumbnail from real sprites buys nothing).
+
+**Run it:**
+```bash
+npm run dev:server                                    # terminal 1
+cd apps/runner && npm run dev                          # terminal 2 — a real local agent
+curl -X POST localhost:8787/debug/offer-task \
+  -H 'content-type: application/json' \
+  -d '{"agentId":"<see the runner log for its agent id>","title":"test","spec":"{\"durationSeconds\":5}"}'
+```
+Then open `http://localhost:8787` in a browser, or launch the desktop app (`cd apps/desktop && npm run dev`) and point it at that same URL.
 
 ### Two ways in — same product, like Gather/Slack/Discord
 

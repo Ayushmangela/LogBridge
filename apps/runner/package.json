@@ -1,0 +1,23 @@
+{
+  "name": "@logbridge/runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "logbridge-runner": "src/cli.ts" },
+  "scripts": {
+    "dev": "tsx src/cli.ts start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@logbridge/protocol": "*",
+    "tsx": "^4.19.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "@types/ws": "^8.5.12",
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.11"
+  }
+}

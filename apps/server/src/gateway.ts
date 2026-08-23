@@ -9,7 +9,7 @@ export function registerGateway(
   db: Db,
   positions: Positions,
   browserSockets: Set<WebSocket>
-) {
+): () => void {
   const broadcastView = () => {
     if (browserSockets.size === 0) return;
     const msg = { type: "view" as const, view: buildView(db, positions, "you") };
@@ -21,7 +21,6 @@ export function registerGateway(
     const json = JSON.stringify(parsed.data);
     for (const ws of browserSockets) if (ws.readyState === ws.OPEN) ws.send(json);
   };
-  app.decorate("broadcastView", broadcastView);
 
   app.get("/ws", { websocket: true }, (socket, req) => {
     // M1: browsers only. Node-runner auth (signed challenge) arrives in week 2.
@@ -81,10 +80,6 @@ export function registerGateway(
     clients: browserSockets.size,
     time: new Date().toISOString(),
   }));
-}
 
-declare module "fastify" {
-  interface FastifyInstance {
-    broadcastView(): void;
-  }
+  return broadcastView;
 }
