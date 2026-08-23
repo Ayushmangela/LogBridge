@@ -6,7 +6,7 @@ Run: python3 tools/build_office.py   →  assets/office.json + assets/preview.pn
 import json, os, random
 from PIL import Image
 
-TS, W, H = 32, 64, 40                       # 2048 x 1280 px
+TS, W, H = 32, 64, 46                       # 2048 x 1280 px
 A   = os.path.join(os.path.dirname(__file__), "..", "assets")
 rng = random.Random(11)
 
@@ -36,7 +36,7 @@ def rot90(x): return x | FLIP_D | FLIP_H
 def flr(col, row): return [RBF(col, row), RBF(col+1, row), RBF(col+2, row),
                            RBF(col, row+1), RBF(col+1, row+1)]
 # One floor throughout — FloorAndGround, column group 2 (cols 5-7), last style.
-F_MAIN = [FG(5,36), FG(6,36), FG(7,36), FG(5,37), FG(6,37), FG(7,37)]
+F_MAIN = [FG(37, 4)]   # flat light grey
 F_LOBBY = F_CABIN = F_BOSS = F_MEET = F_CORR = F_OPEN = F_CAFE = F_CHILL = F_MAIN
 
 # ── walls: Room_Builder_Walls has 3 column GROUPS of 10, each a stack of styles
@@ -56,39 +56,39 @@ W1             = w1(G1, WHITEW)                # vertical runs, rotated
 WDOOR          = w1(G2, DOORROW)                 # warm wood door leaf
 
 ROOMS = {                          # x0 x1  y0 y1  floor
-    "lobby":     (2,13,  3,38, F_LOBBY),
+    "lobby":     (2,13,  3,44, F_LOBBY),
     "senior1":  (15,23,  3,12, F_CABIN),
     "senior2":  (25,33,  3,12, F_CABIN),
     "senior3":  (35,43,  3,12, F_CABIN),
     "boss":     (45,61,  3,12, F_BOSS),
-    "corr_n":   (15,61, 15,16, F_CORR),
-    "open":     (15,34, 19,29, F_OPEN),
-    "atrium":   (36,43, 15,31, F_CORR),
-    "meeting":  (45,61, 19,29, F_MEET),
-    "cafeteria":(15,37, 32,38, F_CAFE),
-    "chill":    (39,61, 32,38, F_CHILL),
+    "corr_n":   (15,61, 15,22, F_CORR),
+    "open":     (15,35, 17,35, F_OPEN),      # open plan — no walls
+    "atrium":   (36,44, 15,35, F_CORR),
+    "meeting":  (46,61, 23,33, F_MEET),
+    "cafeteria":(15,37, 36,44, F_CAFE),      # walled, 9 rows
+    "chill":    (39,61, 36,44, F_CHILL),     # walled, 9 rows
 }
 HSHELL = [(1,62,1)]
-HWALL  = [(15,34,17),(45,61,17),(15,34,30),(45,61,30)]
+HWALL  = [(45,61,21), (15,34,34), (45,61,34)]      # meeting top; cafeteria + chill top
 HGLASS = [(15,61,13)]
-HTHIN  = [(1,62,39)]
-VWALL  = [(1,1,39),(62,1,39),(14,3,38),(24,3,14),(34,3,14),(44,3,14),
-          (35,17,31),(44,17,31),(38,32,38)]
+HTHIN  = [(1,62,45)]
+VWALL  = [(1,1,45),(62,1,45),(14,3,44),(24,3,14),(34,3,14),(44,3,14),
+          (45,21,33),(38,36,44)]
 DOORS_H = [(18,19,13),(28,29,13),(38,39,13),(51,52,13),
-           (22,23,17),(52,53,17),(22,23,30),(52,53,30)]
-DOORS_V = [(14,8,9),(14,22,23),(14,35,36),(35,22,23),(44,22,23),(38,34,35)]
+           (52,53,21),(22,23,34),(52,53,34)]
+DOORS_V = [(14,8,9),(14,22,23),(14,38,39),(45,24,25),(38,39,40)]
 ZONES = [
     ("cabin",         48, 6,11,5,{"index":0}), ("cabin",  17,6,5,5,{"index":1}),
     ("cabin",         27, 6, 5,5,{"index":2}), ("cabin",  37,6,5,5,{"index":3}),
     ("working",       17,21, 6,2,{"order":0}), ("working",27,21,6,2,{"order":1}),
-    ("working",       17,26, 6,2,{"order":2}), ("working",27,26,6,2,{"order":3}),
-    ("blocked",       37,18, 6,4,{}),          ("reviewing",   37,25, 6,4,{}),
-    ("collaborating", 47,21,13,7,{}),          ("idle",        17,34,19,4,{}),
-    ("done",          41,34,19,4,{}),
+    ("working",       17,27, 6,2,{"order":2}), ("working",27,27,6,2,{"order":3}),
+    ("blocked",       37,18, 7,5,{}),          ("reviewing",   37,26, 7,5,{}),
+    ("collaborating", 47,26,13,6,{}),          ("idle",        17,39,19,5,{}),
+    ("done",          41,39,19,5,{}),
 ]
-SPAWN = (8, 27)
+SPAWN = (8, 30)
 
-floor=[0]*(W*H); deco=[0]*(W*H); walls=[0]*(W*H); props=[0]*(W*H); props2=[0]*(W*H)
+floor=[0]*(W*H); deco=[0]*(W*H); walls=[0]*(W*H); props=[0]*(W*H); props2=[0]*(W*H); props3=[0]*(W*H)
 def pick(t): return t[0] if rng.random()<.72 else rng.choice(t)
 def put(b,x,y,v):
     if 0<=x<W and 0<=y<H: b[y*W+x]=v
@@ -117,110 +117,157 @@ for x,y0,y1 in DOORS_V:
         if floor[y*W+x]==0: put(floor,x,y,pick(F_CORR))
         put(deco,x,y,rot90(pick(WDOOR)))
 
-# ══════════════════ FURNITURE (Modern_Office_Black_Shadow) ══════════════════
+# ══════════════════ FURNITURE ══════════════════
+# entries are (tileset, col, row, w, h)
 P = dict(
-    # desks / tables — 3 wide x 2 tall, legs baked into the lower row
-    DESK_TAN  =( 6, 1,3,2), DESK_CHK =( 1, 1,3,2), DESK_DARK=(11, 1,3,2),
-    DESK_WOOD =( 1, 5,3,2), DESK_WHT =( 6, 5,3,2),
-    # desktop clutter — monitors, keyboards, lamps, papers, photos
-    DT_A=( 8,26,2,2), DT_B=(10,26,3,2), DT_C=(13,28,3,2),
-    DT_D=(10,30,3,2), DT_E=(10,32,3,2), DT_F=(14,26,2,2),
-    # swivel chairs seen from behind — the reference set
-    CH_D=( 0, 8,1,2), CH_D2=( 1, 8,1,2), CH_D3=( 2, 8,1,2), CH_D4=( 3, 8,1,2),
-    CH_O=( 0,10,1,2), CH_O2=( 1,10,1,2), CH_O3=( 2,10,1,2), CH_O4=( 3,10,1,2),
-    # overhead hutch / shelving above a desk
-    HUTCH=( 7,12,3,2), HUTCH_P=( 7,15,3,2),
-    LAMP =(11,15,1,2),
-    # wall-mounted
-    WHITEBOARD=(15,0,1,2), CORKBOARD=(15,2,1,2),
-    SCREEN=(10,12,3,2), SHELF=( 7,12,3,2), POSTER=( 0,12,2,2),
-    # freestanding
-    PLANT=( 6, 8,1,2), PLANT_TALL=( 6,12,1,2),
-    SOFA=( 0,17,3,4), LOWTABLE=( 5,18,3,3),
-    PRINTER=( 9,23,2,2), RACK=( 0,23,2,3), LOCKERS=( 2,23,2,3),
-    CABINET=(13,19,2,4), COUNTER=( 5,28,4,2), COOLER=(13,34,1,2),
-    GLASSDIV=( 0,26,8,3),
+    # ── desks / tables (Modern Office), 3 wide x 2 tall ──
+    DESK_TAN =("MO", 6, 1,3,2), DESK_CHK=("MO", 1, 1,3,2), DESK_DARK=("MO",11, 1,3,2),
+    DESK_WOOD=("MO", 1, 5,3,2), DESK_WHT=("MO", 6, 5,3,2),
+    # ── desktop clutter ──
+    DT_A=("MO", 8,26,2,2), DT_B=("MO",10,26,3,2), DT_C=("MO",13,28,3,2),
+    DT_D=("MO",10,30,3,2), DT_E=("MO",10,32,3,2), DT_F=("MO",14,26,2,2),
+    # ── swivel chairs, seen from behind ──
+    CH_D =("MO", 0, 8,1,2), CH_D2=("MO", 1, 8,1,2), CH_D3=("MO", 2, 8,1,2), CH_D4=("MO", 3, 8,1,2),
+    CH_O =("MO", 0,10,1,2), CH_O2=("MO", 1,10,1,2), CH_O3=("MO", 2,10,1,2), CH_O4=("MO", 3,10,1,2),
+    # ── overhead hutch ──
+    HUTCH=("MO", 7,12,3,2), HUTCH_P=("MO", 7,15,3,2), LAMP=("MO",11,15,1,2),
+    # cubicle partition: 1-wide vertical post, 3 tall (from the partition run at rows 26-28)
+    POST=("MO", 4,26,1,3), POST_L=("MO", 0,26,1,3), POST_R=("MO", 7,26,1,3),
+    # ── wall-mounted ──
+    WHITEBOARD=("MO",15,0,1,2), CORKBOARD=("MO",15,2,1,2),
+    SCREEN=("MO",10,12,3,2), SCREEN2=("MO",10,14,3,2), POSTER=("MO",0,12,2,2),
+    # ── office freestanding ──
+    SOFA_L=("MO", 0,17,3,4), LOWTABLE=("MO", 5,18,3,3),
+    PRINTER=("MO", 9,22,1,2), PRINTER2=("MO",10,22,1,2), RACK=("MO", 0,23,2,3), LOCKERS=("MO", 2,23,2,3),
+    CABINET=("MO",13,19,1,3), CABINET2=("MO",15,19,1,3), CABINET3=("MO",13,22,1,3), COUNTER=("MO", 5,28,4,2), COOLER=("MO",13,34,1,2),
+    GLASSDIV=("MO", 0,26,8,3), SHELF=("MO", 7,12,3,2),
+    # ── lounge (Generic) ──
+    SOFA_RED=("GEN", 6,11,3,2), ARMCHAIR=("GEN", 0,11,1,2), STOOL=("GEN", 0,17,1,2),
+    TABLE_BRN3=("GEN", 1, 5,3,3), TABLE_TAN3=("GEN", 1, 8,3,3),
+    DCHAIR =("GEN", 0,11,1,2), DCHAIR2=("GEN", 1,11,1,2),
+    DCHAIR3=("GEN", 4,11,1,2), DCHAIR4=("GEN", 5,11,1,2),
+    TABLE_G =("GEN", 1, 5,3,3), TV=("GEN", 3, 4,2,1),
+    PALM=("GEN",13,25,2,4), TREE=("GEN",13,28,1,3), TREE2=("GEN",14,28,1,3),
+    # ── rugs (go on the deco layer, under furniture) ──
+    RUG_RED =("GEN", 9, 4,4,4), RUG_BLUE=("GEN", 9, 7,4,4),
+    RUG_GREY=("GEN", 8,13,4,2), RUG_PURP=("GEN",12,21,4,4),
+    RUG_ORG =("GEN", 9,10,3,2), RUG_GRN =("GEN",12,10,2,2),
 )
-def furn(layer,key,x,y):
-    c,r,w,h = P[key]
+SRC={"MO":MO,"GEN":GEN}
+CLASH=[]; OWNER={}
+def furn(layer,key,x,y,onwall=False):
+    src,c,r,w,h = P[key]; f=SRC[src]
+    lid = id(layer)
     for dy in range(h):
-        for dx in range(w): put(layer,x+dx,y+dy, MO(c+dx,r+dy))
+        for dx in range(w):
+            X,Y=x+dx,y+dy
+            k=(lid,X,Y)
+            if k in OWNER: CLASH.append((OWNER[k],key,X,Y))
+            OWNER[k]=key
+            # never paint furniture into a wall or outside a room
+            if not onwall and (walls[Y*W+X] or floor[Y*W+X]==0):
+                CLASH.append(("WALL/VOID",key,X,Y)); continue
+            put(layer,X,Y, f(c+dx,r+dy))
+
+# wall-mounted decor removed — posters/screens overhung the wall into the rooms
+def wall_dec(key,x,y): pass
+
+# ── area carpets: a filled rectangle, not an ornate rug sprite ──
+CARPET_SAGE  = [FG(59,20)]   # flat sage      (156,169,158)
+CARPET_LAV   = [FG(59, 8)]   # flat light blue(134,184,223)
+CARPET_DIA   = [FG(59,10)]   # flat teal      (137,188,198)
+CARPET_PURP  = [FG(37, 8)]   # flat warm grey (212,210,198)
+CARPET_TAN   = [FG(37,24)]   # flat tan       (192,164,140)
+CARPET_PLUM  = [FG(48,36)]   # flat plum      (131,112,180)
+CARPET_BLUE  = CARPET_SAGE
+CARPET_TEAL  = CARPET_DIA
+CARPET_CHECK = CARPET_TAN
+CARPET_CAFE  = CARPET_TAN
+CARPET_WOOD  = CARPET_DIA
+def carpet(x0,y0,w,h,tiles):
+    for y in range(y0,y0+h):
+        for x in range(x0,x0+w):
+            if 0<=x<W and 0<=y<H and floor[y*W+x] and not walls[y*W+x]:
+                deco[y*W+x]=pick(tiles)
 
 def station(x,y,desk,top,chair="CH_D",hutch=None):
-    """optional overhead hutch, then desk, clutter on the surface, chair below.
-       hutch 2 rows + desk 2 rows + chair 2 rows = 6 rows tall."""
-    dy = 0
-    if hutch:
-        furn(props, hutch, x, y); dy = 2
+    """hutch (2) + desk (2) + clutter + chair (2) — 6 rows tall, chair centred under the desk."""
+    dy=0
+    if hutch: furn(props,hutch,x,y); dy=2
     furn(props,  desk, x, y+dy)
     furn(props2, top,  x, y+dy)
-    furn(props2, chair, x+1, y+dy+2)
+    # chair overlaps the desk's lower (leg) row so it reads as pulled up, not parked
+    furn(props3, chair, x+1, y+dy+1)
 
-# ── open office (15-34, 19-29): two rows of four workstations ──
-tops   = ["DT_B","DT_D","DT_C","DT_E"]
-chairsD = ["CH_D","CH_D2","CH_D3","CH_D4"]
-chairsO = ["CH_O","CH_O2","CH_O3","CH_O4"]
-for i,xx in enumerate((16,20,24,28)):          # front row — full cubicles
-    station(xx,19,"DESK_TAN",tops[i],chairsD[i],"HUTCH" if i%2==0 else "HUTCH_P")
-for i,xx in enumerate((16,20,24,28)):          # back row — open desks
-    station(xx,26,"DESK_WHT",tops[(i+2)%4],chairsO[i])
-for x,dec in ((17,"WHITEBOARD"),(21,"SCREEN"),(26,"CORKBOARD"),(30,"SHELF")):
-    furn(props2,dec,x,18)
-furn(props,"RACK",33,20); furn(props,"PRINTER",32,26)
-furn(props,"PLANT_TALL",15,24); furn(props,"COOLER",33,24)
+def table_set(x,y,table="DESK_WOOD",above="CH_D2",below="CH_D"):
+    """table with a chair hard against each side — no floating gaps."""
+    furn(props3, above, x+1, y-2)      # far side: behind the table, no overlap
+    furn(props,  table, x,   y)
+    furn(props3, below, x+1, y+1)      # near side: tucked in
 
-# ── boss cabin (45-61, 3-12) ──
-station(51,4,"DESK_DARK","DT_C","CH_D4","HUTCH")
-furn(props2,"SCREEN",56,2); furn(props2,"WHITEBOARD",47,2); furn(props2,"POSTER",49,2)
-furn(props,"LAMP",55,6)
-furn(props,"SOFA",46,7); furn(props,"LOWTABLE",50,9)
-furn(props,"CABINET",59,4); furn(props,"PLANT_TALL",58,10); furn(props,"PLANT",45,5)
-furn(props,"GLASSDIV",45,9)
+def cubicle_row(xs, y, desk, tops, chairs, hutch=None):
+    """a run of plain workstations — desk, monitor, chair. No partitions, no hutch."""
+    for i,x in enumerate(xs):
+        station(x, y, desk, tops[i], chairs[i], hutch)
 
-# ── senior cabins ──
+chairsD=["CH_D","CH_D2","CH_D3","CH_D4"]; chairsO=["CH_O","CH_O2","CH_O3","CH_O4"]
+tops=["DT_B","DT_D","DT_C","DT_E"]
+
+# ── OPEN OFFICE (15-34, 19-29) ──
+cubicle_row((16,20,24,28), 20, "DESK_TAN", tops, chairsD)
+cubicle_row((16,20,24,28), 26, "DESK_WHT", [tops[(i+2)%4] for i in range(4)], chairsO)
+carpet(15,18,20,15,CARPET_SAGE)
+# east wall: vending, snacks, printer, cooler in one tidy run
+furn(props,"RACK",   33,19); furn(props,"LOCKERS",33,23)
+furn(props,"PRINTER",33,27); furn(props,"COOLER", 34,27)
+furn(props,"TREE",15,19); furn(props,"TREE2",15,30)
+
+
+# ── BOSS CABIN (45-61, 3-12) ──
+carpet(52,4,9,7,CARPET_DIA)
+cubicle_row((48,), 5, "DESK_DARK", ["DT_C"], ["CH_D4"])
+furn(props,"SOFA_L",53,5); furn(props,"LOWTABLE",57,6)
+furn(props,"CABINET",59,9); furn(props,"CABINET2",60,9); furn(props,"PALM",45,9); furn(props,"TREE",58,9)
+furn(props,"LAMP",51,10)
+
+# ── SENIOR CABINS ──
 for i,x in enumerate((16,26,36)):
-    station(x+2,4,("DESK_TAN","DESK_WOOD","DESK_CHK")[i],("DT_B","DT_D","DT_F")[i],
-            ("CH_D","CH_D3","CH_D2")[i], "HUTCH")
-    furn(props2,("WHITEBOARD","CORKBOARD","POSTER")[i], x+6, 2)
-    furn(props2,("POSTER","WHITEBOARD","CORKBOARD")[i], x+1, 2)
-    furn(props,("SHELF","CABINET","LOCKERS")[i], x, 3 if i==0 else 4)
-    furn(props,"PLANT" if i%2 else "PLANT_TALL", x+7, 10)
+    cubicle_row((x+2,), 5, ("DESK_TAN","DESK_WOOD","DESK_CHK")[i],
+                [("DT_B","DT_D","DT_F")[i]], [("CH_D","CH_D3","CH_D2")[i]])
+    carpet(x+4,8,5,4,CARPET_PURP)
+    furn(props,("ARMCHAIR","STOOL","ARMCHAIR")[i], x+5, 9)
+    furn(props,("TREE","TREE2","TREE")[i], x+7, 4)
+    furn(props,("LOCKERS","CABINET","RACK")[i], x, 8)
+    furn(props,"CABINET2" if i==1 else "CABINET3", x+2 if i==1 else x+2, 8)
 
-# ── meeting room (45-61, 19-29) ──
-for x in (47,50,53,56): furn(props,"DESK_DARK",x,22)
-furn(props2,"DT_A",48,22); furn(props2,"DT_F",55,22)
+# ── MEETING ROOM (45-61, 19-29) ──
+carpet(46,23,15,11,CARPET_LAV)
+for x in (47,50,53,56): furn(props,"DESK_DARK",x,27)
 for j,x in enumerate((47,50,53,56)):
-    furn(props2,chairsD[j],x+1,20); furn(props2,chairsD[(j+1)%4],x+1,24)
-furn(props2,"SCREEN",52,18); furn(props2,"WHITEBOARD",48,18); furn(props2,"CORKBOARD",57,18)
-furn(props,"PLANT_TALL",45,21); furn(props,"PLANT_TALL",60,21)
-furn(props,"COUNTER",56,27); furn(props,"COOLER",45,27)
+    furn(props3,chairsD[j],      x+1,25)
+    furn(props3,chairsD[(j+1)%4],x+1,29)
+furn(props2,"DT_A",48,27); furn(props2,"DT_F",55,27)
+furn(props,"PALM",47,23); furn(props,"TREE",60,23); furn(props,"TREE2",60,30)
+furn(props,"COUNTER",56,32); furn(props,"COOLER",47,32)
 
-# ── lobby (2-13, 3-38) ──
-furn(props,"COUNTER",5,4); furn(props2,"DT_A",6,4); furn(props2,"CH_D3",7,6)
-furn(props2,"POSTER",3,2); furn(props2,"WHITEBOARD",9,2)
-furn(props,"SOFA",4,10); furn(props,"LOWTABLE",8,11)
-furn(props,"PLANT_TALL",3,8); furn(props,"PLANT_TALL",12,8)
-furn(props,"SOFA",4,19); furn(props,"LOWTABLE",8,20)
-furn(props2,"POSTER",2,16); furn(props2,"CORKBOARD",12,16)
-furn(props,"PLANT",3,29); furn(props,"PLANT_TALL",12,29)
-furn(props,"CABINET",10,32); furn(props,"COOLER",3,32)
+# ── LOBBY (2-13, 3-38) ──
+carpet(2,8,12,7,CARPET_DIA)
+carpet(2,17,12,8,CARPET_PURP)
+carpet(2,33,12,10,CARPET_DIA)# ── CAFETERIA (15-37, 32-38) ── chairs hard against each table
+carpet(15,36,23,9,CARPET_TAN)
 
-# ── cafeteria (15-37, 32-38) ──
-furn(props,"COUNTER",16,33); furn(props,"COUNTER",21,33); furn(props,"CABINET",26,33)
-for x in (17,24,31):
-    furn(props,"DESK_WOOD",x,36); furn(props2,"CH_D2",x+1,34)
-furn(props,"PLANT_TALL",35,34)
-furn(props2,"CORKBOARD",20,31); furn(props2,"POSTER",27,31)
 
-# ── chill room (39-61, 32-38) ──
-furn(props,"SOFA",41,34); furn(props,"SOFA",57,34); furn(props,"LOWTABLE",45,35)
-furn(props,"DESK_DARK",49,35); furn(props2,"DT_F",49,35)
-furn(props2,"SCREEN",47,31); furn(props2,"POSTER",54,31)
-furn(props,"PLANT_TALL",40,32); furn(props,"PLANT",60,33); furn(props,"COOLER",56,33)
+# ── CHILL ROOM (39-61, 32-38) ──
+# lounge group 1 — sofa facing a low table on a rug
+carpet(39,36,10,9,CARPET_PLUM)
+# lounge group 2 — red sofa, coffee table, stools
+carpet(49,36,13,9,CARPET_PLUM)
+# games table
 
-# ── atrium edges only; middle stays walkable ──
-for y in (18,22,26,30): furn(props,"PLANT",36,y); furn(props,"PLANT",43,y)
 
+# ── ATRIUM: edges only, middle stays walkable ──
+for y in (17,22,27,31): furn(props,"TREE" if y%2 else "TREE2",36,y)
+for y in (19,24,29): furn(props,"TREE2" if y%2 else "TREE",43,y)
 
 def tl(n,d,i): return {"id":i,"name":n,"type":"tilelayer","visible":True,"opacity":1,
                        "x":0,"y":0,"width":W,"height":H,"data":d}
@@ -234,8 +281,8 @@ mk=[{"id":oid,"name":"spawn","type":"","point":True,"visible":True,"rotation":0,
      "x":SPAWN[0]*TS,"y":SPAWN[1]*TS,"width":0,"height":0}]
 tmj={"compressionlevel":-1,"infinite":False,"orientation":"orthogonal","renderorder":"right-down",
  "tiledversion":"1.11.0","type":"map","version":"1.10","width":W,"height":H,
- "tilewidth":TS,"tileheight":TS,"nextlayerid":8,"nextobjectid":oid+1,
- "layers":[tl("floor",floor,1),tl("deco",deco,2),tl("walls",walls,3),tl("props",props,4),tl("props2",props2,7),
+ "tilewidth":TS,"tileheight":TS,"nextlayerid":9,"nextobjectid":oid+1,
+ "layers":[tl("floor",floor,1),tl("deco",deco,2),tl("walls",walls,3),tl("props",props,4),tl("props2",props2,7),tl("props3",props3,8),
    {"id":5,"name":"zones","type":"objectgroup","visible":True,"opacity":1,
     "draworder":"topdown","x":0,"y":0,"objects":objs},
    {"id":6,"name":"markers","type":"objectgroup","visible":True,"opacity":1,
@@ -254,12 +301,18 @@ def timg(gv):
             t=imgs[n].crop(((i%c)*TS,(i//c)*TS,(i%c)*TS+TS,(i//c)*TS+TS))
             return t.transpose(Image.ROTATE_270) if rot else t
 cv=Image.new("RGBA",(W*TS,H*TS),(18,20,26,255))
-for L in (floor,deco,walls,props,props2):
+for L in (floor,deco,walls,props,props2,props3):
     for i,gv in enumerate(L):
         if gv:
             t=timg(gv)
             if t: cv.alpha_composite(t,((i%W)*TS,(i//W)*TS))
 cv.convert("RGB").save(os.path.join(A,"preview.png"))
+if CLASH:
+    seen=set(); print(f"⚠ {len(CLASH)} furniture clashes:")
+    for a,b,x,y in CLASH:
+        k=(a,b)
+        if k in seen: continue
+        seen.add(k); print(f"    {a:<12} vs {b:<12} at ({x},{y})")
 holes=sum(1 for i,v in enumerate(floor) if v==0 and walls[i]==0 and 1<=i%W<=62 and 1<=i//W<=39)
 print(f"✓ {W}x{H} @{TS}px = {W*TS}x{H*TS}px | rooms {len(ROOMS)} | zones {len(objs)} | holes {holes}")
 for n,f,c,r in SETS: print(f"    gid {FIRST[n]:>5}  {n:<20} {c*r:>5} tiles  {f}")

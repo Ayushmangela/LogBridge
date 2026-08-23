@@ -50,7 +50,7 @@ You only need Tiled. The rest are for touching up sprites the asset pack is miss
 | | |
 |---|---|
 | **Tile size** | **32 × 32 px** |
-| **Map size** | **64 × 40 tiles** |
+| **Map size** | **64 × 46 tiles** |
 | **Orientation** | Orthogonal, top-down |
 | **Render order** | Right Down |
 | **Export** | JSON, tileset embedded |
@@ -187,7 +187,7 @@ Someone glancing at this office should read the whole day instantly:
 | Orientation | Orthogonal |
 | Tile layer format | CSV |
 | Tile render order | Right Down |
-| Map size | Fixed, **64 × 40** |
+| Map size | Fixed, **64 × 46** |
 | Tile size | **32 × 32** |
 
 Save as `office.tmx`.
@@ -414,7 +414,7 @@ Plus `CREDITS.md` if anything needs attribution.
 ### Sanity-check the export
 
 ```json
-{ "width": 64, "height": 40, "tilewidth": 32, "tileheight": 32,
+{ "width": 64, "height": 46, "tilewidth": 32, "tileheight": 32,
   "layers": [
     { "name": "floor",   "type": "tilelayer",   "data": [ ... ] },
     { "name": "walls",   "type": "tilelayer",   "data": [ ... ] },
@@ -438,7 +438,7 @@ If any of the five layer names is missing, or `zones` has fewer than **13** obje
 
 # Definition of done
 
-- [ ] Map exactly 64 × 40, tiles exactly 32 × 32
+- [ ] Map exactly 64 × 46, tiles exactly 32 × 32
 - [ ] All five layers, exact lowercase names
 - [ ] Floor filled everywhere — **zero gaps**
 - [ ] All 11 areas enclosed, each with a visible door gap; **the atrium is open at both ends**

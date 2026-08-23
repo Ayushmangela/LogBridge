@@ -26,7 +26,7 @@ You do **not** wait for the backend. Step 2 gives you a mock server that speaks 
 
 # THE CONTRACT (frozen — identical in Ayush's doc)
 
-> **This is a copy for reading convenience. [`CONTRACT.md`](CONTRACT.md) is the source of truth — if they ever disagree, that file wins.** Current version: **1.5**. Never change it without the other person present.
+> **This is a copy for reading convenience. [`CONTRACT.md`](CONTRACT.md) is the source of truth — if they ever disagree, that file wins.** Current version: **1.7**. Never change it without the other person present.
 
 This is the only thing the two halves share. **Neither side changes it alone.**
 

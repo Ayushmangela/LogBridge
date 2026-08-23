@@ -1,7 +1,7 @@
 # The Contract
 ### Single source of truth for everything exchanged between the office and the system.
 
-**Version 1.5** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
+**Version 1.7** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
 
 > **Rule: never change this file alone.** Both people present, both agree, bump the version, add a changelog line. A contract one person edited is not a contract.
 
@@ -174,11 +174,12 @@ function zoneFor(a): ZoneId {
 | `floor` | tilelayer | ✅ |
 | `walls` | tilelayer | ✅ |
 | `props` | tilelayer | ✅ furniture |
-| `props2` | tilelayer | ✅ desktop clutter + wall decor, drawn **above** `props` |
+| `props2` | tilelayer | ✅ desktop clutter + wall decor, above `props` |
+| `props3` | tilelayer | ✅ chairs, above `props2` — they must occlude the desk *and* its clutter |
 | `zones` | objectgroup | ✅ **13** named rects |
 | `markers` | objectgroup | ✅ `spawn` point |
 
-**64 × 40 tiles at 32 × 32 px** = 2048 × 1280 px. Object `x`/`y` are in **pixels** — divide by **32** for tile coords.
+**64 × 46 tiles at 32 × 32 px** = 2048 × 1472 px. Object `x`/`y` are in **pixels** — divide by **32** for tile coords.
 
 Five tilesets are registered in the map, all 32 px:
 
@@ -209,6 +210,8 @@ Five tilesets are registered in the map, all 32 px:
 
 | Version | Change | Why |
 |---|---|---|
+| **1.7** | Map height **40 → 46 tiles** (2048 × 1472 px) | The cafeteria and chill room needed more floor. Growing the map downward gives it to them without shrinking the desk floor — the alternative was taking rows from the open office |
+| **1.6** | Added a **`props3`** layer for chairs, above `props2` | A chair pulled up to a desk overlaps both the desk's front edge and the keyboard on it. On `props2` it erased the clutter tile; it needs to be the last thing drawn |
 | **1.5** | Added a **`props2`** tile layer, drawn above `props`. White walls replace charcoal | Monitors, keyboards and papers have to sit *on* a desk, and wall posters *on* a wall — one prop layer can only hold one of the two, so the clutter was erasing the furniture underneath |
 | **1.4** | **Tile size 16 → 32 px.** Map is now 2048 × 1280 px. Five 32px tilesets replace the three 16px ones | The full LimeZu Modern Interiors / Modern Office set arrived — proper office desks, swivel chairs, sofas, screens, glass partitions. Zone rects are unchanged in *tile* coordinates; their pixel values doubled |
 | **1.3** | Floor plan restructured: review room and lounge removed, replaced by a central **atrium** corridor that holds `blocked` and `reviewing`; cafeteria and chill room enlarged to 23 × 8 | The atrium gives one walkable spine from the north corridor to the social wing, and frees floor area for the two social rooms. **No message-shape change** — only which room each zone maps to |
