@@ -139,7 +139,7 @@ A PTY-wrapped CLI can't hook individual tool calls the way an SDK's `canUseTool`
 **Would change it:** getting access to a real `claude`/`codex`/`gemini` install to confirm the flags and `emitLine()` parsing before ever pointing this at a real budget.
 
 ### D25 — Shared agent memory lives on the server, and retrieval is lexical (BM25), not semantic
-Ported from Munder Difflin's "MemPalace". Full rationale in `MEMORY.md`; the two decisions worth recording here:
+Full rationale in `MEMORY.md`; the two decisions worth recording here:
 
 **It lives on the server, not the node.** D1 puts agents on their owner's machine and D2 routes all cross-machine traffic through the server — so node-local memory would be private to that node, and "shared" would stop being true the moment a second machine joined. The whole claim of the feature ("the next agent starts already knowing how the team works") is a *cross-machine* claim, so the store has to be somewhere both machines reach. The runner is stateless about memory: it asks, it writes, it never caches.
 **Why:** it makes the headline property structural rather than aspirational. `apps/runner/src/sharedMemory.test.ts` is that sentence as an executable test — two runners, two machine identities, and an assertion that the second's prompt carries the first's memory.
@@ -151,7 +151,7 @@ Ported from Munder Difflin's "MemPalace". Full rationale in `MEMORY.md`; the two
 **Also decided, deliberately:** recall can never block work (2s timeout, resolves rather than rejects — a memory system that can stop an agent working is worse than none), and recall bypasses the offline outbox while writes go through it (a recall is only useful now; a memory formed during an outage is still worth keeping).
 
 ### D26 — Sealed payloads encrypt the message body, never the envelope
-Ported from Munder Difflin's clone-to-clone encryption. Full detail in `SEALED.md`.
+Full detail in `SEALED.md`.
 
 Agent-to-agent payloads are sealed with X25519/HKDF-SHA256/AES-256-GCM (HPKE base mode, ephemeral sender key per message). The envelope's metadata — from, to, type, project, task, capability, budget — stays readable.
 
@@ -165,3 +165,18 @@ Agent-to-agent payloads are sealed with X25519/HKDF-SHA256/AES-256-GCM (HPKE bas
 
 **Not forward secret for the recipient.** The ephemeral sender key protects past messages against later compromise of the *sender's* key. Compromising the *recipient's* long-term key decrypts everything ever sealed to it. Real forward secrecy needs a double ratchet with shared session state — a much larger feature. This is a sealed box and must not be described as a ratchet.
 **Would change it:** a threat model where recipient key compromise is realistic. Then Signal-style ratcheting, as its own project.
+
+### D27 — The orchestrator routes by rules, and never decides what work should exist
+Full detail in `ORCHESTRATOR.md`.
+
+An unassigned task is routed to an agent by capability, machine-online, concurrency and load; if nobody qualifies it **queues** rather than failing. Selection is deterministic — least loaded, ties on agent id.
+
+**Why rules and not a model:** deciding *who should do this task* is a matching problem with an objectively checkable answer. Deciding *what tasks should exist* is reasoning, and there is still no LLM wired into this project (D24, D25). Routing is genuinely implemented; decomposition is absent and labelled absent. Describing rule-based routing as an "AI orchestrator" would be exactly the overclaim the rest of this codebase refuses.
+**Would change it:** an LLM becoming available. Then the reasoning layer sits *above* this and produces tasks; the routing underneath does not change.
+
+**Determinism is a requirement, not a side effect.** A random choice would make "why did that run on Sam's laptop?" unanswerable while D4's log dutifully recorded the what, and would let the office reshuffle between renders — which D11 forbids. This also forced a subtle fix: the pending queue orders by `created_at, rowid`, not `created_at, id`, because `created_at` is millisecond-resolution and a burst of submissions shares a timestamp, at which point a UUID tie-break makes the queue arbitrary rather than FIFO.
+
+**It never reassigns or retries.** A task whose runner went silent is failed by the lease sweep and stays failed (D20). Auto-retry would resurrect the double-execution problem leases exist to prevent.
+**Would change it:** nothing short of exactly-once delivery, which is not on the table.
+
+**Hand-assignment still wins.** A task created with an agent already set is invisible to the orchestrator, so `@mention` and `/debug/offer-task` are unaffected.

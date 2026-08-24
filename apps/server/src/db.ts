@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   budget_seconds INTEGER DEFAULT 60,
   budget_usd REAL DEFAULT 1.0,
   cost_usd REAL DEFAULT 0,
+  required_capability TEXT,
   created_at TEXT,
   started_at TEXT,
   ended_at TEXT,
@@ -131,6 +132,7 @@ export function openDb(dbPath?: string): Db {
   for (const alter of [
     "ALTER TABLE tasks ADD COLUMN created_at TEXT",
     "ALTER TABLE machines ADD COLUMN sealing_pubkey TEXT",
+    "ALTER TABLE tasks ADD COLUMN required_capability TEXT",
   ]) {
     try {
       db.exec(alter);
@@ -273,18 +275,19 @@ export function createTask(
     title: string;
     spec?: string | null;
     creatorId: string;
-    agentId: string;
+    agentId?: string | null;        // null = let the orchestrator decide
+    requiredCapability?: string | null;
     budgetSeconds?: number;
     budgetUsd?: number;
   }
 ): string {
   const taskId = `tsk_${crypto.randomUUID()}`;
   db.prepare(
-    `INSERT INTO tasks (id, project_id, title, spec, creator_id, agent_id, state, budget_seconds, budget_usd, cost_usd, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'submitted', ?, ?, 0, ?)`
+    `INSERT INTO tasks (id, project_id, title, spec, creator_id, agent_id, state, budget_seconds, budget_usd, cost_usd, required_capability, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'submitted', ?, ?, 0, ?, ?)`
   ).run(
-    taskId, opts.projectId, opts.title, opts.spec ?? null, opts.creatorId, opts.agentId,
-    opts.budgetSeconds ?? 60, opts.budgetUsd ?? 1.0, new Date().toISOString()
+    taskId, opts.projectId, opts.title, opts.spec ?? null, opts.creatorId, opts.agentId ?? null,
+    opts.budgetSeconds ?? 60, opts.budgetUsd ?? 1.0, opts.requiredCapability ?? null, new Date().toISOString()
   );
   return taskId;
 }
@@ -313,6 +316,63 @@ export function setAgentWaitingOnHuman(db: Db, agentId: string, humanName: strin
     `human: ${humanName}`,
     agentId
   );
+}
+
+// ---------------- orchestrator (ORCHESTRATOR.md) ----------------
+
+/** Tasks waiting for someone to run them, oldest first (fair queueing).
+ *
+ *  Tie-broken on rowid, not id: created_at is only millisecond-resolution, so
+ *  several tasks submitted in the same millisecond carry identical timestamps,
+ *  and falling back to a random UUID would make the "queue" arbitrary rather
+ *  than FIFO. rowid is insertion order by definition. */
+export function pendingUnassignedTasks(db: Db) {
+  return db
+    .prepare(
+      `SELECT id, project_id, required_capability FROM tasks
+       WHERE state = 'submitted' AND agent_id IS NULL
+       ORDER BY created_at ASC, rowid ASC`
+    )
+    .all() as { id: string; project_id: string; required_capability: string | null }[];
+}
+
+/** How much each agent is already carrying. Only non-terminal, actually-held
+ *  work counts — a completed task occupies nobody. */
+export function activeTaskCountsByAgent(db: Db): Map<string, number> {
+  const rows = db
+    .prepare(
+      `SELECT agent_id AS agentId, COUNT(*) AS n FROM tasks
+       WHERE agent_id IS NOT NULL AND state IN ('submitted','working','blocked','input-required','auth-required')
+       GROUP BY agent_id`
+    )
+    .all() as any[];
+  return new Map(rows.map((r) => [r.agentId, Number(r.n)]));
+}
+
+export function candidateAgents(db: Db, projectId: string) {
+  const rows = db
+    .prepare(
+      `SELECT a.id, a.name, a.capabilities, a.concurrency, m.online
+       FROM agents a JOIN machines m ON m.id = a.machine_id
+       WHERE a.project_id = ?`
+    )
+    .all(projectId) as any[];
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    capabilities: (() => { try { return JSON.parse(r.capabilities ?? "[]"); } catch { return []; } })(),
+    concurrency: Number(r.concurrency ?? 1),
+    machineOnline: Boolean(r.online),
+  }));
+}
+
+/** Claim a task for an agent. The `agent_id IS NULL` guard makes this a no-op
+ *  if something else already claimed it, so a double call can't double-assign. */
+export function assignTaskToAgent(db: Db, taskId: string, agentId: string): boolean {
+  const res = db
+    .prepare("UPDATE tasks SET agent_id = ? WHERE id = ? AND agent_id IS NULL AND state = 'submitted'")
+    .run(agentId, taskId);
+  return res.changes > 0;
 }
 
 // ---------------- shared memory (MEMORY.md) ----------------

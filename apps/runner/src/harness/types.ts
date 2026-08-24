@@ -2,8 +2,8 @@
 // types leak into the protocol." Two implementations satisfy this:
 // fakeHarness (the controllable worker used by the Wi-Fi-drop test) and
 // ptyHarness (a real terminal CLI — claude/codex/gemini — spawned via
-// node-pty, matching Munder Difflin's approach: wrap the CLI the person
-// already has installed and authenticated, not a raw API key).
+// node-pty: wrap the CLI the person already has installed and
+// authenticated, rather than holding a raw API key).
 export interface SpawnOptions {
   cwd: string;
   prompt: string;

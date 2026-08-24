@@ -7,7 +7,7 @@ import type { WebSocket } from "ws";
 import { createTask, openDb, type Db } from "./db.js";
 import { Positions } from "./view.js";
 import { registerGateway } from "./gateway.js";
-import { registerNodeGateway, sendTaskOffer, taskCancelEnvelope, type NodeSockets } from "./nodeGateway.js";
+import { orchestrate, registerNodeGateway, sendTaskOffer, taskCancelEnvelope, type NodeSockets } from "./nodeGateway.js";
 
 export interface BuiltServer {
   app: ReturnType<typeof Fastify>;
@@ -72,6 +72,25 @@ export async function buildServer(
       return { ok: true, taskId };
     }
   );
+
+  // Submit work WITHOUT naming an agent — the orchestrator decides who runs
+  // it, or queues it until someone can. See ORCHESTRATOR.md.
+  app.post<{
+    Body: { projectId: string; title: string; spec?: string; requiredCapability?: string; budgetSeconds?: number; budgetUsd?: number };
+  }>("/debug/submit-task", async (req, reply) => {
+    const { projectId, title, spec, requiredCapability, budgetSeconds, budgetUsd } = req.body;
+    const project = db.prepare("SELECT id FROM projects WHERE id = ?").get(projectId) as any;
+    if (!project) return reply.code(404).send({ error: "no such project" });
+
+    const taskId = createTask(db, {
+      projectId, title, spec, creatorId: "you", agentId: null,
+      requiredCapability: requiredCapability ?? null, budgetSeconds, budgetUsd,
+    });
+    orchestrate(db, nodeSockets, app);
+    broadcastView();
+    const assignedTo = (db.prepare("SELECT agent_id FROM tasks WHERE id = ?").get(taskId) as any)?.agent_id ?? null;
+    return { ok: true, taskId, assignedTo, queued: assignedTo === null };
+  });
 
   app.post<{ Body: { taskId: string; reason?: string } }>("/debug/stop-task", async (req, reply) => {
     const { taskId, reason } = req.body;

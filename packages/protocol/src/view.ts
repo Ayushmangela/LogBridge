@@ -25,9 +25,9 @@ export const TaskBrief = z.object({
 
 // The Kanban board's row shape — every task in the room, not just an
 // agent's *current* one (TaskBrief above is scoped to a single agent and
-// has no state/identity fields; the board needs both). Munder Difflin-style
-// board, LogBridge data: no drag-and-drop, no dependency graph — see
-// BOARD-KICKOFF.md for what's deliberately not here yet.
+// has no state/identity fields; the board needs both). Deliberately not
+// here yet: drag-to-reorder and task dependencies, both of which need
+// write-paths the protocol doesn't have.
 export const BoardTask = z.object({
   id: z.string(),
   title: z.string(),

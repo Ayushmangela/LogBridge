@@ -1,17 +1,20 @@
 // Real agent execution: spawn the CLI the machine's owner already has
 // installed and authenticated (claude / codex / gemini / ...) as a real
-// pseudo-terminal process — Munder Difflin's approach, not a raw API key.
-// This is what makes "each agent's model API key comes from its own
-// owner's node" true without needing a second, separate credential.
+// pseudo-terminal process, rather than talking to a raw API key. This is
+// what makes "each agent's model API key comes from its own owner's node"
+// true without needing a second, separate credential.
 //
-// ⚠ VERIFICATION GAP, stated plainly: the exact CLI flags below (`-p`,
-// `--output-format stream-json`) match Claude Code's documented headless
-// mode as of this writing, but this harness has never been run against a
-// real `claude` binary — this dev machine has neither the CLI nor an API
-// key installed. Structurally sound, typechecked, and unit-tested against
-// a fake PTY process (see ptyHarness.test.ts) — NOT live-verified. Point
-// AGENT_CLI_COMMAND at whatever's actually installed and confirm the flags
-// still match before trusting this with real budget.
+// VERIFICATION STATUS (was a stated gap, now partly closed):
+//   ✓ flags `-p` and `--output-format stream-json` confirmed against a real
+//     claude 2.1.241 install
+//   ✓ output shape confirmed and the parser corrected to match — see
+//     emitLine's comment for what the earlier guess got wrong, and
+//     test-support/claude-stream-json.sample.jsonl for the real capture
+//   ✗ NOT yet run against an *authenticated* CLI: the sample was produced
+//     by an install with apiKeySource "none", so the only result line seen
+//     is the auth-failure one. tool_use blocks in particular are handled
+//     from the documented content-block shape, not from an observation.
+// Run `claude /login` and repeat the capture to close the rest.
 import * as pty from "node-pty";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -76,6 +79,16 @@ export function makePtyHarness(config: PtyHarnessConfig = {}): AgentHarness {
       }
 
       let buf = "";
+      // The CLI's own `result` line is the authoritative outcome — it knows
+      // whether the run actually succeeded, including the API errors that
+      // still exit 0. Process exit is only the fallback for a CLI that dies
+      // without one. Without this flag both fire and a run reports twice.
+      let sawResult = false;
+      const scan = (line: string) => {
+        if (line.includes('"type":"result"')) sawResult = true;
+        emitLine(queue, line);
+      };
+
       proc.onData((chunk: string) => {
         if (settled) return;
         buf += chunk;
@@ -84,18 +97,21 @@ export function makePtyHarness(config: PtyHarnessConfig = {}): AgentHarness {
         for (const raw of lines) {
           const line = raw.replace(ANSI_ESCAPE, "").trim();
           if (!line) continue;
-          emitLine(queue, line);
+          scan(line);
         }
       });
 
       proc.onExit(({ exitCode, signal }) => {
         if (settled) return;
         settled = true;
-        if (buf.trim()) emitLine(queue, buf.replace(ANSI_ESCAPE, "").trim());
-        if (exitCode !== 0) {
-          queue.push({ kind: "error", message: `${command} exited code=${exitCode} signal=${signal ?? "none"}` });
-        } else {
-          queue.push({ kind: "done", ok: true });
+        if (buf.trim()) scan(buf.replace(ANSI_ESCAPE, "").trim());
+        if (!sawResult) {
+          // Died without reporting — killed, crashed, or interrupted.
+          if (exitCode !== 0) {
+            queue.push({ kind: "error", message: `${command} exited code=${exitCode} signal=${signal ?? "none"}` });
+          } else {
+            queue.push({ kind: "done", ok: true });
+          }
         }
         queue.close();
       });
@@ -130,24 +146,65 @@ export function makePtyHarness(config: PtyHarnessConfig = {}): AgentHarness {
   };
 }
 
-function emitLine(queue: AsyncEventQueue<AgentEvent>, line: string) {
+// Parses Claude Code's `--output-format stream-json`, verified against real
+// output from claude 2.1.241 (captured in test-support/claude-stream-json.
+// sample.jsonl). The earlier version of this function guessed the shape and
+// guessed wrong in two of three cases:
+//
+//   - text is at message.content[].text, NOT a top-level `text` field
+//   - tool calls are content blocks {type:"tool_use", name, input} inside
+//     that same array, NOT a top-level `tool_name`
+//   - total_cost_usd on the final `result` line was the one correct guess
+//
+// Line types actually observed: system/init, assistant, result.
+export function emitLine(queue: AsyncEventQueue<AgentEvent>, line: string) {
+  let parsed: any;
   try {
-    const parsed = JSON.parse(line);
-    // Best-effort field detection across plausible stream-json shapes —
-    // NOT verified against a real CLI response. See the module header.
-    if (typeof parsed.total_cost_usd === "number") {
-      queue.push({ kind: "cost", usd: parsed.total_cost_usd });
-    }
-    if (parsed.type === "tool_use" || parsed.tool_name) {
-      queue.push({ kind: "tool_call", name: parsed.tool_name ?? parsed.name ?? "unknown", input: parsed.input ?? parsed });
-      return;
-    }
-    if (typeof parsed.text === "string") {
-      queue.push({ kind: "output", text: parsed.text });
-      return;
-    }
-    queue.push({ kind: "output", text: line });
+    parsed = JSON.parse(line);
   } catch {
+    // Not JSON at all — a banner, a warning, an ANSI-stripped fragment.
+    // Surface it rather than dropping it; losing a CLI's error text is how
+    // "it just did nothing" bugs happen.
     queue.push({ kind: "output", text: line });
+    return;
+  }
+
+  switch (parsed.type) {
+    case "system":
+      return; // init/metadata — nothing an operator needs to see
+
+    case "assistant":
+    case "user": {
+      const content = parsed.message?.content;
+      if (!Array.isArray(content)) return;
+      for (const block of content) {
+        if (block?.type === "text" && typeof block.text === "string") {
+          if (block.text.trim()) queue.push({ kind: "output", text: block.text });
+        } else if (block?.type === "tool_use") {
+          queue.push({ kind: "tool_call", name: block.name ?? "unknown", input: block.input ?? null });
+        }
+        // tool_result blocks are the CLI feeding itself; they'd double the
+        // log without adding anything an operator hasn't already seen.
+      }
+      return;
+    }
+
+    case "result": {
+      if (typeof parsed.total_cost_usd === "number") {
+        queue.push({ kind: "cost", usd: parsed.total_cost_usd });
+      }
+      // `is_error` covers auth failures and API errors, which exit 0 and
+      // would otherwise look like a successful empty run.
+      if (parsed.is_error) {
+        queue.push({ kind: "error", message: String(parsed.result ?? parsed.subtype ?? "the CLI reported an error") });
+      } else {
+        queue.push({ kind: "done", ok: true, summary: typeof parsed.result === "string" ? parsed.result : undefined });
+      }
+      return;
+    }
+
+    default:
+      // An unrecognised line is still information; don't silently swallow it.
+      queue.push({ kind: "output", text: line });
   }
 }

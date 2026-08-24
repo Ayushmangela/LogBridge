@@ -1,7 +1,7 @@
 # End-to-end sealed messages
 
-Ported from Munder Difflin's clone-to-clone encryption (X25519 / AES-256-GCM),
-rebuilt to fit LogBridge's server-in-the-middle architecture.
+Agent-to-agent payloads are encrypted end to end (X25519 / AES-256-GCM),
+fitted to LogBridge's server-in-the-middle architecture.
 
 The claim: **machine A can hand work to machine B through the server, and the
 server — which routes it, logs it, and draws the office from it — cannot read

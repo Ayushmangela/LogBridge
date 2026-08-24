@@ -1,13 +1,10 @@
 # Shared agent memory
 
-Ported from Munder Difflin's "MemPalace" concept, rebuilt on LogBridge's own
-architecture. The claim it makes:
+A store of what the team has learned, shared across every agent and every
+machine. The claim it makes:
 
-> Every clone you run shares that memory, so the next one you spin up starts
-> already knowing how you work.
-
-In LogBridge terms: **an agent begins a task already knowing what the team
-learned — including what agents on other people's machines learned.**
+**An agent begins a task already knowing what the team learned — including
+what agents on other people's machines learned.**
 
 That sentence is executable. `apps/runner/src/sharedMemory.test.ts` boots two
 runners with two machine identities, has the first form a memory from real
@@ -64,10 +61,10 @@ replay on reconnect.
 ## What this is NOT
 
 **Retrieval is lexical, not semantic.** SQLite FTS5 with BM25 ranking — real
-relevance ranking over real text, but keyword-based. Munder Difflin advertises
-*semantic* memory, which needs an embedding model. This project has no LLM or
-embedding API wired in anywhere (the same gap `DECISIONS.md` D24 documents for
-`ptyHarness`), so semantic recall could not be built honestly here.
+relevance ranking over real text, but keyword-based. Semantic recall needs an
+embedding model, and this project has no LLM or embedding API wired in
+anywhere (the same gap `DECISIONS.md` D24 documents for `ptyHarness`), so it
+could not be built honestly here.
 
 The consequence is concrete: a memory saying *"use pnpm"* will not surface for
 a query about *"package manager"* — no shared keyword. Embeddings would fix

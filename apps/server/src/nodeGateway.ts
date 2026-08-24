@@ -23,6 +23,17 @@ import {
   tasksForMachine,
 } from "./db.js";
 import { makeChallenge, verifySignature } from "./nodeAuth.js";
+import { assignPendingTasks } from "./orchestrator.js";
+
+/** Run the orchestrator and offer whatever it just assigned. The single entry
+ *  point — called wherever capacity changes: a machine connects, an agent
+ *  finishes, a new agent registers. */
+export function orchestrate(db: Db, nodeSockets: NodeSockets, app?: FastifyInstance) {
+  for (const { taskId, agentId } of assignPendingTasks(db)) {
+    app?.log.info({ taskId, agentId }, "orchestrator assigned task");
+    sendTaskOffer(db, nodeSockets, taskId);
+  }
+}
 
 const HELLO_TIMEOUT_MS = 5000;
 
@@ -136,6 +147,7 @@ export function registerNodeGateway(
         const dir = peerDirectoryEnvelope(db, hello.machineId);
         if (dir) send(dir);
         broadcastPeerDirectory(db, nodeSockets);
+        orchestrate(db, nodeSockets, app); // this machine's agents are capacity
         return;
       }
 
@@ -171,6 +183,7 @@ export function registerNodeGateway(
       });
       if (t.agent_id) setAgentStatus(db, t.agent_id, "idle", null);
     }
+    orchestrate(db, nodeSockets, app); // a swept task released its agent
     if (sweep.unref) sweep.unref();
     onChange();
   }, SWEEP_INTERVAL_MS);
@@ -432,6 +445,7 @@ function handleNodeEnvelope(
       body.name, body.role, JSON.stringify(body.capabilities ?? []), body.concurrency ?? 1
     );
     broadcastPeerDirectory(db, nodeSockets); // a new agent is a new possible peer
+    orchestrate(db, nodeSockets, app);
     onChange();
     return;
   }
@@ -466,6 +480,7 @@ function handleNodeEnvelope(
     setTaskState(db, t.id, body.state, { ended_at: new Date().toISOString(), cost_usd: body.costUsd ?? t.cost_usd });
     if (t.agent_id) setAgentStatus(db, t.agent_id, "idle", null);
     appendEvent(db, t.project_id, t.id, "task.result", body);
+    orchestrate(db, nodeSockets, app); // that agent just freed up — drain the queue
     onChange();
     return;
   }
