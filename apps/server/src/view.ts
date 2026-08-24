@@ -1,8 +1,9 @@
 import type { Db } from "./db.js";
-import { lastSeq } from "./db.js";
+import { lastSeq, tasksForProject } from "./db.js";
 import {
   zoneFor,
   type AgentViewT,
+  type BoardTaskT,
   type MachineViewT,
   type RoomT,
   type WorkspaceViewT,
@@ -119,6 +120,20 @@ export function buildView(db: Db, positions: Positions, meId: string): Workspace
         lastSeen: m.last_seen,
       }));
 
+    const boardTasks: BoardTaskT[] = tasksForProject(db, p.id).map((t) => ({
+      id: t.id,
+      title: t.title,
+      state: t.state,
+      agentId: t.agent_id ?? null,
+      agentName: t.agent_name ?? null,
+      // Rows from before the created_at column existed (see db.ts's
+      // migration guard) have it NULL — fall back rather than violate the
+      // contract's non-nullable createdAt.
+      createdAt: t.created_at ?? t.started_at ?? new Date(0).toISOString(),
+      startedAt: t.started_at ?? null,
+      costUsd: t.cost_usd ?? 0,
+    }));
+
     return {
       id: p.id,
       name: p.name ?? p.gh_repo ?? p.id,
@@ -127,6 +142,7 @@ export function buildView(db: Db, positions: Positions, meId: string): Workspace
       humans: roomHumans,
       agents: views,
       machines: roomMachines,
+      tasks: boardTasks,
     };
   });
 

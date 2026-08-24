@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TaskState } from "./task-state.js";
 
 export const AgentRole = z.enum([
   "developer", "research", "qa", "review", "docs", "planner",
@@ -20,6 +21,22 @@ export const TaskBrief = z.object({
   elapsedSec: z.number().int().nonnegative(),
   costUsd: z.number(),
   note: z.string().nullable(),
+});
+
+// The Kanban board's row shape — every task in the room, not just an
+// agent's *current* one (TaskBrief above is scoped to a single agent and
+// has no state/identity fields; the board needs both). Munder Difflin-style
+// board, LogBridge data: no drag-and-drop, no dependency graph — see
+// BOARD-KICKOFF.md for what's deliberately not here yet.
+export const BoardTask = z.object({
+  id: z.string(),
+  title: z.string(),
+  state: TaskState,
+  agentId: z.string().nullable(),
+  agentName: z.string().nullable(),
+  createdAt: z.string(),
+  startedAt: z.string().nullable(),
+  costUsd: z.number(),
 });
 
 const Point = z.object({ x: z.number(), y: z.number() });
@@ -68,6 +85,7 @@ export const Room = z.object({
   humans: z.array(HumanView),
   agents: z.array(AgentView),
   machines: z.array(MachineView),
+  tasks: z.array(BoardTask),
 });
 
 export const WorkspaceView = z.object({
@@ -78,6 +96,7 @@ export const WorkspaceView = z.object({
 });
 
 export type TaskBriefT = z.infer<typeof TaskBrief>;
+export type BoardTaskT = z.infer<typeof BoardTask>;
 export type HumanViewT = z.infer<typeof HumanView>;
 export type AgentViewT = z.infer<typeof AgentView>;
 export type MachineViewT = z.infer<typeof MachineView>;

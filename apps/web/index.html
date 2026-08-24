@@ -364,6 +364,161 @@
       flex-direction: column;
       gap: 6px;
     }
+
+    /* ---- Board view: the same room.tasks the office draws, as a list ---- */
+    .view-toggle {
+      position: fixed;
+      top: 16px;
+      right: 20px;
+      z-index: 300;
+      display: flex;
+      gap: 4px;
+      background: var(--panel-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      padding: 4px;
+      border-radius: 10px;
+      border: 1px solid var(--panel-border);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    .view-toggle button {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 6px 14px;
+      border-radius: 7px;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.18s;
+      letter-spacing: 0.3px;
+    }
+    .view-toggle button:hover { color: var(--text-main); }
+    .view-toggle button.active {
+      background: rgba(0,229,255,0.16);
+      color: var(--accent-cyan);
+    }
+
+    #board {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      background: rgba(9, 11, 16, 0.94);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      display: none;
+      flex-direction: column;
+      padding: 76px 24px 24px;
+    }
+    #board.open { display: flex; }
+
+    .board-head {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 18px;
+      flex-shrink: 0;
+    }
+    .board-head h2 {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.2px;
+    }
+    .board-head .board-room { color: var(--text-muted); font-size: 13px; font-weight: 500; }
+
+    /* Columns keep a readable minimum and scroll sideways rather than
+       crushing themselves — at ~100px wide every title breaks mid-word. */
+    .board-cols {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(230px, 1fr);
+      gap: 14px;
+      flex: 1;
+      min-height: 0;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+    .board-col {
+      background: rgba(18, 22, 36, 0.7);
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .board-col-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      font-weight: 700;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .board-col-count {
+      background: rgba(255,255,255,0.08);
+      color: var(--text-muted);
+      border-radius: 20px;
+      padding: 1px 8px;
+      font-size: 10px;
+    }
+    .board-col-body { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+
+    .board-card {
+      background: rgba(255,255,255,0.045);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-left: 3px solid var(--text-muted);
+      border-radius: 8px;
+      padding: 10px 11px;
+    }
+    .board-card-title {
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.35;
+      margin-bottom: 7px;
+      overflow-wrap: break-word; /* only break words that genuinely can't fit */
+    }
+    .board-card-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      font-size: 10.5px;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .board-card-agent {
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
+    .board-card-when { white-space: nowrap; flex-shrink: 0; }
+    .board-card-agent.unassigned { opacity: 0.5; font-style: italic; font-weight: 400; }
+
+    .board-empty {
+      color: var(--text-muted);
+      font-size: 12px;
+      text-align: center;
+      padding: 18px 6px;
+      opacity: 0.55;
+    }
+    /* Column accents mirror the office's own status colours */
+    .col-proposed  .board-col-title { color: var(--accent-amber); }
+    .col-working   .board-col-title { color: var(--accent-green); }
+    .col-blocked   .board-col-title { color: var(--accent-purple); }
+    .col-done      .board-col-title { color: var(--accent-cyan); }
+    .col-closed    .board-col-title { color: var(--accent-red); }
+    .col-proposed  .board-card { border-left-color: var(--accent-amber); }
+    .col-working   .board-card { border-left-color: var(--accent-green); }
+    .col-blocked   .board-card { border-left-color: var(--accent-purple); }
+    .col-done      .board-card { border-left-color: var(--accent-cyan); }
+    .col-closed    .board-card { border-left-color: var(--accent-red); }
     .zoom-btn {
       width: 34px;
       height: 34px;
@@ -398,7 +553,7 @@
       <div>
         <div style="display:flex; align-items:center; gap:6px;">
           <span class="brand-title">LogBridge Office</span>
-          <span class="brand-version">v1.7</span>
+          <span class="brand-version">v1.8</span>
         </div>
       </div>
     </div>
@@ -406,6 +561,21 @@
       <div class="room-dot" id="status-dot"></div>
       <span id="current-zone-name">Lobby Reception</span>
     </div>
+  </div>
+
+  <!-- Office ↔ Board toggle (CONTRACT.md 1.8: both views, one WorkspaceView) -->
+  <div class="view-toggle">
+    <button id="tab-office" class="active" onclick="setView('office')">Office</button>
+    <button id="tab-board" onclick="setView('board')">Board</button>
+  </div>
+
+  <!-- Board view -->
+  <div id="board">
+    <div class="board-head">
+      <h2>Task Board</h2>
+      <span class="board-room" id="board-room-name"></span>
+    </div>
+    <div class="board-cols" id="board-cols"></div>
   </div>
 
   <!-- Right Sidebar / Minimap -->
@@ -816,7 +986,98 @@
       for (const [id, entry] of renderedHumans) {
         if (!seenHumans.has(id)) { worldContainer.removeChild(entry.sprite); renderedHumans.delete(id); }
       }
+
+      renderBoard(room);
     }
+
+    // ---------------- Board view ----------------
+    // Same `room.tasks` snapshot the office is drawn from — CONTRACT.md
+    // invariant 1 (full snapshot, no deltas) means this needs no state of
+    // its own: re-render the columns from scratch on every view.
+    const BOARD_COLUMNS = [
+      { key: 'proposed', label: 'Proposed',    states: ['submitted'] },
+      { key: 'working',  label: 'In Progress', states: ['working'] },
+      { key: 'blocked',  label: 'Blocked',     states: ['input-required', 'auth-required', 'blocked'] },
+      { key: 'done',     label: 'Done',        states: ['completed'] },
+      { key: 'closed',   label: 'Closed',      states: ['failed', 'canceled', 'rejected'] },
+    ];
+
+    function relativeTime(iso) {
+      if (!iso) return '—';
+      const secs = Math.floor((Date.now() - Date.parse(iso)) / 1000);
+      if (!Number.isFinite(secs)) return '—';
+      if (secs < 60) return `${Math.max(0, secs)}s ago`;
+      if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+      if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+      return `${Math.floor(secs / 86400)}d ago`;
+    }
+
+    function renderBoard(room) {
+      const nameEl = document.getElementById('board-room-name');
+      if (nameEl) nameEl.textContent = room.name;
+
+      const cols = document.getElementById('board-cols');
+      if (!cols) return;
+      const tasks = room.tasks ?? [];
+      cols.innerHTML = '';
+
+      for (const col of BOARD_COLUMNS) {
+        const inCol = tasks.filter((t) => col.states.includes(t.state));
+        const el = document.createElement('div');
+        el.className = `board-col col-${col.key}`;
+        el.innerHTML = `
+          <div class="board-col-title">
+            <span>${col.label}</span>
+            <span class="board-col-count">${inCol.length}</span>
+          </div>
+          <div class="board-col-body"></div>`;
+        const body = el.querySelector('.board-col-body');
+
+        if (inCol.length === 0) {
+          const empty = document.createElement('div');
+          empty.className = 'board-empty';
+          empty.textContent = '—';
+          body.appendChild(empty);
+        }
+        for (const t of inCol) {
+          const card = document.createElement('div');
+          card.className = 'board-card';
+          // textContent, not innerHTML — a task title is human/agent-authored
+          // text and must never be able to inject markup into this page.
+          const title = document.createElement('div');
+          title.className = 'board-card-title';
+          title.textContent = t.title;
+          const meta = document.createElement('div');
+          meta.className = 'board-card-meta';
+          const agent = document.createElement('span');
+          agent.className = 'board-card-agent' + (t.agentName ? '' : ' unassigned');
+          agent.textContent = t.agentName ?? 'unassigned';
+          const when = document.createElement('span');
+          when.className = 'board-card-when';
+          const cost = t.costUsd > 0 ? ` · $${t.costUsd.toFixed(2)}` : '';
+          when.textContent = relativeTime(t.startedAt ?? t.createdAt) + cost;
+          meta.append(agent, when);
+          card.append(title, meta);
+          body.appendChild(card);
+        }
+        cols.appendChild(el);
+      }
+    }
+
+    let currentViewMode = 'office';
+    window.setView = function (mode) {
+      currentViewMode = mode;
+      document.getElementById('board').classList.toggle('open', mode === 'board');
+      document.getElementById('tab-office').classList.toggle('active', mode === 'office');
+      document.getElementById('tab-board').classList.toggle('active', mode === 'board');
+      // Movement keys are held in `keys` — a key still down when the board
+      // opens would otherwise stay stuck and walk the player while it's up.
+      for (const k of Object.keys(keys)) keys[k] = false;
+      if (mode === 'board' && latestView) {
+        const room = latestView.rooms[0];
+        if (room) renderBoard(room);
+      }
+    };
 
     function makeNameTag(text, color) {
       const t = new PIXI.Text(text, {
@@ -987,6 +1248,14 @@
 
     function setupInput() {
       window.addEventListener('keydown', (e) => {
+        // Tab flips between the two views of the same room.
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          window.setView(currentViewMode === 'office' ? 'board' : 'office');
+          return;
+        }
+        if (e.key === 'Escape' && currentViewMode === 'board') { window.setView('office'); return; }
+        if (currentViewMode === 'board') return; // board is up — nothing to drive
         if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') keys.w = keys.up = true;
         if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') keys.a = keys.left = true;
         if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') keys.s = keys.down = true;
@@ -1001,6 +1270,7 @@
         if (e.key === 'Shift') keys.shift = false;
       });
       window.addEventListener('wheel', (e) => {
+        if (currentViewMode === 'board') return; // let the columns scroll normally
         e.preventDefault();
         adjustZoom(e.deltaY < 0 ? 0.08 : -0.08);
       }, { passive: false });

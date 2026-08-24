@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { WorkspaceViewT } from "@logbridge/protocol";
+import { WorkspaceView, type WorkspaceViewT } from "@logbridge/protocol";
 import { appendEvent, openDb, type Db } from "./db.js";
 import { Positions, buildView } from "./view.js";
 
@@ -115,5 +115,78 @@ describe("buildView", () => {
     const db = openDb(":memory:");
     expect(appendEvent(db, "prj_x", null, "chat", { text: "hi" })).toBe(1);
     expect(appendEvent(db, "prj_x", "tsk_1", "task.status", {})).toBe(2);
+  });
+
+  // ---- the Kanban board's data (CONTRACT.md 1.8 — room.tasks) ----
+
+  test("board tasks are scoped per room, newest first, with the agent's name joined in", () => {
+    const db = openDb(":memory:");
+    seed(db);
+    db.prepare("INSERT INTO projects (id, gh_repo, name, layout) VALUES (?, ?, ?, ?)").run(
+      "prj_other", "acme/other", "acme/other", "office"
+    );
+
+    const insTask = db.prepare(
+      `INSERT INTO tasks (id, project_id, title, creator_id, agent_id, state, cost_usd, created_at, started_at)
+       VALUES (?, ?, ?, 'you', ?, ?, ?, ?, ?)`
+    );
+    insTask.run("tsk_old", "prj_acme_api", "older task", "agt_qa", "completed", 0.25, "2026-01-01T00:00:00.000Z", "2026-01-01T00:00:01.000Z");
+    insTask.run("tsk_new", "prj_acme_api", "newer task", "agt_dev", "working", 0, "2026-06-01T00:00:00.000Z", "2026-06-01T00:00:01.000Z");
+    insTask.run("tsk_unassigned", "prj_acme_api", "nobody's task", null, "submitted", 0, "2026-03-01T00:00:00.000Z", null);
+    insTask.run("tsk_elsewhere", "prj_other", "different room", "agt_qa", "working", 0, "2026-07-01T00:00:00.000Z", null);
+
+    const view = buildView(db, new Positions(), "usr_ayush");
+    const acmeApi = view.rooms.find((r) => r.id === "prj_acme_api")!;
+    const other = view.rooms.find((r) => r.id === "prj_other")!;
+
+    // scoped to the room, never leaking another project's tasks
+    expect(acmeApi.tasks.map((t) => t.id)).toEqual(["tsk_new", "tsk_unassigned", "tsk_old"]);
+    expect(other.tasks.map((t) => t.id)).toEqual(["tsk_elsewhere"]);
+
+    expect(acmeApi.tasks[0]).toMatchObject({
+      id: "tsk_new", title: "newer task", state: "working",
+      agentId: "agt_dev", agentName: "dev-api", costUsd: 0,
+    });
+    // an unassigned task is a real board row, not an error
+    expect(acmeApi.tasks[1]).toMatchObject({
+      id: "tsk_unassigned", agentId: null, agentName: null, startedAt: null,
+    });
+    expect(acmeApi.tasks[2]).toMatchObject({ id: "tsk_old", state: "completed", costUsd: 0.25 });
+  });
+
+  test("a task row predating the created_at column still yields a contract-valid view", () => {
+    // db.ts's ALTER TABLE guard adds created_at to an existing db file, but
+    // rows already in it have it NULL — the contract says createdAt is a
+    // non-nullable string, so buildView has to fall back rather than emit null.
+    const db = openDb(":memory:");
+    seed(db);
+    db.prepare(
+      `INSERT INTO tasks (id, project_id, title, creator_id, agent_id, state, cost_usd, created_at, started_at)
+       VALUES ('tsk_legacy', 'prj_acme_api', 'from before the column', 'you', 'agt_qa', 'completed', 0, NULL, NULL)`
+    ).run();
+
+    const view = buildView(db, new Positions(), "usr_ayush");
+    const legacy = view.rooms[0].tasks.find((t) => t.id === "tsk_legacy")!;
+    expect(typeof legacy.createdAt).toBe("string");
+    expect(WorkspaceView.safeParse(view).success).toBe(true);
+  });
+
+  // The strongest assertion in this file: the *whole* view has to satisfy the
+  // zod contract, not just the fields a given test happened to look at. This
+  // is what actually catches "someone added a field to buildView and forgot
+  // the schema" — gateway.ts refuses to broadcast a view that fails this.
+  test("a fully populated view validates against the WorkspaceView contract", () => {
+    const db = openDb(":memory:");
+    seed(db);
+    db.prepare(
+      `INSERT INTO tasks (id, project_id, title, creator_id, agent_id, state, cost_usd, created_at, started_at)
+       VALUES ('tsk_v', 'prj_acme_api', 'validate me', 'you', 'agt_qa', 'working', 1.5, ?, ?)`
+    ).run(new Date().toISOString(), new Date().toISOString());
+    const positions = new Positions();
+    positions.set("usr_ayush", { roomId: "prj_acme_api", x: 3, y: 4 });
+
+    const parsed = WorkspaceView.safeParse(buildView(db, positions, "usr_ayush"));
+    if (!parsed.success) throw new Error(`view violated the contract: ${parsed.error}`);
+    expect(parsed.success).toBe(true);
   });
 });

@@ -1,7 +1,7 @@
 # The Contract
 ### Single source of truth for everything exchanged between the office and the system.
 
-**Version 1.7** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
+**Version 1.8** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
 
 > **Rule: never change this file alone.** Both people present, both agree, bump the version, add a changelog line. A contract one person edited is not a contract.
 
@@ -39,6 +39,18 @@ type Room = {
   humans: HumanView[]
   agents: AgentView[]
   machines: MachineView[]
+  tasks: BoardTask[]           // ★ 1.8 every task in the room — the board's rows
+}
+
+type BoardTask = {
+  id: string
+  title: string
+  state: TaskState             // the full 9-state enum, not the 7 zone ids
+  agentId: string | null       // null = proposed but not assigned to anyone
+  agentName: string | null
+  createdAt: string
+  startedAt: string | null     // null until a runner accepts it
+  costUsd: number
 }
 
 type HumanView = {
@@ -210,6 +222,7 @@ Five tilesets are registered in the map, all 32 px:
 
 | Version | Change | Why |
 |---|---|---|
+| **1.8** | Added **`Room.tasks: BoardTask[]`** — every task in the room, capped at 100, newest first | The office shows what each agent is doing *right now*; it structurally cannot show a queue, a rejected proposal, or yesterday's failures. The board view needs task identity and the full `TaskState`, neither of which `TaskBrief` carries (it's scoped to one agent's current task). Same snapshot, second view — no new socket messages |
 | **1.7** | Map height **40 → 46 tiles** (2048 × 1472 px) | The cafeteria and chill room needed more floor. Growing the map downward gives it to them without shrinking the desk floor — the alternative was taking rows from the open office |
 | **1.6** | Added a **`props3`** layer for chairs, above `props2` | A chair pulled up to a desk overlaps both the desk's front edge and the keyboard on it. On `props2` it erased the clutter tile; it needs to be the last thing drawn |
 | **1.5** | Added a **`props2`** tile layer, drawn above `props`. White walls replace charcoal | Monitors, keyboards and papers have to sit *on* a desk, and wall posters *on* a wall — one prop layer can only hold one of the two, so the clutter was erasing the furniture underneath |

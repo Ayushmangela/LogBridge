@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   budget_seconds INTEGER DEFAULT 60,
   budget_usd REAL DEFAULT 1.0,
   cost_usd REAL DEFAULT 0,
+  created_at TEXT,
   started_at TEXT,
   ended_at TEXT,
   parent_task TEXT,
@@ -88,6 +89,15 @@ export function openDb(dbPath?: string): Db {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA);
+  // No migration framework (D7: SQLite, deliberately minimal) — `CREATE
+  // TABLE IF NOT EXISTS` is a no-op against a db file from before a column
+  // existed. This is the one column added after the fact so far; if more
+  // pile up, that's the signal to actually build migrations.
+  try {
+    db.exec("ALTER TABLE tasks ADD COLUMN created_at TEXT");
+  } catch {
+    // already there, either from SCHEMA on a fresh db or a prior run of this
+  }
   return db;
 }
 
@@ -208,13 +218,29 @@ export function createTask(
 ): string {
   const taskId = `tsk_${crypto.randomUUID()}`;
   db.prepare(
-    `INSERT INTO tasks (id, project_id, title, spec, creator_id, agent_id, state, budget_seconds, budget_usd, cost_usd)
-     VALUES (?, ?, ?, ?, ?, ?, 'submitted', ?, ?, 0)`
+    `INSERT INTO tasks (id, project_id, title, spec, creator_id, agent_id, state, budget_seconds, budget_usd, cost_usd, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'submitted', ?, ?, 0, ?)`
   ).run(
     taskId, opts.projectId, opts.title, opts.spec ?? null, opts.creatorId, opts.agentId,
-    opts.budgetSeconds ?? 60, opts.budgetUsd ?? 1.0
+    opts.budgetSeconds ?? 60, opts.budgetUsd ?? 1.0, new Date().toISOString()
   );
   return taskId;
+}
+
+// The Kanban board's data source — every task in the project, most recent
+// first, capped so a long-lived project's board doesn't ship its entire
+// history on every view update (see CONTRACT.md invariant 1: full snapshot,
+// no deltas — that only stays cheap if the snapshot itself stays bounded).
+export function tasksForProject(db: Db, projectId: string, limit = 100) {
+  return db
+    .prepare(
+      `SELECT t.*, a.name AS agent_name FROM tasks t
+       LEFT JOIN agents a ON a.id = t.agent_id
+       WHERE t.project_id = ?
+       ORDER BY t.created_at DESC
+       LIMIT ?`
+    )
+    .all(projectId, limit) as any[];
 }
 
 // The agent is now blocked on a specific human decision — a task proposal,
