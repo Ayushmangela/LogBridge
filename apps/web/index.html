@@ -599,168 +599,380 @@
     .zoom-btn:hover {
       background: rgba(255,255,255,0.2);
     }
+
+    /* ===================================================================
+       APP SHELL — the office is the hero. A thin nav rail on the left,
+       feature panels that slide in BESIDE the office (never over it, so
+       you can still watch the floor while managing things), and only
+       small floating widgets on the right.
+       =================================================================== */
+    .app { position: fixed; inset: 0; display: flex; overflow: hidden; }
+
+    /* ---- left nav rail ---- */
+    .rail {
+      width: 76px; flex-shrink: 0; z-index: 400;
+      background: rgba(13, 15, 24, 0.92);
+      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      border-right: 1px solid var(--panel-border);
+      display: flex; flex-direction: column; align-items: center;
+      padding: 12px 0 10px;
+    }
+    .rail-logo {
+      width: 36px; height: 36px; border-radius: 9px; flex-shrink: 0;
+      background: linear-gradient(135deg, #00e5ff, #7c4dff);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 15px; color: #0d0f18;
+      box-shadow: 0 0 14px rgba(0,229,255,0.35); margin-bottom: 14px;
+    }
+    .rail-items { display: flex; flex-direction: column; gap: 2px; width: 100%; align-items: center; flex: 1; }
+    .rail-btn {
+      width: 62px; padding: 9px 0 7px; border: none; background: transparent;
+      color: var(--text-muted); border-radius: 10px; cursor: pointer;
+      font-family: inherit; display: flex; flex-direction: column;
+      align-items: center; gap: 4px; transition: all .16s; position: relative;
+    }
+    .rail-btn svg { width: 19px; height: 19px; stroke: currentColor; fill: none; stroke-width: 1.7; }
+    .rail-btn span { font-size: 9.5px; font-weight: 700; letter-spacing: .2px; }
+    .rail-btn:hover { color: var(--text-main); background: rgba(255,255,255,.05); }
+    .rail-btn.active { color: var(--accent-cyan); background: rgba(0,229,255,.12); }
+    .rail-btn.active::before {
+      content: ''; position: absolute; left: -7px; top: 50%; transform: translateY(-50%);
+      width: 3px; height: 22px; border-radius: 0 3px 3px 0; background: var(--accent-cyan);
+    }
+    .rail-btn .badge {
+      position: absolute; top: 5px; right: 11px; min-width: 15px; height: 15px;
+      border-radius: 8px; background: var(--accent-amber); color: #0d0f18;
+      font-size: 9px; font-weight: 800; display: none;
+      align-items: center; justify-content: center; padding: 0 4px;
+    }
+    .rail-btn .badge.show { display: flex; }
+    .rail-foot { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    .rail-status {
+      width: 9px; height: 9px; border-radius: 50%; background: var(--accent-red);
+      transition: background .3s; box-shadow: 0 0 8px currentColor;
+    }
+    .rail-status.on { background: var(--accent-green); }
+
+    /* ---- feature panel: opens beside the office, never on top of it ---- */
+    .panel-dock {
+      width: 0; flex-shrink: 0; overflow: hidden; z-index: 350;
+      background: rgba(15, 18, 30, 0.95);
+      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      border-right: 1px solid var(--panel-border);
+      transition: width .22s cubic-bezier(.4,0,.2,1);
+      display: flex; flex-direction: column;
+    }
+    .panel-dock.open { width: 400px; }
+    @media (max-width: 1200px) { .panel-dock.open { width: 330px; } }
+    .dock-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 15px 16px 11px; flex-shrink: 0; border-bottom: 1px solid var(--panel-border);
+    }
+    .dock-title { font-size: 15px; font-weight: 800; letter-spacing: -.2px; }
+    .dock-sub { font-size: 10.5px; color: var(--text-muted); font-weight: 500; margin-top: 2px; }
+    .dock-close {
+      background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1);
+      color: var(--text-muted); width: 26px; height: 26px; border-radius: 7px;
+      cursor: pointer; font-size: 15px; line-height: 1; flex-shrink: 0;
+    }
+    .dock-close:hover { color: var(--text-main); background: rgba(255,255,255,.12); }
+    .dock-body { flex: 1; overflow-y: auto; padding: 14px 16px 16px; min-height: 0; }
+    .dock-pane { display: none; }
+    .dock-pane.active { display: block; }
+
+    /* ---- the office: everything left over, and that's the point ---- */
+    .stage { flex: 1; position: relative; min-width: 0; overflow: hidden; background: #090b10; }
+    #canvas-container {
+      position: absolute; inset: 0; width: auto; height: auto;
+      display: flex; align-items: center; justify-content: center; z-index: 1;
+    }
+
+    /* ---- small floating widgets, right side only ---- */
+    .float-stack {
+      position: absolute; top: 14px; right: 14px; z-index: 200;
+      display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+      max-width: 250px; pointer-events: none;
+    }
+    .float-stack > * { pointer-events: auto; }
+    .chip {
+      background: rgba(18,22,36,.9); backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--panel-border); border-radius: 9px;
+      padding: 6px 11px; font-size: 11px; font-weight: 600;
+      display: flex; align-items: center; gap: 7px; white-space: nowrap;
+      box-shadow: 0 4px 18px rgba(0,0,0,.4);
+    }
+    .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-green); flex-shrink: 0; }
+    .chip .dot.off { background: var(--accent-red); }
+    .chip .muted { color: var(--text-muted); font-weight: 500; }
+
+    /* the only floating card: what's running right now */
+    .now-card {
+      background: rgba(18,22,36,.9); backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--panel-border); border-left: 3px solid var(--accent-green);
+      border-radius: 10px; padding: 9px 11px; width: 230px; display: none;
+      box-shadow: 0 6px 22px rgba(0,0,0,.45);
+    }
+    .now-card.show { display: block; }
+    .now-label {
+      font-size: 8.5px; text-transform: uppercase; letter-spacing: .9px;
+      color: var(--text-muted); font-weight: 800; margin-bottom: 3px;
+    }
+    .now-title { font-size: 12px; font-weight: 650; line-height: 1.3; overflow-wrap: break-word; }
+    .now-meta {
+      display: flex; justify-content: space-between; margin-top: 5px;
+      font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: var(--text-muted);
+    }
+
+    /* bottom-left hint, deliberately tiny */
+    .hint {
+      position: absolute; left: 14px; bottom: 12px; z-index: 200;
+      display: flex; align-items: center; gap: 7px;
+      background: rgba(18,22,36,.8); backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--panel-border); border-radius: 18px;
+      padding: 5px 11px; font-size: 10px; color: var(--text-muted);
+    }
+    .hint kbd {
+      background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.16);
+      border-bottom-width: 2px; border-radius: 3px; padding: 1px 4px;
+      font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #fff; font-weight: 700;
+    }
+    .zoom-controls { right: 14px; bottom: 12px; }
+
+    /* ---- chat ---- */
+    .chat-wrap { display: flex; flex-direction: column; height: 100%; }
+    .chat-log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; padding-bottom: 8px; }
+    .chat-msg { display: flex; flex-direction: column; gap: 3px; }
+    .chat-from { font-size: 10px; font-weight: 700; color: var(--accent-cyan); }
+    .chat-from.agent { color: var(--accent-purple); }
+    .chat-body {
+      background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.07);
+      border-radius: 9px; padding: 8px 10px; font-size: 12.5px; line-height: 1.45;
+      overflow-wrap: break-word;
+    }
+    .chat-msg.ask .chat-body { border-color: rgba(255,215,64,.4); background: rgba(255,215,64,.07); }
+    .chat-actions { display: flex; gap: 6px; margin-top: 7px; }
+    .chat-actions button {
+      flex: 1; border-radius: 6px; padding: 5px 0; font-family: inherit;
+      font-size: 11px; font-weight: 700; cursor: pointer; border: 1px solid;
+      transition: all .15s;
+    }
+    .btn-approve { background: rgba(0,230,118,.14); border-color: rgba(0,230,118,.45); color: var(--accent-green); }
+    .btn-approve:hover { background: rgba(0,230,118,.26); }
+    .btn-reject { background: rgba(255,82,82,.12); border-color: rgba(255,82,82,.4); color: var(--accent-red); }
+    .btn-reject:hover { background: rgba(255,82,82,.24); }
+    .chat-actions button:disabled { opacity: .4; cursor: default; }
+    .chat-resolved { font-size: 10px; color: var(--text-muted); margin-top: 6px; font-style: italic; }
+    .chat-input-row { display: flex; gap: 7px; padding-top: 10px; border-top: 1px solid var(--panel-border); flex-shrink: 0; }
+    .chat-input-row input {
+      flex: 1; min-width: 0; background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.12); border-radius: 8px;
+      padding: 8px 11px; color: var(--text-main); font-family: inherit; font-size: 12.5px;
+    }
+    .chat-input-row input:focus { outline: none; border-color: var(--accent-cyan); }
+    .chat-input-row button {
+      background: var(--accent-cyan); color: #0d0f18; border: none; border-radius: 8px;
+      padding: 0 13px; font-weight: 800; cursor: pointer; font-size: 12px;
+    }
+    .chat-tip { font-size: 10px; color: var(--text-muted); margin-top: 7px; line-height: 1.4; }
+
+    /* ---- roster rows (agents / people) ---- */
+    .row {
+      display: flex; align-items: center; gap: 9px; padding: 8px 9px;
+      border-radius: 9px; cursor: pointer; transition: background .15s;
+      border: 1px solid transparent;
+    }
+    .row:hover { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.07); }
+    .row-avatar {
+      width: 28px; height: 28px; border-radius: 7px; flex-shrink: 0;
+      background: rgba(255,255,255,.08); display: flex; align-items: center;
+      justify-content: center; font-size: 12px;
+    }
+    .row-main { flex: 1; min-width: 0; }
+    .row-name { font-size: 12.5px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row-sub { font-size: 10px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .st-working { background: var(--accent-green); }
+    .st-idle { background: #55617a; }
+    .st-blocked { background: var(--accent-purple); }
+    .st-needs_input { background: var(--accent-amber); }
+    .st-reviewing { background: var(--accent-cyan); }
+    .st-failed, .st-completed { background: #55617a; }
+    .section-label {
+      font-size: 9.5px; text-transform: uppercase; letter-spacing: 1px;
+      color: var(--text-muted); font-weight: 800; margin: 14px 0 7px;
+    }
+    .section-label:first-child { margin-top: 0; }
+    .empty-note { color: var(--text-muted); font-size: 11.5px; padding: 14px 4px; text-align: center; opacity: .6; }
+
+    /* ---- "not built yet" placeholder, labelled as such ---- */
+    .temp {
+      border: 1px dashed rgba(255,215,64,.35); background: rgba(255,215,64,.05);
+      border-radius: 10px; padding: 13px; font-size: 11.5px; line-height: 1.5; color: var(--text-muted);
+    }
+    .temp b { color: var(--accent-amber); display: block; margin-bottom: 5px; font-size: 11px;
+              text-transform: uppercase; letter-spacing: .6px; }
+    .temp ul { margin: 7px 0 0 15px; }
+    .temp li { margin-bottom: 3px; }
+
+    /* board + memory reflow into the dock instead of full-screen overlays */
+    #board, #memory { position: static; inset: auto; display: block; padding: 0;
+                      background: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+    .board-cols { grid-auto-columns: minmax(0,1fr); grid-auto-flow: row; overflow-x: visible; gap: 10px; }
+    .board-col { min-height: 0; }
+    .board-col-body { max-height: 210px; }
+    .mem-list { max-width: none; }
+    .board-head, .mem-note { display: none; } /* the dock header says it now */
+
   </style>
 </head>
 <body>
+<div class="app">
 
-  <div id="canvas-container">
-    <canvas id="canvas"></canvas>
-  </div>
+  <!-- ============ left nav rail ============ -->
+  <nav class="rail">
+    <div class="rail-logo">LB</div>
+    <div class="rail-items">
+      <button class="rail-btn active" id="nav-office" onclick="openPanel('office')" title="Office">
+        <svg viewBox="0 0 24 24"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-5h6v5"/></svg><span>Office</span>
+      </button>
+      <button class="rail-btn" id="nav-chat" onclick="openPanel('chat')" title="Chat">
+        <svg viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 21l2-4.9A8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5z"/></svg><span>Chat</span>
+        <div class="badge" id="badge-chat">0</div>
+      </button>
+      <button class="rail-btn" id="nav-tasks" onclick="openPanel('tasks')" title="Tasks">
+        <svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><span>Tasks</span>
+      </button>
+      <button class="rail-btn" id="nav-agents" onclick="openPanel('agents')" title="Agents">
+        <svg viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M12 8V4M9 14h.01M15 14h.01"/></svg><span>Agents</span>
+      </button>
+      <button class="rail-btn" id="nav-memory" onclick="openPanel('memory')" title="Memory">
+        <svg viewBox="0 0 24 24"><path d="M12 3a4 4 0 0 0-4 4v1a3 3 0 0 0 0 6v2a3 3 0 0 0 6 0V7a4 4 0 0 0-2-4z"/><path d="M12 3a4 4 0 0 1 4 4v1a3 3 0 0 1 0 6v2a3 3 0 0 1-6 0"/></svg><span>Memory</span>
+      </button>
+      <button class="rail-btn" id="nav-people" onclick="openPanel('people')" title="People">
+        <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9"/></svg><span>People</span>
+      </button>
+    </div>
+    <div class="rail-foot">
+      <div class="rail-status" id="rail-status" title="Connection"></div>
+    </div>
+  </nav>
 
-  <!-- Header -->
-  <div class="header-bar">
-    <div class="brand">
-      <div class="brand-logo">LB</div>
+  <!-- ============ feature dock (opens beside the office) ============ -->
+  <section class="panel-dock" id="dock">
+    <div class="dock-head">
       <div>
-        <div style="display:flex; align-items:center; gap:6px;">
-          <span class="brand-title">LogBridge Office</span>
-          <span class="brand-version">v1.9</span>
+        <div class="dock-title" id="dock-title">Chat</div>
+        <div class="dock-sub" id="dock-sub"></div>
+      </div>
+      <button class="dock-close" onclick="openPanel('office')" title="Close">×</button>
+    </div>
+    <div class="dock-body">
+
+      <div class="dock-pane" id="pane-chat">
+        <div class="chat-wrap">
+          <div class="chat-log" id="chat-log"></div>
+          <div class="chat-input-row">
+            <input id="chat-input" placeholder="Message, or @agent to assign work…" autocomplete="off">
+            <button onclick="sendChat()">Send</button>
+          </div>
+          <div class="chat-tip">
+            Mention an idle agent by name — <b>@dev-fake fix the login bug</b> — and it
+            proposes a task for you to approve here.
+          </div>
+        </div>
+      </div>
+
+      <div class="dock-pane" id="pane-tasks"><div id="board"><div class="board-cols" id="board-cols"></div></div></div>
+
+      <div class="dock-pane" id="pane-agents">
+        <div id="agent-list"></div>
+        <div class="section-label">Add an agent</div>
+        <div class="temp">
+          <b>Not built yet</b>
+          Agents are declared on each machine in <code>apps/runner/src/cli.ts</code> and
+          published when that machine connects. Creating one from here needs a
+          runtime registration path the runner doesn't have.
+          <ul>
+            <li>pick provider (claude / codex / gemini / opencode)</li>
+            <li>pick model, preview the generated command</li>
+            <li>choose workspace folder + tool policy</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="dock-pane" id="pane-memory"><div id="memory"><div class="mem-list" id="mem-list"></div></div></div>
+
+      <div class="dock-pane" id="pane-people">
+        <div id="people-list"></div>
+        <div class="section-label">Invite</div>
+        <div class="temp">
+          <b>Not built yet</b>
+          There is no enrollment flow — a machine is trusted the first time it
+          proves its key (DECISIONS.md D23). Inviting a person means issuing a
+          one-time enrolment code, which needs a real sign-in first.
         </div>
       </div>
     </div>
-    <div class="room-badge">
-      <div class="room-dot" id="status-dot"></div>
-      <span id="current-zone-name">Lobby Reception</span>
-    </div>
-  </div>
+  </section>
 
-  <!-- Office ↔ Board toggle (CONTRACT.md 1.8: both views, one WorkspaceView) -->
-  <div class="view-toggle">
-    <button id="tab-office" class="active" onclick="setView('office')">Office</button>
-    <button id="tab-board" onclick="setView('board')">Board</button>
-    <button id="tab-memory" onclick="setView('memory')">Memory</button>
-  </div>
+  <!-- ============ the office — everything that's left ============ -->
+  <main class="stage" id="stage">
+    <div id="canvas-container"><canvas id="canvas"></canvas></div>
 
-  <!-- Memory view -->
-  <div id="memory">
-    <div class="board-head">
-      <h2>Team Memory</h2>
-      <span class="board-room" id="mem-room-name"></span>
-    </div>
-    <div class="mem-note">
-      What agents have learned in this room. Every agent recalls this before starting
-      a task — including agents on other machines. Retrieval is keyword relevance
-      (BM25), not semantic embeddings.
-    </div>
-    <div class="mem-list" id="mem-list"></div>
-  </div>
-
-  <!-- Board view -->
-  <div id="board">
-    <div class="board-head">
-      <h2>Task Board</h2>
-      <span class="board-room" id="board-room-name"></span>
-    </div>
-    <div class="board-cols" id="board-cols"></div>
-  </div>
-
-  <!-- Right Sidebar / Minimap -->
-  <div class="sidebar">
-    <div class="panel">
-      <div class="panel-title">
-        <span>Office Minimap</span>
-        <span id="coord-display">5, 5</span>
+    <div class="float-stack">
+      <div class="chip" id="conn-chip"><span class="dot off"></span><span id="conn-text">Connecting…</span></div>
+      <div class="chip"><span class="muted">Zone</span><span id="zone-stat">—</span></div>
+      <div class="now-card" id="now-card">
+        <div class="now-label">Running now</div>
+        <div class="now-title" id="now-title">—</div>
+        <div class="now-meta"><span id="now-agent">—</span><span id="now-cost"></span></div>
       </div>
-      <div class="minimap-container">
-        <canvas id="minimap-canvas"></canvas>
-        <div class="minimap-player" id="minimap-player"></div>
+    </div>
+
+    <div class="hint">
+      <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move
+      <span style="opacity:.4">·</span> click an agent to inspect
+    </div>
+
+    <div class="zoom-controls">
+      <button class="zoom-btn" onclick="adjustZoom(0.15)" title="Zoom in">+</button>
+      <button class="zoom-btn" onclick="adjustZoom(-0.15)" title="Zoom out">−</button>
+      <button class="zoom-btn" onclick="resetZoom()" title="Reset zoom" style="font-size:12px;">1:1</button>
+    </div>
+
+    <div class="inspector" id="inspector">
+      <div class="inspector-header">
+        <div>
+          <div class="inspector-name" id="insp-name">—</div>
+          <div style="font-size:11px;color:var(--text-muted);" id="insp-sub"></div>
+        </div>
+        <button class="inspector-close" onclick="closeInspector()">×</button>
       </div>
-      <div style="margin-top: 12px;">
-        <div class="stat-row">
-          <span class="stat-label">Position:</span>
-          <span class="stat-value" id="pos-stat">X: 160, Y: 160</span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">Zone:</span>
-          <span class="stat-value" id="zone-stat" style="color:var(--accent-cyan)">Lobby</span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">FPS:</span>
-          <span class="stat-value" id="fps-stat">60</span>
+      <div style="margin-bottom:10px;"><span class="inspector-badge badge-working" id="insp-badge">—</span></div>
+      <div style="background:rgba(0,0,0,.3);padding:10px;border-radius:8px;font-size:12px;margin-bottom:10px;">
+        <div style="color:var(--text-muted);font-size:10px;text-transform:uppercase;margin-bottom:4px;">Active task</div>
+        <div style="font-weight:600;" id="insp-task-title">—</div>
+        <div style="display:flex;justify-content:space-between;margin-top:6px;color:var(--accent-cyan);font-family:'JetBrains Mono';font-size:11px;">
+          <span id="insp-elapsed"></span><span id="insp-cost"></span>
         </div>
       </div>
+      <div style="font-size:11px;color:var(--text-muted);line-height:1.4;" id="insp-desc"></div>
     </div>
 
-    <div class="panel">
-      <div class="panel-title">
-        <span>Character Avatar</span>
-      </div>
-      <div class="char-select">
-        <button class="char-btn active" onclick="switchCharacter('nancy')">Nancy</button>
-        <button class="char-btn" onclick="switchCharacter('adam')">Adam</button>
-        <button class="char-btn" onclick="switchCharacter('ash')">Ash</button>
-        <button class="char-btn" onclick="switchCharacter('lucy')">Lucy</button>
-      </div>
-
-      <div class="panel-title" style="margin-top: 14px;">
-        <span>Walk Speed</span>
-        <span id="speed-indicator" style="color:var(--accent-cyan)">Fast (320px/s)</span>
-      </div>
-      <div class="char-select">
-        <button class="char-btn" id="spd-normal" onclick="setPlayerSpeed(220, 'Normal (220px/s)')">Normal</button>
-        <button class="char-btn active" id="spd-fast" onclick="setPlayerSpeed(320, 'Fast (320px/s)')">Fast</button>
-        <button class="char-btn" id="spd-turbo" onclick="setPlayerSpeed(500, 'Turbo (500px/s)')">Turbo ⚡</button>
-      </div>
-
-      <div style="margin-top: 12px; display:flex; gap:8px;">
-        <button class="action-btn" id="conn-btn" style="flex:1;cursor:default;">
-          ● Connecting…
-        </button>
-      </div>
+    <!-- kept for the minimap draw code; not shown in this layout -->
+    <div style="display:none">
+      <canvas id="minimap-canvas"></canvas><div id="minimap-player"></div>
+      <span id="coord-display"></span><span id="pos-stat"></span><span id="fps-stat"></span>
+      <span id="current-zone-name"></span><span id="speed-indicator"></span>
+      <button id="spd-normal"></button><button id="spd-fast"></button><button id="spd-turbo"></button>
+      <button id="conn-btn"></button><div id="status-dot"></div>
+      <div id="board-room-name"></div><div id="mem-room-name"></div>
     </div>
-  </div>
-
-  <!-- Inspector Card for Clicked Character / Agent -->
-  <div class="inspector" id="inspector">
-    <div class="inspector-header">
-      <div>
-        <div class="inspector-name" id="insp-name">Agent dev-api</div>
-        <div style="font-size: 11px; color: var(--text-muted);" id="insp-sub">ayush-mbp • Owner: ayush</div>
-      </div>
-      <button class="inspector-close" onclick="closeInspector()">×</button>
-    </div>
-    <div style="margin-bottom: 10px;">
-      <span class="inspector-badge badge-working" id="insp-badge">WORKING</span>
-    </div>
-    <div style="background: rgba(0,0,0,0.3); padding: 10px; border-radius: 8px; font-size: 12px; margin-bottom: 10px;">
-      <div style="color:var(--text-muted); font-size:10px; text-transform:uppercase; margin-bottom:4px;">Active Task</div>
-      <div style="font-weight:600; color:var(--text-main);" id="insp-task-title">Implementing JWT authentication</div>
-      <div style="display:flex; justify-content:space-between; margin-top:6px; color:var(--accent-cyan); font-family:'JetBrains Mono'; font-size:11px;">
-        <span id="insp-elapsed">Elapsed: 14m 20s</span>
-        <span id="insp-cost">$0.42 USD</span>
-      </div>
-    </div>
-    <div style="font-size: 11px; color: var(--text-muted); line-height: 1.4;" id="insp-desc">
-      Running test suites and verifying token validation endpoints.
-    </div>
-  </div>
-
-  <!-- Bottom Navigation Hint Bar -->
-  <div class="bottom-bar">
-    <div class="key-group">
-      <span class="key-cap">W</span>
-      <span class="key-cap">A</span>
-      <span class="key-cap">S</span>
-      <span class="key-cap">D</span>
-      <span class="key-desc">/ Arrows to Move</span>
-    </div>
-    <div class="divider"></div>
-    <div class="key-group">
-      <span class="key-cap">SHIFT</span>
-      <span class="key-desc">Sprint</span>
-    </div>
-    <div class="divider"></div>
-    <div class="key-group">
-      <span class="key-desc">Click character to Inspect</span>
-    </div>
-  </div>
-
-  <!-- Zoom Controls -->
-  <div class="zoom-controls">
-    <button class="zoom-btn" onclick="adjustZoom(0.15)" title="Zoom In">+</button>
-    <button class="zoom-btn" onclick="adjustZoom(-0.15)" title="Zoom Out">−</button>
-    <button class="zoom-btn" onclick="resetZoom()" title="Reset Zoom" style="font-size:12px;">1:1</button>
-  </div>
+  </main>
+</div>
 
   <script>
     // ============================================================
@@ -1008,16 +1220,18 @@
           latestView = msg.view;
           meId = msg.view.meId;
           renderView(latestView);
+          renderPanels();
+          renderNowCard(latestView.rooms[0] ?? { agents: [] });
+        } else if (msg.type === 'chat') {
+          onChatMessage(msg.msg);
         }
-        // chat messages: no chat panel in this M1 build yet (SYSTEM.md phase 2).
       });
     }
 
     function setConnLabel(text, ok) {
-      const btn = document.getElementById('conn-btn');
-      if (!btn) return;
-      btn.textContent = text;
-      btn.classList.toggle('active', ok);
+      document.getElementById('rail-status').classList.toggle('on', ok);
+      document.getElementById('conn-text').textContent = text.replace(/^●\s*/, '');
+      document.getElementById('conn-chip').querySelector('.dot').classList.toggle('off', !ok);
     }
 
     function sendPosition() {
@@ -1175,23 +1389,220 @@
       }
     }
 
-    const VIEW_MODES = ['office', 'board', 'memory'];
-    let currentViewMode = 'office';
-    window.setView = function (mode) {
-      currentViewMode = mode;
-      document.getElementById('board').classList.toggle('open', mode === 'board');
-      document.getElementById('memory').classList.toggle('open', mode === 'memory');
-      for (const m of VIEW_MODES) {
-        document.getElementById(`tab-${m}`).classList.toggle('active', mode === m);
+    // ---------------- app shell: nav rail + feature dock ----------------
+    // The office is never covered — the dock opens *beside* it. Panels are
+    // re-rendered on open and on every view broadcast while open.
+    const PANELS = ['office', 'chat', 'tasks', 'agents', 'memory', 'people'];
+    const PANEL_META = {
+      chat:   { title: 'Chat',        sub: 'Talk to the room, approve proposed work' },
+      tasks:  { title: 'Tasks',       sub: 'Everything queued, running and finished' },
+      agents: { title: 'Agents',      sub: 'Who is on the floor and what they are doing' },
+      memory: { title: 'Team memory', sub: 'What agents recall before starting work' },
+      people: { title: 'People',      sub: 'Humans in this workspace' },
+    };
+    let currentPanel = 'office';
+    function stageEl() { return document.getElementById('stage'); }
+
+    window.openPanel = function (name) {
+      // clicking the active tab again closes it, back to just the office
+      if (name === currentPanel && name !== 'office') name = 'office';
+      currentPanel = name;
+
+      const dock = document.getElementById('dock');
+      dock.classList.toggle('open', name !== 'office');
+      for (const p of PANELS) {
+        const btn = document.getElementById('nav-' + p);
+        if (btn) btn.classList.toggle('active', p === name);
+        const pane = document.getElementById('pane-' + p);
+        if (pane) pane.classList.toggle('active', p === name);
       }
-      // Movement keys are held in `keys` — a key still down when an overlay
-      // opens would otherwise stay stuck and walk the player while it's up.
+      const meta = PANEL_META[name];
+      if (meta) {
+        document.getElementById('dock-title').textContent = meta.title;
+        document.getElementById('dock-sub').textContent = meta.sub;
+      }
+      // A key held when focus moves would otherwise stay stuck down.
       for (const k of Object.keys(keys)) keys[k] = false;
+      renderPanels();
+      if (name === 'chat') {
+        document.getElementById('badge-chat').classList.remove('show');
+        unreadChat = 0;
+        setTimeout(() => document.getElementById('chat-input').focus(), 60);
+      }
+    };
+
+    function renderPanels() {
       const room = latestView?.rooms?.[0];
       if (!room) return;
-      if (mode === 'board') renderBoard(room);
-      if (mode === 'memory') renderMemory(room);
+      if (currentPanel === 'chat') renderChat();
+      if (currentPanel === 'tasks') renderBoard(room);
+      if (currentPanel === 'memory') renderMemory(room);
+      if (currentPanel === 'agents') renderAgents(room);
+      if (currentPanel === 'people') renderPeople(room);
+    }
+
+    // ---------------- rosters ----------------
+    function rosterRow(opts) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      const av = document.createElement('div');
+      av.className = 'row-avatar';
+      av.textContent = opts.icon;
+      const main = document.createElement('div');
+      main.className = 'row-main';
+      const name = document.createElement('div');
+      name.className = 'row-name';
+      name.textContent = opts.name;          // agent/human names are data
+      const sub = document.createElement('div');
+      sub.className = 'row-sub';
+      sub.textContent = opts.sub;
+      main.append(name, sub);
+      const dot = document.createElement('div');
+      dot.className = 'row-dot st-' + opts.status;
+      row.append(av, main, dot);
+      if (opts.onClick) row.onclick = opts.onClick;
+      return row;
+    }
+
+    function renderAgents(room) {
+      const el = document.getElementById('agent-list');
+      el.innerHTML = '';
+      if (!room.agents.length) {
+        el.innerHTML = '<div class="empty-note">No agents have joined this room yet.</div>';
+        return;
+      }
+      for (const a of room.agents) {
+        el.appendChild(rosterRow({
+          icon: '🤖', name: a.name, status: a.status,
+          sub: a.task ? a.task.title : `${a.status} · ${a.machineName}`,
+          onClick: () => inspectAgent(a),
+        }));
+      }
+    }
+
+    function renderPeople(room) {
+      const el = document.getElementById('people-list');
+      el.innerHTML = '';
+      const machines = room.machines ?? [];
+      el.innerHTML = '<div class="section-label">In this room</div>';
+      if (!room.humans.length) {
+        el.innerHTML += '<div class="empty-note">Nobody else is here right now.</div>';
+      } else {
+        for (const h of room.humans) {
+          el.appendChild(rosterRow({ icon: '🙂', name: h.name, status: 'working', sub: h.presence }));
+        }
+      }
+      const lbl = document.createElement('div');
+      lbl.className = 'section-label';
+      lbl.textContent = 'Machines';
+      el.appendChild(lbl);
+      if (!machines.length) {
+        const n = document.createElement('div');
+        n.className = 'empty-note';
+        n.textContent = 'No machines connected.';
+        el.appendChild(n);
+      }
+      for (const m of machines) {
+        el.appendChild(rosterRow({
+          icon: '💻', name: m.name, status: m.online ? 'working' : 'idle',
+          sub: m.online ? 'online' : 'offline',
+        }));
+      }
+    }
+
+    // ---------------- chat ----------------
+    // The server broadcasts chat but never replays it, so history is
+    // client-side only: a late joiner starts empty until the next message.
+    // Noted rather than faked — persisting it is a server change.
+    const chatLog = [];
+    let unreadChat = 0;
+    const answered = new Set();
+
+    function renderChat() {
+      const log = document.getElementById('chat-log');
+      log.innerHTML = '';
+      if (!chatLog.length) {
+        log.innerHTML = '<div class="empty-note">No messages yet. Say something, or @mention an agent.</div>';
+        return;
+      }
+      for (const m of chatLog) {
+        const wrap = document.createElement('div');
+        wrap.className = 'chat-msg' + (m.ask ? ' ask' : '');
+        const from = document.createElement('div');
+        from.className = 'chat-from' + (m.from.kind === 'agent' ? ' agent' : '');
+        from.textContent = m.from.name;
+        const body = document.createElement('div');
+        body.className = 'chat-body';
+        body.textContent = m.text;           // authored text — never innerHTML
+        wrap.append(from, body);
+
+        if (m.ask) {
+          if (answered.has(m.ask.taskId)) {
+            const done = document.createElement('div');
+            done.className = 'chat-resolved';
+            done.textContent = `You chose: ${answered_choice.get(m.ask.taskId) ?? 'answered'}`;
+            body.appendChild(done);
+          } else {
+            const acts = document.createElement('div');
+            acts.className = 'chat-actions';
+            for (const choice of m.ask.options) {
+              const b = document.createElement('button');
+              b.className = choice === 'approve' ? 'btn-approve' : 'btn-reject';
+              b.textContent = choice === 'approve' ? '✓ Approve' : '✕ Reject';
+              b.onclick = () => answerAsk(m.ask.taskId, choice);
+              acts.appendChild(b);
+            }
+            body.appendChild(acts);
+          }
+        }
+        log.appendChild(wrap);
+      }
+      log.scrollTop = log.scrollHeight;
+    }
+
+    const answered_choice = new Map();
+    function answerAsk(taskId, choice) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: 'answer', taskId, choice }));
+      answered.add(taskId);
+      answered_choice.set(taskId, choice);
+      renderChat();
+    }
+
+    window.sendChat = function () {
+      const input = document.getElementById('chat-input');
+      const text = input.value.trim();
+      const room = activeRoom();
+      if (!text || !room || !ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: 'chat', roomId: room.id, text }));
+      input.value = '';
     };
+
+    function onChatMessage(msg) {
+      chatLog.push(msg);
+      if (chatLog.length > 200) chatLog.shift();
+      if (currentPanel === 'chat') {
+        renderChat();
+      } else {
+        unreadChat++;
+        const b = document.getElementById('badge-chat');
+        b.textContent = unreadChat > 9 ? '9+' : String(unreadChat);
+        b.classList.add('show');
+      }
+    }
+
+    // ---------------- the one floating card ----------------
+    function renderNowCard(room) {
+      const busy = room.agents.find((a) => a.task);
+      const card = document.getElementById('now-card');
+      card.classList.toggle('show', !!busy);
+      if (!busy) return;
+      document.getElementById('now-title').textContent = busy.task.title;
+      document.getElementById('now-agent').textContent = busy.name;
+      document.getElementById('now-cost').textContent =
+        busy.task.costUsd > 0 ? `$${busy.task.costUsd.toFixed(2)}` : '';
+    }
+
 
     function makeNameTag(text, color) {
       const t = new PIXI.Text(text, {
@@ -1299,7 +1710,7 @@
 
       app = new PIXI.Application({
         view: document.getElementById('canvas'),
-        width: window.innerWidth, height: window.innerHeight,
+        width: stageEl().clientWidth, height: stageEl().clientHeight,
         resolution: window.devicePixelRatio || 1, autoDensity: true,
         backgroundColor: 0x0d0f18, antialias: false,
       });
@@ -1363,14 +1774,14 @@
     function setupInput() {
       window.addEventListener('keydown', (e) => {
         // Tab flips between the two views of the same room.
-        if (e.key === 'Tab') {
-          e.preventDefault();
-          const next = (VIEW_MODES.indexOf(currentViewMode) + 1) % VIEW_MODES.length;
-          window.setView(VIEW_MODES[next]);
+        // Typing in the chat box must never walk the character around.
+        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+          if (e.key === 'Enter') window.sendChat();
+          if (e.key === 'Escape') e.target.blur();
           return;
         }
-        if (e.key === 'Escape' && currentViewMode !== 'office') { window.setView('office'); return; }
-        if (currentViewMode !== 'office') return; // an overlay is up — nothing to drive
+        if (e.key === 'Escape' && currentPanel !== 'office') { window.openPanel('office'); return; }
+        if (e.key === 'c' || e.key === 'C') { window.openPanel('chat'); return; }
         if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') keys.w = keys.up = true;
         if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') keys.a = keys.left = true;
         if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') keys.s = keys.down = true;
@@ -1385,14 +1796,18 @@
         if (e.key === 'Shift') keys.shift = false;
       });
       window.addEventListener('wheel', (e) => {
-        if (currentViewMode !== 'office') return; // let the overlay scroll normally
+        if (currentPanel !== 'office') return; // let the dock scroll normally
         e.preventDefault();
         adjustZoom(e.deltaY < 0 ? 0.08 : -0.08);
       }, { passive: false });
     }
 
     function setupResize() {
-      window.addEventListener('resize', () => app.renderer.resize(window.innerWidth, window.innerHeight));
+      const fit = () => app.renderer.resize(stageEl().clientWidth, stageEl().clientHeight);
+      window.addEventListener('resize', fit);
+      // The dock opening/closing changes the stage width without a window
+      // resize event, so watch the element itself.
+      if (window.ResizeObserver) new ResizeObserver(fit).observe(stageEl());
     }
 
     function checkCollision(targetX, targetY) {
@@ -1478,8 +1893,18 @@
         entry.sprite.y += (entry.target.y - entry.sprite.y) * ease;
       }
 
-      const targetCamX = window.innerWidth / 2 - player.x * zoomLevel;
-      const targetCamY = window.innerHeight / 2 - player.y * zoomLevel;
+      // Follow the player, but never past the edge of the building — an
+      // unclamped camera shows empty void beside the map, which got obvious
+      // once the office grew to fill the whole stage. When the map is
+      // narrower than the viewport (zoomed out, or a very wide window) it
+      // is centred instead, because there is no scrolling left to do.
+      const viewW = stageEl().clientWidth, viewH = stageEl().clientHeight;
+      const worldW = MAP_WIDTH * zoomLevel, worldH = MAP_HEIGHT * zoomLevel;
+      const clampAxis = (view, world, desired) =>
+        world <= view ? (view - world) / 2 : Math.min(0, Math.max(view - world, desired));
+
+      const targetCamX = clampAxis(viewW, worldW, viewW / 2 - player.x * zoomLevel);
+      const targetCamY = clampAxis(viewH, worldH, viewH / 2 - player.y * zoomLevel);
       worldContainer.x += (targetCamX - worldContainer.x) * 0.1;
       worldContainer.y += (targetCamY - worldContainer.y) * 0.1;
 
