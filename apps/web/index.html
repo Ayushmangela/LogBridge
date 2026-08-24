@@ -997,10 +997,12 @@
       if (!room) return;
 
       const seenAgents = new Set();
+      const bubbleLevels = computeBubbleLevels(room);
       for (const a of room.agents) {
         seenAgents.add(a.id);
         let entry = renderedAgents.get(a.id);
         if (!entry) entry = createAgentSprite(a);
+        entry.bubbleLevel = bubbleLevels.get(a.id) ?? 0;
         updateAgentSprite(entry, a);
       }
       for (const [id, entry] of renderedAgents) {
@@ -1630,9 +1632,57 @@
       const t = new PIXI.Text(text, {
         fontFamily: 'Outfit, sans-serif', fontSize: 9, fontWeight: '600', fill: color,
         dropShadow: true, dropShadowColor: 0x000000, dropShadowDistance: 1, dropShadowBlur: 2,
+        // Text lives inside worldContainer, which zooms 0.6–2.5x. Rasterized
+        // once at scale 1 it turns to mush the moment someone zooms in —
+        // render the glyphs oversized instead and let the GPU downscale.
+        resolution: 3,
       });
       t.anchor.set(0.5, 2.5);
       return t;
+    }
+
+    // Speech bubble above a working agent. Created once per agent, shown/
+    // hidden as tasks come and go — never re-created per frame.
+    function makeBubble() {
+      const container = new PIXI.Container();
+      const bg = new PIXI.Graphics();
+      const label = new PIXI.Text('', {
+        fontFamily: 'Outfit, sans-serif', fontSize: 9, fontWeight: '600',
+        fill: 0xf0f4fc, wordWrap: false, resolution: 3,
+      });
+      label.anchor.set(0.5, 0.5);
+      container.addChild(bg, label);
+      container.visible = false;
+      return { container, bg, label };
+    }
+
+    function truncate(s, n) {
+      s = String(s ?? '');
+      return s.length > n ? s.slice(0, n - 1) + '…' : s;
+    }
+
+    // Agents clustered together (desk pods pack three per rect) would draw
+    // their bubbles on top of each other. Assign each working agent a stack
+    // LEVEL: how many already-levelled colleagues stand within ~1 tile of it.
+    // Iterating in server-slot order makes the assignment stable across
+    // updates — contract invariant #3, applied to bubbles. Levels raise the
+    // bubble upward, so a pod reads as a little totem instead of a smear.
+    function computeBubbleLevels(room) {
+      const workers = room.agents.filter((a) => a.task);
+      const positions = new Map(workers.map((a) => [a.id, positionForAgent(a)]));
+      const levels = new Map();
+      for (const a of workers) {
+        const p = positions.get(a.id);
+        let level = 0;
+        for (const [otherId, q] of positions) {
+          if (otherId === a.id) continue;
+          const done = levels.get(otherId);
+          if (done == null || done < level) continue;
+          if (Math.abs(p.x - q.x) < TILE * 1.8 && Math.abs(p.y - q.y) < TILE * 1.8) level = done + 1;
+        }
+        levels.set(a.id, Math.min(level, 3));
+      }
+      return levels;
     }
 
     function createAgentSprite(a) {
@@ -1647,8 +1697,10 @@
       sprite.addChild(tag);
       const dot = new PIXI.Graphics();
       sprite.addChild(dot);
+      const bubble = makeBubble();
+      sprite.addChild(bubble.container);
       worldContainer.addChild(sprite);
-      const entry = { sprite, tag, dot, char: charName };
+      const entry = { sprite, tag, dot, bubble, char: charName };
       renderedAgents.set(a.id, entry);
       return entry;
     }
@@ -1674,8 +1726,38 @@
       entry.color = STATUS_COLOR[a.status] ?? 0x8a99b5;
       entry.dot.clear();
       entry.dot.beginFill(entry.color).drawCircle(10, -34, 3).endFill();
+      drawBubble(entry, a);
       entry.data = a;
       if (entry.sprite.x === 0 && entry.sprite.y === 0) { entry.sprite.x = pos.x; entry.sprite.y = pos.y; }
+    }
+
+    // The bubble is what the agent is DOING right now — its task title, the
+    // one field the server sends for exactly this purpose. No task, no
+    // bubble: an idle agent says nothing, because it has nothing to say.
+    function drawBubble(entry, a) {
+      const { container, bg, label } = entry.bubble;
+      if (!a.task || !a.task.title) {
+        container.visible = false;
+        return;
+      }
+      label.text = truncate(a.task.title, 26);
+      const w = Math.max(label.width + 16, 40);
+      const h = 16;
+      const lift = 38 + (entry.bubbleLevel ?? 0) * (h + 6); // stacked pods climb
+      bg.clear()
+        .lineStyle(1, entry.color ?? 0x8a99b5, 0.85)
+        .beginFill(0x10131f, 0.92)
+        .drawRoundedRect(-w / 2, -lift - h, w, h, 7)
+        .endFill()
+        .lineStyle(0)
+        .beginFill(0x10131f, 0.92)
+        .moveTo(-4, -lift)
+        .lineTo(4, -lift)
+        .lineTo(0, -lift + 4)
+        .closePath()
+        .endFill();
+      label.position.set(0, -lift - h / 2);
+      container.visible = true;
     }
 
     function updateHumanSprite(entry, h) {
