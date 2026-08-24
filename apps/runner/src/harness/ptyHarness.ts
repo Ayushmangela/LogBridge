@@ -32,6 +32,13 @@ export interface PtyHarnessConfig {
   model?: string | null;
   /** Escape hatch for a CLI the registry doesn't know. */
   buildArgs?: (prompt: string) => string[];
+  /**
+   * Run a provider whose tool policy CANNOT be enforced (policy: "none").
+   * Off by default: silently running a model unrestricted while the caller
+   * passed denyPaths would make the policy decorative, and D3 exists
+   * precisely so it isn't. Opting in is a deliberate act by the operator.
+   */
+  allowUnsandboxed?: boolean;
 }
 
 const ANSI_ESCAPE = /\x1b\[[0-9;]*[a-zA-Z]/g;
@@ -65,14 +72,43 @@ export function makePtyHarness(config: PtyHarnessConfig = {}): AgentHarness {
   const buildArgs = config.buildArgs ?? ((prompt: string) => provider.buildArgs(prompt, model));
   // Each provider reads its own format; a mismatch here is what made the
   // harness silently useless against anything but Claude Code before.
-  const readLine = (queue: AsyncEventQueue<AgentEvent>, line: string) => {
-    for (const ev of provider.parseLine(line)) queue.push(ev);
+  // Returns true when the provider reported a terminal outcome of its own.
+  const readLine = (queue: AsyncEventQueue<AgentEvent>, line: string): boolean => {
+    let terminal = false;
+    for (const ev of provider.parseLine(line)) {
+      if (ev.kind === "done" || ev.kind === "error") terminal = true;
+      queue.push(ev);
+    }
+    return terminal;
   };
+
+  const allowUnsandboxed = config.allowUnsandboxed ?? process.env.AGENT_ALLOW_UNSANDBOXED === "1";
 
   return {
     name: `pty:${provider.id}`,
     spawn(opts: SpawnOptions): AgentHandle {
-      writeScopedSettings(opts.cwd, opts.allowTools, opts.denyPaths);
+      // Refuse before spawning anything if the caller asked for restrictions
+      // this provider cannot actually apply. Failing the task is the correct
+      // outcome — the alternative is a model running with more access than
+      // whoever queued the work believed it had.
+      const wantsPolicy = opts.allowTools.length > 0 || opts.denyPaths.length > 0;
+      if (provider.policy === "none" && wantsPolicy && !allowUnsandboxed) {
+        const q = new AsyncEventQueue<AgentEvent>();
+        q.push({
+          kind: "error",
+          message:
+            `${provider.id} has no tool-policy mechanism this runner can enforce, ` +
+            `but a policy was requested (allow=[${opts.allowTools.join(",")}] ` +
+            `deny=[${opts.denyPaths.join(",")}]). Refusing to run it unrestricted. ` +
+            `Pass --allow-unsandboxed (or AGENT_ALLOW_UNSANDBOXED=1) to accept that risk. See PROVIDERS.md.`,
+        });
+        q.close();
+        return { events: q, interrupt: () => {}, kill: () => {} };
+      }
+      // Only meaningful for providers that actually read it.
+      if (provider.policy === "claude-settings") {
+        writeScopedSettings(opts.cwd, opts.allowTools, opts.denyPaths);
+      }
 
       const queue = new AsyncEventQueue<AgentEvent>();
       let settled = false;
@@ -99,11 +135,11 @@ export function makePtyHarness(config: PtyHarnessConfig = {}): AgentHarness {
       // still exit 0. Process exit is only the fallback for a CLI that dies
       // without one. Without this flag both fire and a run reports twice.
       let sawResult = false;
+      // Ask the parser rather than string-matching the wire format: only the
+      // provider knows which of its lines are actually terminal. Matching on
+      // '"type":"step_finish"' latched on opencode's INTERMEDIATE steps.
       const scan = (line: string) => {
-        // A provider that reports its own outcome wins over the exit code —
-        // see the sawResult comment above.
-        if (line.includes('"type":"result"') || line.includes('"type":"step_finish"')) sawResult = true;
-        readLine(queue, line);
+        if (readLine(queue, line)) sawResult = true;
       };
 
       proc.onData((chunk: string) => {

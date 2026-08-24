@@ -14,10 +14,26 @@
 // parser for a format nobody here has observed.
 import type { AgentEvent } from "./types.js";
 
+/**
+ * How a provider's tool policy is enforced, if at all.
+ *
+ *  "claude-settings" — a project-scoped .claude/settings.local.json the CLI
+ *                      reads and obeys.
+ *  "none"            — no known mechanism. allowTools/denyPaths CANNOT be
+ *                      enforced; the CLI runs with its own defaults.
+ *
+ * This is not cosmetic. D3 puts policy in the runner precisely so a model
+ * can't reach past it, and writing a settings file the CLI ignores is worse
+ * than no policy at all — it looks enforced. Providers marked "none" are
+ * refused unless the operator explicitly opts in.
+ */
+export type PolicyMode = "claude-settings" | "none";
+
 export interface ProviderSpec {
   id: string;
   label: string;
   command: string;
+  policy: PolicyMode;
   /** Has this provider's output format been observed, or is it assumed? */
   verified: boolean;
   /** Model ids offered in the UI. Empty = the CLI picks, or it's configured elsewhere. */
@@ -79,6 +95,10 @@ function parseClaude(line: string): AgentEvent[] {
   }
 }
 
+// opencode step_finish reasons. A step ending is not the run ending.
+const CONTINUES = new Set(["tool-calls", "tool_calls", "tool-call", "length"]);
+const TERMINAL_OK = new Set(["stop", "end_turn", "end-turn", "complete", "completed"]);
+
 // -------------------------------------------------------------- opencode
 // Verified against a real run — test-support/opencode-json.sample.jsonl.
 // Everything hangs off `part`, and the envelope's `type` is snake_case while
@@ -98,19 +118,26 @@ function parseOpencode(line: string): AgentEvent[] {
         ? [{ kind: "output", text: trim(part.text) }]
         : [];
 
-    case "tool": {
-      // Not observed in the captured sample (that run used no tools), so this
-      // reads defensively across the plausible field names rather than
-      // asserting one. See PROVIDERS.md.
-      const name = part.tool ?? part.name ?? part.toolName ?? "unknown";
-      return [{ kind: "tool_call", name: String(name), input: part.input ?? part.args ?? null }];
+    // Verified against test-support/opencode-tools.sample.jsonl. Note the
+    // envelope type is "tool_use" while part.type is "tool" — keying on
+    // "tool" (the obvious guess) matched nothing, so a real run wrote a file
+    // and reported zero tool calls.
+    case "tool_use": {
+      const name = String(part.tool ?? part.name ?? "unknown");
+      // The arguments live under state.input, not at the top of part.
+      const input = part.state?.input ?? part.input ?? null;
+      return [{ kind: "tool_call", name, input }];
     }
 
     case "step_finish": {
       if (typeof part.cost === "number" && part.cost > 0) out.push({ kind: "cost", usd: part.cost });
-      const failed = part.reason && part.reason !== "stop" && part.reason !== "end_turn";
-      if (failed) out.push({ kind: "error", message: `opencode stopped: ${trim(part.reason, 120)}` });
-      else out.push({ kind: "done", ok: true });
+      const reason = String(part.reason ?? "stop");
+      // opencode finishes a STEP, not the run. "tool-calls" means the model
+      // paused to use tools and more steps follow — treating it as terminal
+      // killed a real task mid-work the first time this ran for real.
+      if (CONTINUES.has(reason)) return out;
+      if (TERMINAL_OK.has(reason)) { out.push({ kind: "done", ok: true }); return out; }
+      out.push({ kind: "error", message: `opencode stopped: ${trim(reason, 120)}` });
       return out;
     }
 
@@ -145,6 +172,7 @@ export const PROVIDERS: ProviderSpec[] = [
     id: "claude",
     label: "Claude Code",
     command: "claude",
+    policy: "claude-settings",
     verified: true,
     models: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"],
     buildArgs: (prompt, model) => [
@@ -159,6 +187,9 @@ export const PROVIDERS: ProviderSpec[] = [
     id: "opencode",
     label: "OpenCode",
     command: "opencode",
+    // opencode has its own permission config, but nothing here has verified
+    // how to scope it per-run — so it is honestly "none" rather than assumed.
+    policy: "none",
     verified: true,
     models: [], // `opencode models` lists them per configured provider
     buildArgs: (prompt, model) => ["run", prompt, "--format", "json", ...(model ? ["-m", model] : [])],
@@ -168,6 +199,7 @@ export const PROVIDERS: ProviderSpec[] = [
     id: u.id,
     label: u.label,
     command: u.command,
+    policy: "none" as const,
     verified: false,
     models: u.models,
     buildArgs: u.args,

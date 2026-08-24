@@ -48,6 +48,9 @@ const harness = harnessKind === "fake"
       provider: arg("provider"),          // see PROVIDERS.md
       command: arg("cli-command"),        // override the binary if it's not on PATH
       model: arg("model") ?? null,
+      // Providers with no enforceable tool policy refuse to run unless the
+      // machine's owner explicitly accepts that. See PROVIDERS.md.
+      allowUnsandboxed: process.argv.includes("--allow-unsandboxed"),
     });
 if (harnessKind !== "fake") {
   console.log(`[runner ${machineId}] using REAL harness: ${harness.name} — see PROVIDERS.md for what's verified`);
