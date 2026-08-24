@@ -176,6 +176,10 @@ export class RunnerConnection {
           providers: installedProviderSpecs(),
           allowAgentCreation: Boolean(this.opts.allowAgentCreation),
           allowUnsandboxed: Boolean(this.opts.allowUnsandboxed),
+          // Published so the server can refuse delegations to this machine
+          // BEFORE holding one for consent — approving work the machine would
+          // refuse anyway is just noise.
+          acceptDelegations: Boolean(this.opts.acceptDelegations),
         })
       );
     });
@@ -400,6 +404,10 @@ export class RunnerConnection {
     inputs: Record<string, unknown>;
     acceptance?: string | null;
     budget?: { seconds: number; usd: number };
+    /** Requester-authored plaintext describing the intent, shown to the
+     *  target machine's owner when consent is asked. NOT the payload —
+     *  inputs/acceptance stay sealed. See SEALED.md's trade-off note. */
+    summary?: string | null;
   }): Promise<{ state: string; findings: string | null }> {
     const agent = this.opts.agents[0];
     const peer = this.peers.find((p) => p.agentId === opts.targetAgentId);
@@ -434,6 +442,7 @@ export class RunnerConnection {
         targetAgentId: opts.targetAgentId, targetNodeId: peer.machineId,
         projectId: project, budget: opts.budget ?? { seconds: 120, usd: 1 },
         sealed,
+        summary: opts.summary ?? null,
       },
     } as EnvelopeT);
 

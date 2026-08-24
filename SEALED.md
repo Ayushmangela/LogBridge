@@ -62,11 +62,27 @@ A machine does **not** run other people's work by default. `acceptDelegations`
 is off unless the owner turns it on (`--accept-delegations`). A delegation to a
 machine that hasn't opted in is refused, and nothing executes.
 
-This is the honest version of PHASES.md M5's *"He approves once"* that's
-buildable without UI: the approval is a deliberate act by the machine's owner,
-made once, rather than a dialog per request. **Per-request consent — the
-`delegate.decision` flow with approve/deny/always/never — is speced in the
-protocol and not built.** That is the remaining half of M5's consent story.
+On top of that machine-level gate there is now **per-request consent**: the
+first time an owner's capability is asked for by a given other owner, the
+server holds the request (unread) and posts the question to the room. The
+owner answers once (`approve`), forever (`always` — a row in `grants`), or
+refuses. `never` becomes a standing rule; later requests are denied without
+asking again. Held requests expire unanswered after ten minutes rather than
+running by default.
+
+**The consent trade-off, stated plainly.** The server cannot read the sealed
+payload, so it cannot show the owner what the work actually *is*. Two honest
+options existed: display the prompt only on the receiving machine after
+decryption, or have the requester include a plaintext `summary` beside the
+sealed body. LogBridge takes the second: the question must be answerable from
+any browser — an inbox you can only read at the target machine's terminal
+defeats being an inbox. The cost is that the server learns the requester's own
+description of intent ("run the integration suite") for held requests. It
+still never learns inputs, acceptance criteria or findings; the summary is
+written by the requester before anything is sealed, and the grep test still
+passes because it never contains payload text. If a future threat model
+considers even intent metadata sensitive, flip to receiving-side-only display;
+the hold-and-forward machinery here is what makes either UI possible.
 
 ## What this is NOT
 

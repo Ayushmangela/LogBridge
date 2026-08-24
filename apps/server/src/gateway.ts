@@ -5,7 +5,7 @@ import {
   appendEvent, clearAgentWaiting, createTask, getTask, lastSeq,
   setAgentWaitingOnHuman, setTaskState, type Db,
 } from "./db.js";
-import { sendTaskOffer, type NodeSockets } from "./nodeGateway.js";
+import { resolveDelegationConsent, sendTaskOffer, type NodeSockets } from "./nodeGateway.js";
 import { buildView, Positions } from "./view.js";
 
 // `@agent-name the rest of the message` — see M4-KICKOFF.md. The "spec" this
@@ -187,6 +187,20 @@ export function registerGateway(
           broadcastChat(revised);
           broadcastView();
           return;
+        }
+
+        // Delegation consent: the "taskId" here may be a held delegation's
+        // requestId rather than a task. resolveDelegationConsent returns
+        // false for non-delegation ids, and we fall through to task answers.
+        if (msg.data.choice === "approve" || msg.data.choice === "reject") {
+          const handled = resolveDelegationConsent(
+            db, nodeSockets, app, msg.data.taskId,
+            msg.data.choice === "approve",
+            // approve with no mode = this once; reject with never = standing rule
+            msg.data.mode,
+            broadcastChat
+          );
+          if (handled) { broadcastView(); return; }
         }
 
         if (task && task.state === "submitted" && task.agent_id) {

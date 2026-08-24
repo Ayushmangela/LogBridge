@@ -20,7 +20,7 @@ export interface BuiltServer {
 // registration path production uses, just not listening on a fixed port
 // with a fixed db file. See apps/runner's wifiDrop.test.ts.
 export async function buildServer(
-  opts: { dbPath?: string; leaseSeconds?: number; sweepIntervalMs?: number } = {}
+  opts: { dbPath?: string; leaseSeconds?: number; sweepIntervalMs?: number; consentTimeoutMs?: number } = {}
 ): Promise<BuiltServer> {
   const db = openDb(opts.dbPath);
   const positions = new Positions();
@@ -50,6 +50,7 @@ export async function buildServer(
     leaseSeconds: opts.leaseSeconds,
     sweepIntervalMs: opts.sweepIntervalMs,
     onChat: broadcastChat,
+    consentTimeoutMs: opts.consentTimeoutMs,
   });
 
   // ---------------------------------------------------------------------

@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS machines (
   -- of {id,label,policy,verified,models}) and its own two gates. The UI
   -- renders these; the RUNNER is what enforces them.
   providers TEXT,
+  accept_delegations INT DEFAULT 0,
   allow_agent_creation INT DEFAULT 0,
   allow_unsandboxed INT DEFAULT 0
 );
@@ -140,6 +141,7 @@ export function openDb(dbPath?: string): Db {
     "ALTER TABLE machines ADD COLUMN sealing_pubkey TEXT",
     "ALTER TABLE tasks ADD COLUMN required_capability TEXT",
     "ALTER TABLE machines ADD COLUMN providers TEXT",
+    "ALTER TABLE machines ADD COLUMN accept_delegations INT DEFAULT 0",
     "ALTER TABLE machines ADD COLUMN allow_agent_creation INT DEFAULT 0",
     "ALTER TABLE machines ADD COLUMN allow_unsandboxed INT DEFAULT 0",
   ]) {
@@ -198,11 +200,15 @@ export function registerMachine(
 // both of which change between runner restarts. Stale "installed providers"
 // would grey out something that now exists (or offer something that's gone).
 export function setMachineCapabilities(
-  db: Db, machineId: string, providers: unknown, allowAgentCreation: boolean, allowUnsandboxed: boolean
+  db: Db, machineId: string, providers: unknown,
+  allowAgentCreation: boolean, allowUnsandboxed: boolean, acceptDelegations: boolean
 ) {
   db.prepare(
-    "UPDATE machines SET providers = ?, allow_agent_creation = ?, allow_unsandboxed = ? WHERE id = ?"
-  ).run(JSON.stringify(providers ?? []), allowAgentCreation ? 1 : 0, allowUnsandboxed ? 1 : 0, machineId);
+    "UPDATE machines SET providers = ?, allow_agent_creation = ?, allow_unsandboxed = ?, accept_delegations = ? WHERE id = ?"
+  ).run(
+    JSON.stringify(providers ?? []), allowAgentCreation ? 1 : 0,
+    allowUnsandboxed ? 1 : 0, acceptDelegations ? 1 : 0, machineId
+  );
 }
 
 // A machine that connected before it had a sealing key (or that rotated one)
@@ -277,8 +283,7 @@ export function expiredLeaseTasks(db: Db) {
 // is a real lifecycle transition away from waiting on anyone — clear
 // waiting_on here so it can't outlive the needs_input state that set it.
 // waiting_on's only other writer is setAgentWaitingOnHuman/clearAgentWaiting.
-export function setAgentStatus(db: Db, agentId: string, status: string, currentTask: string | null) {
-  db.prepare("UPDATE agents SET status = ?, current_task = ?, waiting_on = NULL WHERE id = ?").run(
+export function setAgentStatus(db: Db, agentId: string, status: string, currentTask: string | null) {  db.prepare("UPDATE agents SET status = ?, current_task = ?, waiting_on = NULL WHERE id = ?").run(
     status,
     currentTask,
     agentId
@@ -499,4 +504,41 @@ export function recentMemories(db: Db, projectId: string, limit = 50): MemoryRow
 
 export function clearAgentWaiting(db: Db, agentId: string) {
   db.prepare("UPDATE agents SET status = 'idle', waiting_on = NULL, current_task = NULL WHERE id = ?").run(agentId);
+}
+
+// ---- delegation consent grants (SEALED.md, DECISIONS.md D13) ----
+// grantor = the owner whose machine would run the work; grantee = the owner
+// whose agent asked. mode 'always' auto-forwards future requests for this
+// capability; 'never' auto-denies them. Absence = ask every time.
+
+export type GrantMode = "always" | "never";
+
+export function getGrant(
+  db: Db, grantorId: string, granteeId: string, projectId: string | null, capability: string
+): GrantMode | null {
+  const row = db
+    .prepare(
+      `SELECT mode FROM grants
+       WHERE grantor_id = ? AND grantee_id = ? AND capability = ?
+         AND (project_id IS NULL OR project_id = ?)
+       ORDER BY created DESC LIMIT 1`
+    )
+    .get(grantorId, granteeId, capability, projectId ?? null) as any;
+  return row?.mode === "always" || row?.mode === "never" ? row.mode : null;
+}
+
+export function setGrant(
+  db: Db, grantorId: string, granteeId: string, projectId: string | null,
+  capability: string, mode: GrantMode
+): void {
+  // One row per (grantor, grantee, project, capability): a new decision
+  // REPLACES the old one — changing your mind is allowed and expected.
+  db.prepare(
+    `INSERT INTO grants (id, grantor_id, grantee_id, project_id, capability, mode, created)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET mode = excluded.mode, created = excluded.created`
+  ).run(
+    `gr_${grantorId}_${granteeId}_${projectId ?? "*"}_${capability}`,
+    grantorId, granteeId, projectId ?? null, capability, mode, new Date().toISOString()
+  );
 }

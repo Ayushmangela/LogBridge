@@ -10,6 +10,8 @@ import {
   appendEvent,
   expiredLeaseTasks,
   getTask,
+  getGrant,
+  setGrant,
   recallMemories,
   writeMemory,
   markMachineOnline,
@@ -51,6 +53,19 @@ const pendingAgentCreates = new Map<
   string,
   (r: { ok: boolean; agentId: string | null; error: string | null }) => void
 >();
+
+// Delegations held for the target machine's owner to approve or refuse
+// (SEALED.md "Consent"). The held envelope is forwarded byte-for-byte on
+// approval — rewriting it would break the AAD binding.
+interface HeldDelegation {
+  env: EnvelopeT;
+  targetMachineId: string;
+  requesterAgentId: string;
+  capability: string;
+  projectId: string | null;
+  timer: NodeJS.Timeout;
+}
+const pendingDelegationConsents = new Map<string, HeldDelegation>();
 
 export interface AgentCreateRequest {
   machineId: string;
@@ -132,6 +147,9 @@ export interface NodeGatewayOptions {
   /** Broadcast a chat message to every browser — the question inbox lives
    *  in the room, not in a private channel. See PLAN.md §8. */
   onChat?: (chat: ChatMessageT) => void;
+  /** How long a delegation may sit awaiting its owner's consent before the
+   *  requester gets "denied (no answer)". Tests shorten this. */
+  consentTimeoutMs?: number;
 }
 
 export function registerNodeGateway(
@@ -146,6 +164,7 @@ export function registerNodeGateway(
   // *before* any test's beforeEach() has a chance to set it. This bit us.
   const LEASE_SECONDS = opts.leaseSeconds ?? Number(process.env.LEASE_SECONDS ?? 60);
   const SWEEP_INTERVAL_MS = opts.sweepIntervalMs ?? Number(process.env.SWEEP_INTERVAL_MS ?? 10_000);
+  const CONSENT_TIMEOUT_MS = opts.consentTimeoutMs ?? Number(process.env.CONSENT_TIMEOUT_MS ?? 600_000);
   app.get("/node-ws", { websocket: true }, (socket) => {
     let machineId: string | null = null;
     let nonce: string | null = null;
@@ -226,7 +245,8 @@ export function registerNodeGateway(
           db, hello.machineId,
           hello.providers ?? [],
           Boolean(hello.allowAgentCreation),
-          Boolean(hello.allowUnsandboxed)
+          Boolean(hello.allowUnsandboxed),
+          Boolean(hello.acceptDelegations)
         );
         nodeSockets.set(hello.machineId, socket as unknown as WebSocket);
         send({ type: "ready" });
@@ -251,7 +271,10 @@ export function registerNodeGateway(
       }
       // parsed.body is the zod-validated body (schema defaults applied);
       // env.body is the raw one the older handlers below still read.
-      handleNodeEnvelope(db, parsed.envelope, app, onChange, LEASE_SECONDS, parsed.body, send, nodeSockets, opts.onChat);
+      handleNodeEnvelope(db, parsed.envelope, app, onChange, LEASE_SECONDS, parsed.body, send, nodeSockets, {
+        onChat: opts.onChat,
+        consentTimeoutMs: CONSENT_TIMEOUT_MS,
+      });
     });
 
     socket.on("close", () => {
@@ -331,6 +354,132 @@ export function broadcastPeerDirectory(db: Db, nodeSockets: NodeSockets) {
   }
 }
 
+// ---- delegation consent (SEALED.md) ----
+
+/** Hold a request and ask the target machine's owner. The sealed envelope is
+ *  NOT touched while we wait — on approval it is forwarded byte-for-byte. */
+function holdForConsent(
+  db: Db,
+  nodeSockets: NodeSockets,
+  app: FastifyInstance,
+  extra: { onChat?: (chat: ChatMessageT) => void; consentTimeoutMs?: number },
+  ctx: {
+    env: EnvelopeT; requestId: string; summary: string | null;
+    requesterName: string; requesterOwner: string;
+    targetMachineId: string; targetAgentName: string;
+    grantorId: string; capability: string;
+  }
+) {
+  const timer = setTimeout(() => {
+    if (pendingDelegationConsents.delete(ctx.requestId)) {
+      denyHeldDelegation(db, nodeSockets, ctx.env, ctx.requestId, ctx.requesterOwner,
+        "the machine owner did not answer in time", app);
+    }
+  }, extra.consentTimeoutMs ?? 600_000);
+  if (timer.unref) timer.unref();
+
+  pendingDelegationConsents.set(ctx.requestId, {
+    env: ctx.env, targetMachineId: ctx.targetMachineId,
+    requesterAgentId: ctx.env.from.id, capability: ctx.capability,
+    projectId: ctx.env.project ?? null, timer,
+  });
+
+  // Ask in the room, presented as the target agent's inbox entry. `taskId`
+  // in the ask payload is actually the requestId here — the client's answer
+  // flow is identical, so no contract change was needed for correlation.
+  if (extra.onChat) {
+    extra.onChat({
+      id: crypto.randomUUID(),
+      roomId: ctx.env.project ?? "",
+      from: { kind: "agent", id: ctx.targetAgentName, name: ctx.targetAgentName },
+      text:
+        `${ctx.requesterName} asks to run ${ctx.capability} here` +
+        (ctx.summary ? `: ${ctx.summary}` : "") +
+        " — allow?",
+      ts: new Date().toISOString(),
+      ask: { taskId: ctx.requestId, options: ["approve", "reject"] },
+    });
+  }
+  app.log.info({ requestId: ctx.requestId }, "delegation held for owner consent");
+}
+
+/** Refuse on the requester's behalf: a failed result, so their await settles. */
+function denyHeldDelegation(
+  db: Db, nodeSockets: NodeSockets, reqEnv: EnvelopeT, requestId: string,
+  _requesterOwnerId: string, reason: string, app: FastifyInstance
+) {
+  // The result must reach the REQUESTING AGENT's machine.
+  const requesterAgent = db.prepare("SELECT * FROM agents WHERE id = ?").get(reqEnv.from.id) as any;
+  const socket = requesterAgent ? nodeSockets.get(requesterAgent.machine_id) : undefined;
+  if (!socket || socket.readyState !== socket.OPEN) {
+    app.log.warn({ requestId }, "cannot deny a delegation to an offline requester");
+    return;
+  }
+  socket.send(JSON.stringify({
+    v: 1, id: crypto.randomUUID(), type: "delegate.result", project: reqEnv.project,
+    from: { kind: "server", id: "server" }, to: reqEnv.to,
+    task: null, idem: crypto.randomUUID(), ts: new Date().toISOString(),
+    body: { requestId, taskId: reqEnv.task ?? requestId, state: "failed", verified: false, sealed: null },
+  }));
+  appendEvent(db, reqEnv.project, null, "delegate.request.denied", { requestId, reason });
+  app.log.info({ requestId, reason }, "delegation denied");
+}
+
+/** The owner answered. Forward or refuse; persist always/never grants.
+ *  Returns false if the requestId isn't a held delegation. */
+export function resolveDelegationConsent(
+  db: Db,
+  nodeSockets: NodeSockets,
+  app: FastifyInstance,
+  requestId: string,
+  approved: boolean,
+  mode?: "once" | "always" | "never",
+  onChat?: (chat: ChatMessageT) => void
+): boolean {
+  const held = pendingDelegationConsents.get(requestId);
+  if (!held) return false;
+  clearTimeout(held.timer);
+  pendingDelegationConsents.delete(requestId);
+
+  const requesterAgent = db.prepare("SELECT * FROM agents WHERE id = ?").get(held.requesterAgentId) as any;
+  const targetMachine = db.prepare("SELECT owner_id FROM machines WHERE id = ?").get(held.targetMachineId) as any;
+  const grantorId = targetMachine?.owner_id ?? "unknown";
+  const granteeId = requesterAgent?.owner_id ?? "unknown";
+
+  if (!approved) {
+    if (mode === "never") setGrant(db, grantorId, granteeId, held.projectId, held.capability, "never");
+    appendEvent(db, held.projectId, null, "delegate.decision", { requestId, decision: mode ?? "denied", by: grantorId });
+    denyHeldDelegation(db, nodeSockets, held.env, requestId, granteeId, "denied by the machine owner", app);
+    return true;
+  }
+
+  if (mode === "always") {
+    setGrant(db, grantorId, granteeId, held.projectId, held.capability, "always");
+    appendEvent(db, held.projectId, null, "delegate.decision", { requestId, decision: "always", by: grantorId });
+  } else {
+    appendEvent(db, held.projectId, null, "delegate.decision", { requestId, decision: "once", by: grantorId });
+  }
+
+  // Forward exactly what arrived — the AAD binding forbids anything else.
+  const socket = nodeSockets.get(held.targetMachineId);
+  if (!socket || socket.readyState !== socket.OPEN) {
+    denyHeldDelegation(db, nodeSockets, held.env, requestId, granteeId, "machine went offline before consent was given", app);
+    return true;
+  }
+  socket.send(JSON.stringify(held.env));
+  if (onChat) {
+    onChat({
+      id: crypto.randomUUID(),
+      roomId: held.projectId ?? "",
+      from: { kind: "user", id: "you", name: "you" },
+      text: `approved ${held.capability} from ${requesterAgent?.name ?? "a teammate"}${mode === "always" ? " — always for this project" : " — this once"}`,
+      ts: new Date().toISOString(),
+      ask: null,
+    });
+  }
+  return true;
+}
+
 function reconcileOnConnect(db: Db, machineId: string, send: (m: unknown) => void, app: FastifyInstance) {
   for (const t of tasksForMachine(db, machineId, ["submitted"])) {
     send(taskOfferEnvelope(t));
@@ -393,7 +542,7 @@ function handleNodeEnvelope(
   validBody: any,
   send: (m: unknown) => void,
   nodeSockets: NodeSockets,
-  onChat?: (chat: ChatMessageT) => void
+  extra: { onChat?: (chat: ChatMessageT) => void; consentTimeoutMs?: number } = {}
 ) {
   const body = env.body as any;
 
@@ -422,6 +571,72 @@ function handleNodeEnvelope(
       return;
     }
 
+    // ---- per-request consent (prompt 5): requests to a machine whose owner
+    // hasn't granted this capability are HELD here, surfaced in the room, and
+    // forwarded only when the owner answers. Results always flow untouched —
+    // they are a reply to work already consented to. ----
+    if (isRequest) {
+      const requesterAgent = db.prepare("SELECT * FROM agents WHERE id = ?").get(env.from.id) as any;
+      const targetMachine = db.prepare("SELECT * FROM machines WHERE id = ?").get(target.machineId) as any;
+      const targetAgentRow = db.prepare("SELECT * FROM agents WHERE id = ?").get(targetAgentId) as any;
+      const grantorId = targetMachine?.owner_id ?? "unknown";
+      const granteeId = requesterAgent?.owner_id ?? "unknown";
+
+      // The machine-level gate comes first: a machine that never opted into
+      // delegated work gets an immediate refusal — asking its owner to
+      // approve something the runner would refuse anyway is just noise.
+      if (!targetMachine?.accept_delegations) {
+        appendEvent(db, env.project, env.task, "delegate.request", {
+          requestId: validBody.requestId,
+          capability: validBody.capability ?? null,
+          from: env.from.id, to: targetAgentId, state: null,
+          sealed: true, consent: "refused — machine not accepting delegations",
+        });
+        denyHeldDelegation(db, nodeSockets, env, String(validBody.requestId), granteeId,
+          "the target machine does not accept delegated work", app);
+        onChange();
+        return;
+      }
+
+      const grant = getGrant(db, grantorId, granteeId, env.project ?? null, String(validBody.capability));
+
+      appendEvent(db, env.project, env.task, "delegate.request", {
+        requestId: validBody.requestId,
+        capability: validBody.capability ?? null,
+        from: env.from.id,
+        to: targetAgentId,
+        state: null,
+        sealed: true, // the payload itself is deliberately not logged
+        summary: validBody.summary ?? null,
+        consent: grant === "never" ? "auto-denied" : grant === "always" ? "granted" : "asked",
+      });
+
+      if (grant === "never") {
+        denyHeldDelegation(db, nodeSockets, env, validBody.requestId, granteeId, "denied by the machine owner's standing rule", app);
+        onChange();
+        return;
+      }
+      if (grant !== "always") {
+        holdForConsent(db, nodeSockets, app, extra, {
+          env,
+          requestId: String(validBody.requestId),
+          summary: validBody.summary ?? null,
+          requesterName: requesterAgent?.name ?? env.from.id,
+          requesterOwner: granteeId,
+          targetMachineId: target.machineId,
+          targetAgentName: targetAgentRow?.name ?? String(targetAgentId),
+          grantorId,
+          capability: String(validBody.capability),
+        });
+        onChange();
+        return;
+      }
+      // grant === 'always': fall through and forward immediately.
+      appendEvent(db, env.project, env.task, "delegate.request.granted", {
+        requestId: validBody.requestId, by: `standing grant from ${grantorId}`,
+      });
+    }
+
     // Forwarded byte-for-byte. Rewriting any of from/to/type/project/id here
     // would break the AAD binding and the recipient's open() would fail —
     // that is the intended behaviour, not an inconvenience to work around.
@@ -429,7 +644,7 @@ function handleNodeEnvelope(
 
     const sender = db.prepare("SELECT * FROM agents WHERE id = ?").get(env.from.id) as any;
     if (isRequest && sender) {
-      // Blocked on another machine's agent -> zoneFor() reads the "@" and
+      // Blocked on ANOTHER MACHINE'S agent -> zoneFor() reads the "@" and
       // renders both of them in the meeting room. That's PHASES.md's M5
       // visual, driven by real state rather than staged.
       const targetAgent = db.prepare("SELECT * FROM agents WHERE id = ?").get(targetAgentId) as any;
@@ -445,14 +660,16 @@ function handleNodeEnvelope(
       }
     }
 
-    appendEvent(db, env.project, env.task, env.type, {
-      requestId: validBody.requestId,
-      capability: validBody.capability ?? null,
-      from: env.from.id,
-      to: isRequest ? targetAgentId : (env.to as any).id,
-      state: validBody.state ?? null,
-      sealed: true, // the payload itself is deliberately not logged
-    });
+    if (!isRequest) {
+      appendEvent(db, env.project, env.task, env.type, {
+        requestId: validBody.requestId,
+        capability: validBody.capability ?? null,
+        from: env.from.id,
+        to: (env.to as any).id,
+        state: validBody.state ?? null,
+        sealed: true, // the payload itself is deliberately not logged
+      });
+    }
     onChange();
     return;
   }
@@ -529,8 +746,8 @@ function handleNodeEnvelope(
     appendEvent(db, env.project, t.id, "human.ask", { question: validBody.question });
     // The question lives in the room where everyone can see it (PLAN.md §8) —
     // same feed as proposals, different options.
-    if (onChat) {
-      onChat({
+    if (extra.onChat) {
+      extra.onChat({
         id: crypto.randomUUID(),
         roomId: env.project,
         from: { kind: "agent", id: agent.id, name: agent.name },

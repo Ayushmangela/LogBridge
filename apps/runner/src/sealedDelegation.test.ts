@@ -117,6 +117,12 @@ describe("sealed cross-machine delegation", () => {
         "A learned B's sealing key"
       );
 
+      // Per-request consent would hold this delegation for B's owner to
+      // approve. This test is about the ENCRYPTION, so B grants 'always'
+      // up front — the consent flow itself has its own tests.
+      const { setGrant } = await import("../../server/src/db.js");
+      setGrant(server.db, "usr_b", "usr_a", "prj_test", "run_integration_tests", "always");
+
       const result = await a.conn.delegate({
         capability: "run_integration_tests",
         targetAgentId: b.agentId,
@@ -189,6 +195,10 @@ describe("sealed cross-machine delegation", () => {
     b.conn.connect();
     await waitFor(() => registered(a.agentId) && registered(b.agentId), 6000, "registered");
     await waitFor(() => a.conn.peerList().some((p) => p.agentId === b.agentId && !!p.sealingPubkey), 6000, "keys exchanged");
+
+    // This test is about the MEETING-ROOM visual, not consent — grant always.
+    const { setGrant } = await import("../../server/src/db.js");
+    setGrant(server.db, "usr_b3", "usr_a3", "prj_test", "run_integration_tests", "always");
 
     const done = a.conn.delegate({
       capability: "run_integration_tests",

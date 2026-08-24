@@ -56,6 +56,10 @@ export const BodySchemas = {
 
   // `sealed` holds the encrypted half (inputs, acceptance, context note) —
   // the server routes on the plaintext fields and cannot read the rest.
+  // `summary` is REQUESTER-AUTHORED plaintext describing the intent, shown
+  // to the target machine's owner when per-request consent asks. It leaks
+  // intent metadata to the server by design — see SEALED.md's trade-off
+  // note — while inputs and acceptance stay sealed.
   // See SEALED.md for why the split falls exactly here.
   "delegate.request": z.object({
     requestId: z.string(),
@@ -65,6 +69,7 @@ export const BodySchemas = {
     projectId: z.string(),
     budget: z.object({ seconds: z.number().int().positive(), usd: z.number() }),
     sealed: SealedPayload,
+    summary: z.string().max(200).nullish().default(null),
   }),
 
   "delegate.decision": z.object({

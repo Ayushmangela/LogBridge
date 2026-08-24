@@ -185,6 +185,9 @@ export const ClientMessage = z.discriminatedUnion("type", [
     // answer: `text` is what the human said. Others ignore both.
     text: z.string().optional(),
     spec: z.string().optional(),
+    // Delegation consent only: approve can mean once or forever. Ignored by
+    // every other handler. See the grants table and SEALED.md.
+    mode: z.enum(["once", "always", "never"]).optional(),
   }),
 ]);
 
