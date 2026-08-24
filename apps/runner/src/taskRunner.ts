@@ -21,7 +21,9 @@ export class TaskRunner {
   private active = new Map<string, Active>();
 
   constructor(
-    private harness: AgentHarness,
+    /** Resolves the harness for a given agent — one machine can run several
+     *  agents on different providers, so this is per-agent, not per-runner. */
+    private harnessFor: (agentId: string | null) => AgentHarness,
     private onEvent: (taskId: string, summary: string, data: unknown) => void,
     private onResult: (taskId: string, state: ResultState, reason: string | null, costUsd: number) => void
   ) {}
@@ -43,8 +45,15 @@ export class TaskRunner {
     return [...this.active.keys()];
   }
 
-  start(taskId: string, budget: { seconds: number; usd: number }, cwd: string, prompt: string, policy: { allowTools: string[]; denyPaths: string[] }) {
-    const handle = this.harness.spawn({
+  start(
+    taskId: string,
+    budget: { seconds: number; usd: number },
+    cwd: string,
+    prompt: string,
+    policy: { allowTools: string[]; denyPaths: string[] },
+    agentId: string | null = null
+  ) {
+    const handle = this.harnessFor(agentId).spawn({
       cwd,
       prompt,
       allowTools: policy.allowTools,

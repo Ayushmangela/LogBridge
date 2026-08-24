@@ -6,6 +6,9 @@ import { SealedPayload } from "./sealed.js";
 export const BodySchemas = {
   "task.offer": z.object({
     taskId: z.string(),
+    // Which of this machine's agents the task is for. Optional so an older
+    // runner still parses the envelope; a multi-agent runner requires it.
+    agentId: z.string().nullish().default(null),
     title: z.string(),
     spec: z.string().nullable(),
     acceptance: z.string().nullable(),

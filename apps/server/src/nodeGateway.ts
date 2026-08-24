@@ -287,7 +287,7 @@ export function taskOfferEnvelope(t: any): EnvelopeT {
     from: { kind: "server", id: "server" }, to: { kind: "node", id: t._machineId ?? "" },
     task: t.id, idem: crypto.randomUUID(), ts: new Date().toISOString(),
     body: {
-      taskId: t.id, title: t.title, spec: t.spec ?? null,
+      taskId: t.id, agentId: t.agent_id ?? null, title: t.title, spec: t.spec ?? null,
       acceptance: null, budget: { seconds: t.budget_seconds ?? 60, usd: t.budget_usd ?? 1.0 },
     },
   };

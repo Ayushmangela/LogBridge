@@ -1,7 +1,7 @@
 # The Contract
 ### Single source of truth for everything exchanged between the office and the system.
 
-**Version 1.10** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
+**Version 1.11** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
 
 > **Rule: never change this file alone.** Both people present, both agree, bump the version, add a changelog line. A contract one person edited is not a contract.
 
@@ -242,6 +242,7 @@ Five tilesets are registered in the map, all 32 px:
 
 | Version | Change | Why |
 |---|---|---|
+| **1.11** | **`task.offer` carries `agentId`** (nullable, so an older runner still parses it) | A machine can run several agents, on different CLIs. Without this the runner had to guess — it used `agents[0]` — so a second agent could never receive work and every agent shared one harness. Prerequisite for choosing a provider per agent |
 | **1.10** | Added **`Room.activity: ActivityItem[]`** (30 newest, noise filtered) | The office shows the present tense and the board shows task state; neither can say *"the lease expired"*, *"it learned something"* or *"a result arrived late"*. Those only exist in the event log. The **summary is written server-side** for the same reason `zone` is (invariant 2): one place decides the wording, so the UI cannot narrate something the log doesn't support |
 | **1.9** | Added **`Room.memories: MemoryView[]`** (project-scoped only, 30 newest) and the `memory.write` / `memory.recall` / `memory.result` envelope types | Shared agent memory — see `MEMORY.md` and D25. An agent recalls what the team learned before it starts, including from agents on other machines, which only works if the store is server-side. Agent-scoped memories stay out of the view: they're for that agent's recall, not a team display |
 | **1.8** | Added **`Room.tasks: BoardTask[]`** — every task in the room, capped at 100, newest first | The office shows what each agent is doing *right now*; it structurally cannot show a queue, a rejected proposal, or yesterday's failures. The board view needs task identity and the full `TaskState`, neither of which `TaskBrief` carries (it's scoped to one agent's current task). Same snapshot, second view — no new socket messages |

@@ -88,7 +88,22 @@ over the office.
 
 **Suggested commit:** `feat: agent name tags and task bubbles on the office floor`
 
-## Phase 6 — Add Agent modal
+## Phase 6 — Add Agent modal  ← in progress
+
+**6a (done): the multi-agent foundation.** `task.offer` now carries `agentId`
+(CONTRACT.md 1.11), the runner resolves the addressed agent instead of
+`agents[0]`, and each agent gets its own harness from the provider registry.
+`--agents-file` declares several agents on one machine. Verified live: one
+machine ran `opencode-dev` on `pty:opencode` and `fake-dev` on `pty:claude`
+concurrently, each in its own working directory.
+
+**6b (next): runtime registration + the dialog.** Agents still come from
+`cli.ts` flags or `--agents-file` at startup. Creating one from the browser
+needs an `agent.create` message the runner accepts — gated behind an explicit
+opt-in, the same way `acceptDelegations` is, because it means a browser can
+start a real CLI on someone's machine.
+
+### Original notes
 
 The four-step (Identity / Workspace / Engine / Briefing) dialog: provider
 grid, model grid, generated command preview.

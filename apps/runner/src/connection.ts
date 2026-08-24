@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { open as openSealed, seal, sealAad, type EnvelopeT } from "@logbridge/protocol";
 import type { Identity } from "./identity.js";
 import type { AgentHarness } from "./harness/types.js";
+import { makePtyHarness } from "./harness/ptyHarness.js";
 import { Outbox } from "./outbox.js";
 import { TaskRunner } from "./taskRunner.js";
 
@@ -65,6 +66,10 @@ export interface AgentDecl {
   cwd?: string;             // defaults to <dataDir>/work/<agentId>
   allowTools?: string[];    // SYSTEM.md §7 local policy file, in code
   denyPaths?: string[];
+  /** Which CLI this agent runs on (see PROVIDERS.md). Undefined = the
+   *  runner's default harness, which is what a single-agent machine uses. */
+  provider?: string;
+  model?: string | null;
 }
 
 export interface RunnerOptions {
@@ -79,6 +84,8 @@ export interface RunnerOptions {
   /** Whether this machine will execute work delegated by other machines.
    *  Off by default — see handleDelegateRequest and SYSTEM.md §7. */
   acceptDelegations?: boolean;
+  /** Passed to per-agent harnesses — see PROVIDERS.md. */
+  allowUnsandboxed?: boolean;
   leaseSeconds?: number;
   log?: (msg: string) => void;
 }
@@ -97,6 +104,9 @@ export class RunnerConnection {
   private taskTitle = new Map<string, string>();   // taskId -> title, for the outcome memory
   private pendingRecalls = new Map<string, (memories: RecalledMemory[]) => void>();
   private peers: PeerEntry[] = [];
+  /** One harness per agent, built lazily and cached — spawning is cheap but
+   *  the provider lookup and config shouldn't repeat per task. */
+  private harnessCache = new Map<string, AgentHarness>();
   private pendingDelegations = new Map<
     string,
     { resolve: (r: { state: string; findings: string | null }) => void; reject: (e: Error) => void }
@@ -106,7 +116,7 @@ export class RunnerConnection {
     this.outbox = new Outbox(opts.dataDir);
     this.log = opts.log ?? (() => {});
     this.taskRunner = new TaskRunner(
-      opts.harness,
+      (agentId) => this.harnessForAgent(agentId),
       (taskId, summary, data) => this.sendEnvelope(this.eventEnvelope(taskId, summary, data)),
       (taskId, state, reason, costUsd) => {
         this.sendEnvelope(this.resultEnvelope(taskId, state, reason, costUsd));
@@ -203,14 +213,18 @@ export class RunnerConnection {
 
     if (env.type === "task.offer") {
       if (this.taskRunner.has(body.taskId)) return; // duplicate delivery — ignore
-      this.log(`accepting task ${body.taskId} on ${this.opts.harness.name}: ${body.title}`);
       this.sendEnvelope(this.acceptEnvelope(body.taskId, env.project));
 
-      // Single declared agent per runner today — task.offer doesn't carry
-      // an agentId, and this CLI only ever declares one. Multi-agent
-      // machines will need that field added; noted, not silently assumed.
-      const agent = this.opts.agents[0];
-      const cwd = agent?.cwd ?? join(this.opts.dataDir, "work", agent?.id ?? "default");
+      // task.offer names its target agent (protocol 1.11). Falling back to
+      // the first declared agent keeps a single-agent runner working against
+      // an older server that doesn't send the field.
+      const agent = this.agentById(body.agentId) ?? this.opts.agents[0];
+      if (!agent) {
+        this.log(`no agent to run ${body.taskId} — declared none`);
+        return;
+      }
+      this.log(`accepting task ${body.taskId} for ${agent.name} on ${this.harnessForAgent(agent.id).name}: ${body.title}`);
+      const cwd = agent.cwd ?? join(this.opts.dataDir, "work", agent.id);
       mkdirSync(cwd, { recursive: true });
       const prompt = body.spec ?? body.title;
       this.taskTitle.set(body.taskId, body.title);
@@ -225,9 +239,9 @@ export class RunnerConnection {
           this.log(`recalled ${memories.length} memor${memories.length === 1 ? "y" : "ies"} for ${body.taskId}`);
         }
         this.taskRunner.start(body.taskId, body.budget, cwd, withMemories(prompt, memories), {
-          allowTools: agent?.allowTools ?? DEFAULT_ALLOW_TOOLS,
-          denyPaths: agent?.denyPaths ?? DEFAULT_DENY_PATHS,
-        });
+          allowTools: agent.allowTools ?? DEFAULT_ALLOW_TOOLS,
+          denyPaths: agent.denyPaths ?? DEFAULT_DENY_PATHS,
+        }, agent.id);
       });
       return;
     }
@@ -289,6 +303,31 @@ export class RunnerConnection {
       }
       return;
     }
+  }
+
+  private agentById(id: string | null | undefined): AgentDecl | undefined {
+    return id ? this.opts.agents.find((a) => a.id === id) : undefined;
+  }
+
+  /**
+   * The harness an agent runs on. An agent that names a provider gets its own;
+   * everything else falls back to the runner-wide default, so a single-agent
+   * machine and every existing test behave exactly as before.
+   */
+  private harnessForAgent(agentId: string | null): AgentHarness {
+    const agent = this.agentById(agentId);
+    if (!agent?.provider) return this.opts.harness;
+    const key = `${agent.provider}:${agent.model ?? ""}`;
+    let h = this.harnessCache.get(key);
+    if (!h) {
+      h = makePtyHarness({
+        provider: agent.provider,
+        model: agent.model ?? null,
+        allowUnsandboxed: this.opts.allowUnsandboxed,
+      });
+      this.harnessCache.set(key, h);
+    }
+    return h;
   }
 
   // ---- cross-machine delegation (SEALED.md) ----

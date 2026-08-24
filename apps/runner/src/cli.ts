@@ -29,15 +29,31 @@ function stableMachineId(): string {
 const machineId = arg("machine-id") ?? stableMachineId();
 const identity = loadOrCreateIdentity(dataDir, machineId);
 
-const agents: AgentDecl[] = [
-  {
+// Agents are declared by the machine's owner (SYSTEM.md §7). Either inline
+// via flags for the single-agent case, or from a JSON file listing several —
+// one machine can now run agents on different providers.
+function loadAgents(): AgentDecl[] {
+  const file = arg("agents-file");
+  if (file) {
+    const parsed = JSON.parse(readFileSync(file, "utf8"));
+    if (!Array.isArray(parsed)) throw new Error(`${file} must contain a JSON array of agents`);
+    return parsed.map((a: any, i: number) => {
+      if (!a.id || !a.name) throw new Error(`agent #${i} in ${file} needs at least an id and a name`);
+      return { role: "developer", capabilities: [], projects: [arg("project") ?? "prj_demo"], ...a };
+    });
+  }
+  return [{
     id: `agt_${machineId}_dev`,
     name: arg("agent-name") ?? "dev-fake",
     role: "developer",
     capabilities: ["fake_work"],
     projects: [arg("project") ?? "prj_demo"],
-  },
-];
+    provider: arg("provider"),
+    model: arg("model") ?? null,
+  }];
+}
+
+const agents: AgentDecl[] = loadAgents();
 
 // Which harness actually does the work. Defaults to the fake worker —
 // spending real money is opt-in, never accidental. See DECISIONS.md D24.
@@ -65,6 +81,7 @@ const conn = new RunnerConnection({
   dataDir,
   agents,
   harness,
+  allowUnsandboxed: process.argv.includes("--allow-unsandboxed"),
   log: (msg) => console.log(`[runner ${machineId}] ${msg}`),
 });
 
