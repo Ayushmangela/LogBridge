@@ -153,4 +153,30 @@ describe("runtime agent creation", () => {
     const body = await res.json() as { error: string };
     expect(body.error).toMatch(/unknown machine|offline/);
   });
+
+  test("a created agent survives a runner restart (created-agents.json)", async () => {
+    // The split-brain this guards against: the server keeps the agent row, so
+    // the office draws it and the orchestrator offers it work — but a runner
+    // that forgot it would silently drop or misroute that work.
+    const conn = makeRunner("node_persist", { allowAgentCreation: true });
+    conn.connect();
+    await waitFor(() => !!(server.db.prepare("SELECT online FROM machines WHERE id = 'node_persist'").get() as any)?.online, 5000, "machine connected");
+
+    const res = await createAgent({ machineId: "node_persist" });
+    const body = await res.json() as { ok: boolean; agentId: string };
+    expect(body.ok).toBe(true);
+    await waitFor(() => !!server.db.prepare("SELECT 1 FROM agents WHERE id = ?").get(body.agentId), 5000, "card registered");
+    conn.stop();
+
+    // Simulate the restart: same dataDir, fresh RunnerConnection. cli.ts does
+    // exactly this merge at startup.
+    const { loadCreatedAgents, mergeAgents } = await import("./createdAgents.js");
+    const dir = join(dataDir, "node_persist");
+    const persisted = loadCreatedAgents(dir);
+    expect(persisted.some((a) => a.id === body.agentId)).toBe(true);
+
+    const declared = [{ id: `agt_node_persist_seed`, name: "seed", role: "developer", capabilities: [], projects: ["prj_test"] }];
+    const merged = mergeAgents(declared, persisted);
+    expect(merged.some((a) => a.id === body.agentId)).toBe(true);
+  }, 15_000);
 });

@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { loadOrCreateIdentity } from "./identity.js";
 import { RunnerConnection, type AgentDecl } from "./connection.js";
+import { loadCreatedAgents, mergeAgents } from "./createdAgents.js";
 import { fakeHarness } from "./harness/fakeHarness.js";
 import { makePtyHarness } from "./harness/ptyHarness.js";
 
@@ -53,7 +54,14 @@ function loadAgents(): AgentDecl[] {
   }];
 }
 
-const agents: AgentDecl[] = loadAgents();
+// Declared agents plus anything created from the browser in a previous run.
+// Declared wins on an id clash — see createdAgents.ts.
+const declared: AgentDecl[] = loadAgents();
+const persisted = loadCreatedAgents(dataDir, (m) => console.log(`[runner ${machineId}] ${m}`));
+const agents: AgentDecl[] = mergeAgents(declared, persisted);
+if (persisted.length) {
+  console.log(`[runner ${machineId}] restored ${persisted.length} browser-created agent(s): ${persisted.map((a) => a.name).join(", ")}`);
+}
 
 // Which harness actually does the work. Defaults to the fake worker —
 // spending real money is opt-in, never accidental. See DECISIONS.md D24.
