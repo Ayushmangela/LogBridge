@@ -130,3 +130,30 @@ describe("recentActivity", () => {
     expect(recentActivity(db, "prj_a", 10)).toEqual([]);
   });
 });
+
+describe("github push wording", () => {
+  const push = (over: any) => describeEvent(
+    ev("github.push", { repo: "acme/api", author: "sam", count: 1, headline: "fix the thing", ...over }, null),
+    titled(null)
+  );
+
+  test("one commit reads as a commit, not '1 commits'", () => {
+    expect(push({ count: 1 })!.summary).toContain("pushed a commit");
+    expect(push({ count: 1 })!.summary).not.toContain("1 commits");
+  });
+
+  test("several commits are counted, and the headline still shows", () => {
+    const s = push({ count: 4, headline: "rework the parser" })!.summary;
+    expect(s).toContain("pushed 4 commits");
+    expect(s).toContain("acme/api");
+    expect(s).toContain("rework the parser");
+  });
+
+  test("the author is the actor, not the system", () => {
+    expect(push({ author: "maya" })!.actor).toBe("maya");
+  });
+
+  test("a missing headline doesn't leave a dangling dash", () => {
+    expect(push({ headline: undefined })!.summary).not.toMatch(/—\s*$/);
+  });
+});

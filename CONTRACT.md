@@ -1,7 +1,7 @@
 # The Contract
 ### Single source of truth for everything exchanged between the office and the system.
 
-**Version 1.17** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
+**Version 1.18** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
 
 > **Rule: never change this file alone.** Both people present, both agree, bump the version, add a changelog line. A contract one person edited is not a contract.
 
@@ -42,6 +42,7 @@ type Room = {
   tasks: BoardTask[]           // ★ 1.8 every task in the room — the board's rows
   memories: MemoryView[]       // ★ 1.9 what the team has learned (project scope only)
   activity: ActivityItem[]     // ★ 1.10 what just happened, newest first (30 max)
+  collaborationAvailable: boolean  // ★ 1.18 two or more DISTINCT owners online
 }
 
 type ActivityItem = {         // projected from the event log, server-side
@@ -255,6 +256,7 @@ Five tilesets are registered in the map, all 32 px:
 
 | Version | Change | Why |
 |---|---|---|
+| **1.18** | Added **`Room.collaborationAvailable`** | Delegation, review, context sharing and consent are all inert unless a second *person* has a machine online, so the office was advertising a meeting room nobody could enter. Counts **distinct owners**, not machines — one person's laptop and desktop is not collaboration, and a soak rig must not flip it on |
 | **1.17** | Added **`ClientMessage.join`** | The server had no idea which room a browser was looking at — membership was only implied by `position`, which doesn't exist until the player moves. So chat was broadcast and replayed to every socket and the browser filtered it for display. Survivable with one room; wrong once the GitHub mirror started creating one per repo. A socket that hasn't joined now receives no chat at all: silence is recoverable, another project's conversation arriving is not |
 | **1.16** | **`Room.pulls`** (`PullView[]`, capped 20) — number/title/state/CI/author; `AgentView.githubRef` now populates from issue-sourced tasks | GitHub mirror (M6/prompt 7). Read-only polling with ETags (D9/D10): repo → room, open issues → queued tasks keyed by a UNIQUE `idem` of `gh:<repo>#<n>` so no poll ever duplicates one, closed issues retire their task, PR state and CI transitions land once in the activity feed. Left out and labelled: commit aggregation (needs per-push grouping the poll loop doesn't model yet) |
 | **1.15** | **`review.request`/`review.result`/`context.share` now carry `sealed` payloads**; results gain plaintext `note` for refusals; `context.share` gains `shareId` and drops plaintext `body` | Reviews and context sharing built (prompt 6), following D15: a review returns a judgement, not work. Findings, criteria and context bodies are CONTENT — sealed like delegation payloads; only routing metadata stays plaintext. Server-generated refusals carry their reason as plaintext `note` since nobody sealed them. Received context is stored on the receiving machine only — putting it in server-side team memory would hand the server what the sealing kept from it |

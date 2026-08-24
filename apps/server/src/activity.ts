@@ -94,6 +94,15 @@ export function describeEvent(
     case "delegate.result.undeliverable":
       return { ...base, actor: null, summary: `could not deliver a cross-machine message — ${short(body.reason, 40)}` };
 
+    case "github.push": {
+      const n = Number(body.count ?? 1);
+      // "pushed a commit" reads better than "pushed 1 commits", and the
+      // headline is worth more than the count when there's only one.
+      const what = n === 1 ? "pushed a commit" : `pushed ${n} commits`;
+      const head = body.headline ? ` — ${short(body.headline, 50)}` : "";
+      return { ...base, actor: body.author ?? null, summary: `${what} to ${short(body.repo, 30)}${head}` };
+    }
+
     case "github.pull":
       return { ...base, actor: body.author ?? null, summary: `${body.verb} “${short(body.title, 50)}” (${body.repo}#${body.number})` };
 

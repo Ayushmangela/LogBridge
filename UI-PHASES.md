@@ -1,6 +1,7 @@
 # UI rebuild — phase plan
 
-> **Status:** phases 1–4 are done. See the per-phase notes below.
+> **Status: all seven phases are done.** Verified in a running browser, not just
+> by reading the code. What remains is in `HANDOFF.md`'s known-broken table.
 
 Target: the full application shell (left nav + office canvas + right panel),
 replacing today's floating-glass-panels-over-a-canvas layout.
@@ -77,7 +78,7 @@ completion — a task reports start and finish and nothing between. Labelled
 "elapsed" rather than shown as a fake percentage. Real progress needs a
 progress event from the harness.
 
-## Phase 5 — Canvas name tags and task bubbles  ← next
+## Phase 5 — Canvas name tags and task bubbles  ✅ DONE
 
 Per-agent labels and a speech bubble showing what each one is doing, drawn
 over the office.
@@ -88,7 +89,7 @@ over the office.
 
 **Suggested commit:** `feat: agent name tags and task bubbles on the office floor`
 
-## Phase 6 — Add Agent modal  ← in progress
+## Phase 6 — Add Agent modal  ✅ DONE
 
 **6a (done): the multi-agent foundation.** `task.offer` now carries `agentId`
 (CONTRACT.md 1.11), the runner resolves the addressed agent instead of
@@ -118,7 +119,7 @@ grid, model grid, generated command preview.
 
 **Suggested commit:** `feat: add-agent dialog with provider and model selection`
 
-## Phase 7 — Legend / view / filter bar
+## Phase 7 — Legend / view / filter bar  ✅ DONE
 
 Bottom bar: status legend, floor/minimap toggle, and filters for
 people/agents/rooms/tasks.

@@ -117,17 +117,67 @@ Use these words consistently — most integration confusion is two people meanin
 
 ## Status
 
-**Phase 0 and the first slice of Phase 1 are up, tested, and verified end to end.**
+**Every milestone in `PHASES.md` (M1–M6) and every UI phase in `UI-PHASES.md` is built.**
+Real AI agents do real work: a signed-in `claude` and an authenticated `opencode`
+have each run a task end to end through the full stack and written files to disk.
 
-- `packages/protocol` — envelope, task state machine, view types, zod schemas. 13/13 tests green.
-- `apps/server` — Fastify + WebSocket + SQLite. Two gateways: `/ws` for browsers, `/node-ws` for machines (Ed25519 signed-challenge auth, lease sweep, task-lifecycle handling, late-result reconciliation). 4/4 tests green.
-- `apps/runner` — **the node daemon actually runs real child processes now.** Generates a real keypair, authenticates, publishes agent cards, accepts task offers, heartbeats, enforces a hard wall-clock budget kill, and survives a genuine network partition — verified with a real TCP chaos proxy, not just a dropped socket. 3/3 tests green, including the Wi-Fi-drop test every planning doc points to as the one that matters.
-- `apps/web` — the office renderer, drawing real per-tile sprites from `office.json`'s own layers (all 9 tilesets, generically). Agents and humans render strictly from the live `WorkspaceView` stream — nothing is simulated.
-- `apps/desktop` — a thin Electron shell around the same page, for anyone who'd rather have a dock icon than a browser tab.
+**160 tests green** across the monorepo; typecheck clean; zero vulnerabilities in
+production dependencies (`npm audit --omit=dev`).
 
-**20/20 tests pass across the whole monorepo. Zero vulnerabilities in production dependencies** (`npm audit --omit=dev`).
+| Package | What it does |
+|---|---|
+| `packages/protocol` | envelope, task state machine, view types, sealed payloads — one zod definition shared by server, runner and browser |
+| `apps/server` | Fastify + WebSocket + SQLite. `/ws` for browsers, `/node-ws` for machines (Ed25519 signed-challenge auth), lease sweep, orchestrator, GitHub mirror |
+| `apps/runner` | the node daemon. Runs the CLI you already have installed, per agent, with a hard wall-clock budget kill — and survives a genuine network partition |
+| `apps/web` | the office, drawn per-tile from `office.json`. Everything on screen comes from the live `WorkspaceView`; nothing is simulated |
+| `apps/desktop` | a thin Electron shell around the identical page |
 
-Not done yet: real enrollment codes (machines currently trust-on-first-sight — see `DECISIONS.md` D23), a real LLM harness (the runner spawns a controllable fake worker, deliberately — see `SYSTEM.md` §3e), chat/spec-proposal UI, cross-machine delegation, GitHub mirror. The web renderer's minimap thumbnail is the one remaining flattened image (a deliberate, documented exception — recompositing a 240×140 thumbnail from real sprites buys nothing).
+---
+
+## Roadmap
+
+### Done
+
+| | |
+|---|---|
+| **M1–M2** protocol, server, runner | leases, heartbeats, budget kill, and the Wi-Fi-drop test — a real TCP partition, not a dropped socket |
+| **M3** real agent execution | `claude` and `opencode` verified against **captured real output**, not documentation. Tool policy enforced via a per-run settings file |
+| **M4** talk to it | `@agent do X` → proposal → approve / **edit** / reject → runs. Mid-task questions: the agent stops, asks the room, and continues on your answer |
+| **M5** cross-machine | delegation **end-to-end sealed** (X25519/AES-256-GCM) — the server routes it and provably cannot read it. Per-request consent with `once`/`always`/`never`. Code review and context sharing |
+| **M6** GitHub mirror | repos → rooms, issues → tasks, PR/CI and **"pushed N commits"** on the feed. Read-only and polled (D9/D10) |
+| **Orchestrator** | routes unassigned work by capability, availability and load; queues rather than failing |
+| **Shared memory** | an agent starts a task already knowing what the team learned — including from agents on other machines |
+| **UI** | office + tasks + chat + agents + memory + projects + settings, light theme, sidebar rosters, activity feed from the real event log |
+
+### Remaining
+
+**Needs code**
+
+- **Enrolment and accounts** (D23) — still trust-on-first-sight with no sign-in. *The largest gap, and what gates ever running outside a private tailnet*
+- **Six more providers** — `codex` / `gemini` / `qwen` / `crush` / `copilot` / `grok` / `kimi` run as plain text until someone captures their real output
+
+**Needs something we don't have**
+
+| Gap | Blocked on |
+|---|---|
+| Semantic memory recall | an embedding model — today it's BM25, and says so |
+| An orchestrator that decides *what* work exists | an LLM — today it routes, and says so |
+| `opencode` tool policy | it has no per-run mechanism; the harness refuses rather than pretending |
+| Forward secrecy for a sealed-message recipient | a double ratchet — this is a sealed box, not a ratchet |
+| A real progress percentage | tasks report start and finish and nothing between, so the bar shows *elapsed* |
+| Exact push boundaries | polling sees commits, not pushes — grouping is inferred within a 10-minute window and labelled as an approximation |
+
+**Not features — the untested claims**
+
+These are the three items on `PHASES.md`'s own MVP checklist that no amount of code closes:
+
+- [ ] the server runs unattended for a week
+- [ ] both machines reconnect cleanly after real laptop sleep *(the Wi-Fi drop is tested; sleep isn't)*
+- [ ] **a stranger watches the office for 60 seconds and correctly says what the team is doing**
+
+That last one is the one `PHASES.md` calls the real test. It needs a person who didn't build this.
+
+---
 
 **Run it:**
 ```bash

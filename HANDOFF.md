@@ -340,7 +340,7 @@ Do not "fix" these by faking them; they are honest gaps.
 | Thing | Why |
 |---|---|
 | Current Task progress bar shows elapsed, not % complete | tasks report start and finish, nothing between |
-| Activity feed has no commit aggregation | PRs/issues/CI land via the mirror; "pushed 4 commits" grouping needs a per-push window the poll loop doesn't model yet |
+| Push grouping is inferred, not observed | polling sees commits, never pushes, so runs by one author inside 10 minutes are treated as one push. Two real pushes seconds apart merge — see `github.ts` and `githubPush.test.ts` |
 | `opencode` tool policy not enforced | it has no per-run mechanism this runner knows; the harness refuses rather than pretending — see `PROVIDERS.md` |
 | No enrolment, no accounts | trust-on-first-sight, `DECISIONS.md` D23 |
 | Orchestrator does not decide *what* work exists | routing only; decomposition needs an LLM — `ORCHESTRATOR.md` |

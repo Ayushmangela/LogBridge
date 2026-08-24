@@ -183,6 +183,11 @@ export function buildView(db: Db, positions: Positions, meId: string): Workspace
       agents: views,
       machines: roomMachines,
       tasks: boardTasks,
+      // Distinct owners with an online machine. Cross-machine delegation,
+      // review and consent are all inert below two — surfacing them would be
+      // furniture for something you can't do.
+      collaborationAvailable:
+        new Set(roomMachines.filter((m) => m.online).map((m) => m.ownerId)).size >= 2,
       // Only project-scoped memories reach the browser: an agent's private
       // working notes are for that agent's own recall, not a team display.
       memories: recentMemories(db, p.id, 30).filter((m) => m.scope === "project"),

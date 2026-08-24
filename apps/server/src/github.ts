@@ -12,10 +12,40 @@
 //   closed -> task canceled       (only if not already terminal)
 //   PR     -> Room.pulls + an activity event on state/CI transitions
 //
-// Deliberately left out (and labelled): commit aggregation — the events feed
-// wants "pushed 4 commits" grouping which needs a per-push window this
-// polling loop doesn't have yet. See HANDOFF.md prompt 7's note.
+//   commits-> grouped into "pushed N commits" per author per push window
+//
+// Polling can't see pushes, only commits, so a push is RECONSTRUCTED: runs of
+// consecutive commits by the same author whose timestamps sit inside
+// PUSH_WINDOW_MS are treated as one. That's an approximation and is labelled
+// as one — two genuine pushes seconds apart merge into a single line.
 import type { Db } from "./db.js";
+
+/** A commit reduced to what a feed line needs. */
+export interface Commit { sha: string; author: string; message: string; at: string }
+
+/**
+ * Group newest-first commits into pushes, oldest group first. Consecutive
+ * commits by one author inside `windowMs` count as a single push.
+ *
+ * Polling cannot observe a push, only its commits — this reconstructs the
+ * grouping, and is an approximation: two real pushes seconds apart merge.
+ * Exported so that approximation is testable without the network.
+ */
+export function groupCommitsIntoPushes(commits: Commit[], windowMs = 10 * 60 * 1000): Commit[][] {
+  const chronological = [...commits].reverse();
+  const groups: Commit[][] = [];
+  for (const c of chronological) {
+    const open = groups[groups.length - 1];
+    const last = open?.[open.length - 1];
+    const contiguous =
+      last &&
+      last.author === c.author &&
+      Math.abs(Date.parse(c.at) - Date.parse(last.at)) <= windowMs;
+    if (contiguous) open.push(c);
+    else groups.push([c]);
+  }
+  return groups;
+}
 import { appendEvent } from "./db.js";
 
 export interface GithubMirrorOptions {
@@ -98,6 +128,55 @@ export function startGithubMirror(db: Db, opts: GithubMirrorOptions): { stop(): 
     }
   }
 
+  // Consecutive commits by one author within this window read as one push.
+  // Ten minutes is long enough to hold a real push together and short enough
+  // that unrelated work doesn't get swept in.
+  const PUSH_WINDOW_MS = 10 * 60 * 1000;
+
+  /** Split newest-first commits into pushes, oldest group first. */
+  function syncCommits(projectId: string, repo: string, raw: any[]) {
+    const commits: Commit[] = raw
+      .filter((c) => c?.sha)
+      .map((c) => ({
+        sha: String(c.sha),
+        author: c.author?.login ?? c.commit?.author?.name ?? "someone",
+        message: String(c.commit?.message ?? "").split("\n")[0],
+        at: c.commit?.author?.date ?? new Date().toISOString(),
+      }));
+    if (commits.length === 0) return;
+
+    const cursor = db.prepare("SELECT last_sha FROM github_cursors WHERE repo = ?").get(repo) as any;
+    const remember = (sha: string, at: string) =>
+      db.prepare(
+        `INSERT INTO github_cursors (repo, last_sha, last_commit_at) VALUES (?, ?, ?)
+         ON CONFLICT(repo) DO UPDATE SET last_sha = excluded.last_sha, last_commit_at = excluded.last_commit_at`
+      ).run(repo, sha, at);
+
+    // First sight of a repo: record where we are and say nothing. Announcing
+    // the last 30 commits of existing history would bury the feed on day one.
+    if (!cursor?.last_sha) {
+      remember(commits[0].sha, commits[0].at);
+      return;
+    }
+
+    const idx = commits.findIndex((c) => c.sha === cursor.last_sha);
+    // Not found means more landed than one page holds; take the page.
+    const fresh = idx === -1 ? commits : commits.slice(0, idx);
+    if (fresh.length === 0) return;
+
+    for (const push of groupCommitsIntoPushes(fresh, PUSH_WINDOW_MS)) {
+      appendEvent(db, projectId, null, "github.push", {
+        repo,
+        author: push[0].author,
+        count: push.length,
+        // The newest message is the useful one-liner; the rest are in the count.
+        headline: push[push.length - 1].message,
+        shas: push.map((c) => c.sha.slice(0, 7)),
+      });
+    }
+    remember(commits[0].sha, commits[0].at);
+  }
+
   function syncPulls(projectId: string, repo: string, pulls: any[]) {
     for (const pr of pulls.slice(0, 20)) {
       const id = `prj_${repo.replace("/", "_").toLowerCase()}#${pr.number}`;
@@ -135,6 +214,10 @@ export function startGithubMirror(db: Db, opts: GithubMirrorOptions): { stop(): 
 
     const issues = await get(`/repos/${repo}/issues?state=all&sort=updated&direction=desc&per_page=50`);
     if (issues.status === 200 && Array.isArray(issues.data)) syncIssues(projectId, repo, issues.data);
+
+    // Commits are newest-first; syncCommits reconstructs pushes from them.
+    const commits = await get(`/repos/${repo}/commits?per_page=30`);
+    if (commits.status === 200 && Array.isArray(commits.data)) syncCommits(projectId, repo, commits.data);
 
     const pulls = await get(`/repos/${repo}/pulls?state=all&sort=updated&direction=desc&per_page=30`);
     if (pulls.status === 200 && Array.isArray(pulls.data)) {

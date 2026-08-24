@@ -632,6 +632,8 @@
             <div class="panel-sub">Workspace and machine configuration</div></div>
           <div class="panel-body">
             <div id="machines-list"></div>
+            <div class="section-label">Working together</div>
+            <div class="temp" id="collab-state"></div>
             <div class="section-label">Invites and accounts</div>
             <div class="temp"><b>Not built yet</b>
               There is no sign-in and no enrolment flow. A machine is trusted the first time it
@@ -1035,10 +1037,18 @@
       }
     }
 
-    function initLegend() {
+    // Rebuilt on every view, because whether collaboration is possible can
+    // change the moment someone else's machine connects or drops.
+    function renderLegend() {
       const chips = document.getElementById('legend-chips');
       if (!chips) return;
-      for (const [zone, [label, cls]] of Object.entries(ZONE_BADGE)) {
+      chips.innerHTML = '';
+      // "meeting" is where agents from DIFFERENT machines work together. With
+      // one person online nothing can ever enter it, so the chip would be a
+      // legend entry for a state the office cannot show.
+      const collabOn = latestView?.rooms?.[0]?.collaborationAvailable ?? false;
+      for (const [zone, [label]] of Object.entries(ZONE_BADGE)) {
+        if (zone === 'collaborating' && !collabOn) continue;
         const chip = document.createElement('span');
         chip.style.cssText = 'display:inline-flex;align-items:center;gap:4px;';
         const dot = document.createElement('span');
@@ -1050,6 +1060,11 @@
         chip.append(dot, txt);
         chips.appendChild(chip);
       }
+    }
+
+    // Listeners attach once; renderLegend() is what repeats.
+    function initLegend() {
+      renderLegend();
       document.getElementById('flt-agents').addEventListener('change', (e) => {
         officeFilters.agents = e.target.checked; applyOfficeFilters();
       });
@@ -1255,6 +1270,7 @@
       const room = view.rooms[0];
       if (!room) return;
       document.getElementById('ws-name').textContent = room.name;
+      renderLegend();
       renderPeople(room);
       renderAgentRoster(room);
       renderCurrentTask(room);
@@ -1292,6 +1308,22 @@
       if (o.onClick) row.onclick = o.onClick;
       row.title = `${o.name} — ${o.sub}`;
       return row;
+    }
+
+    function renderCollabState(room) {
+      const el = document.getElementById('collab-state');
+      if (!el) return;
+      const owners = new Set(room.machines.filter((m) => m.online).map((m) => m.ownerId));
+      if (room.collaborationAvailable) {
+        el.innerHTML = '<b>Active</b>Agents on different machines can delegate work to each other, ' +
+          'request reviews and share context. Every payload is sealed end to end \u2014 the server routes it ' +
+          'and cannot read it.';
+      } else {
+        el.innerHTML = '<b>Waiting for someone else</b>Delegation, code review and context sharing need ' +
+          'a second person\u2019s machine online. They\u2019re built and tested \u2014 just inert while ' +
+          'you\u2019re the only one here, so the office doesn\u2019t show a meeting room nobody can enter.';
+      }
+      el.innerHTML += `<div style="margin-top:8px;opacity:.75">Owners online: ${owners.size}</div>`;
     }
 
     function renderPeople(room) {
@@ -1337,6 +1369,7 @@
     }
 
     function renderMachines(room) {
+      renderCollabState(room);
       const el = document.getElementById('machines-list');
       el.innerHTML = '<div class="section-label" style="margin-top:0">Connected machines</div>';
       const list = latestView?.rooms?.[0]?.machines ?? [];

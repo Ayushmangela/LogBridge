@@ -88,6 +88,14 @@ CREATE TABLE IF NOT EXISTS github_pulls (
   ci TEXT,
   updated_at TEXT
 );
+-- Where the commit poller got to, per repo. Without a cursor the first poll
+-- would narrate every commit in the repo's recent history; with one, only
+-- genuinely new commits are announced.
+CREATE TABLE IF NOT EXISTS github_cursors (
+  repo TEXT PRIMARY KEY,
+  last_sha TEXT,
+  last_commit_at TEXT
+);
 CREATE TABLE IF NOT EXISTS grants (
   id TEXT PRIMARY KEY,
   grantor_id TEXT,

@@ -143,6 +143,10 @@ export const Room = z.object({
   agents: z.array(AgentView),
   machines: z.array(MachineView),
   tasks: z.array(BoardTask),
+  // True only when two or more DISTINCT owners have a machine online. Two
+  // machines belonging to one person is not collaboration, and the office
+  // shouldn't advertise a meeting room nobody can be in.
+  collaborationAvailable: z.boolean(),
   pulls: z.array(PullView),
   memories: z.array(MemoryView),
   activity: z.array(ActivityItem),
