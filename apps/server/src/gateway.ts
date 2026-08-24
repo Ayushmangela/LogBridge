@@ -24,7 +24,7 @@ export function registerGateway(
   positions: Positions,
   browserSockets: Set<WebSocket>,
   nodeSockets: NodeSockets
-): () => void {
+): { broadcastView: () => void; broadcastChat: (chat: ChatMessageT) => void } {
   const broadcastView = () => {
     if (browserSockets.size === 0) return;
     const msg = { type: "view" as const, view: buildView(db, positions, "you") };
@@ -113,6 +113,39 @@ export function registerGateway(
       } else if (msg.data.type === "answer") {
         appendEvent(db, null, msg.data.taskId, "human.answer", msg.data);
         const task = getTask(db, msg.data.taskId);
+
+        // Mid-task question: relay the human's words to the waiting agent.
+        // The runner owns the state machine here — it flips the task back to
+        // working (its next status confirms), delivers the text to the
+        // process, and restarts its budget clock.
+        if (task && msg.data.choice === "answer" && task.agent_id) {
+          const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(task.agent_id) as any;
+          const socket = agent ? nodeSockets.get(agent.machine_id) : undefined;
+          if (socket && socket.readyState === socket.OPEN) {
+            socket.send(JSON.stringify({
+              v: 1, id: crypto.randomUUID(), type: "human.answer", project: task.project_id,
+              from: { kind: "server", id: "server" }, to: { kind: "node", id: agent.machine_id },
+              task: task.id, idem: null, ts: new Date().toISOString(),
+              body: { askId: task.id, choice: "answer", text: msg.data.text ?? null },
+            }));
+            appendEvent(db, task.project_id, task.id, "human.answer.relayed", { to: agent.name });
+            // The whole exchange belongs to the room (PLAN.md §8) — other
+            // viewers see what was asked AND what was answered.
+            const reply: ChatMessageT = {
+              id: crypto.randomUUID(),
+              roomId: task.project_id,
+              from: { kind: "user", id: "you", name: "you" },
+              text: `→ ${agent.name}: ${msg.data.text ?? "(no text)"}`,
+              ts: new Date().toISOString(),
+              ask: null,
+            };
+            appendEvent(db, task.project_id, task.id, "chat", reply);
+            broadcastChat(reply);
+          } else {
+            appendEvent(db, task.project_id, task.id, "human.answer.undeliverable", { reason: "machine offline" });
+          }
+        }
+
         if (task && task.state === "submitted" && task.agent_id) {
           if (msg.data.choice === "approve") {
             sendTaskOffer(db, nodeSockets, task.id);
@@ -120,8 +153,7 @@ export function registerGateway(
             setTaskState(db, task.id, "rejected", { ended_at: new Date().toISOString() });
             clearAgentWaiting(db, task.agent_id);
           }
-          // "edit" / "answer" (mid-task question) are out of scope for this
-          // slice — see M4-KICKOFF.md's explicitly-deferred list.
+          // "edit" is still deferred — see M4-KICKOFF.md (prompt 4).
         }
         broadcastView();
       }
@@ -137,5 +169,5 @@ export function registerGateway(
     time: new Date().toISOString(),
   }));
 
-  return broadcastView;
+  return { broadcastView, broadcastChat };
 }

@@ -11,10 +11,42 @@ const args = process.argv.slice(2);
 const durationIdx = args.indexOf("--duration");
 const duration = durationIdx >= 0 ? Number(args[durationIdx + 1]) : 10;
 const loopForever = args.includes("--loop-forever");
+// --ask-after <sec>: emit a question after N seconds and block on stdin until
+// an answer line arrives. Exercises the full mid-task question path (see
+// HANDOFF.md prompt 3) without any real model call.
+const askAfterIdx = args.indexOf("--ask-after");
+const askAfter = askAfterIdx >= 0 ? Number(args[askAfterIdx + 1]) : null;
 
 let elapsed = 0;
+let asked = false;
+
 const tick = setInterval(() => {
   elapsed += 1;
+  if (askAfterIdx >= 0 && !asked && elapsed >= askAfter) {
+    asked = true;
+    clearInterval(tick);
+    console.log(JSON.stringify({ question: "Deploy to staging before finishing?" }));
+    // Blocks until a line arrives — exactly what a waiting agent does.
+    let buf = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => {
+      buf += chunk;
+      const nl = buf.indexOf("\n");
+      if (nl < 0) return;
+      const answer = buf.slice(0, nl).trim();
+      console.log(JSON.stringify({ note: `answer received: ${answer}` }));
+      const tick2 = setInterval(() => {
+        elapsed += 1;
+        console.log(JSON.stringify({ elapsed, note: `working… ${elapsed}s` }));
+        if (!loopForever && elapsed >= duration) {
+          clearInterval(tick2);
+          console.log(JSON.stringify({ done: true }));
+          process.exit(0);
+        }
+      }, 1000);
+    });
+    return;
+  }
   console.log(JSON.stringify({ elapsed, note: `working… ${elapsed}s` }));
   if (!loopForever && elapsed >= duration) {
     clearInterval(tick);

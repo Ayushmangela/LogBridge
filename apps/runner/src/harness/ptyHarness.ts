@@ -178,6 +178,14 @@ export function makePtyHarness(config: PtyHarnessConfig = {}): AgentHarness {
             /* process may already be gone */
           }
         },
+        answer: (text) => {
+          // A pty CAN inject stdin mid-run — that's what makes questions
+          // deliverable at all. Whether the CLI listens is its own business:
+          // today's verified CLIs are one-shot and never emit a question, so
+          // this path exists for interactive harnesses and costs nothing
+          // otherwise. No pretending it works where it can't be observed.
+          try { proc.write(text + "\n"); } catch { /* process may be gone */ }
+        },
         kill: () => {
           settled = true;
           try {

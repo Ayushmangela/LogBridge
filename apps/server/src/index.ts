@@ -45,10 +45,11 @@ export async function buildServer(
   });
   app.get("/", async (_req, reply) => reply.sendFile("index.html"));
 
-  const broadcastView = registerGateway(app, db, positions, browserSockets, nodeSockets);
+  const { broadcastView, broadcastChat } = registerGateway(app, db, positions, browserSockets, nodeSockets);
   registerNodeGateway(app, db, nodeSockets, broadcastView, {
     leaseSeconds: opts.leaseSeconds,
     sweepIntervalMs: opts.sweepIntervalMs,
+    onChat: broadcastChat,
   });
 
   // ---------------------------------------------------------------------

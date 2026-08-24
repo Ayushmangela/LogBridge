@@ -18,7 +18,12 @@ export type AgentEvent =
   | { kind: "tool_call"; name: string; input: unknown }
   | { kind: "cost"; usd: number }
   | { kind: "done"; ok: boolean; summary?: string }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string }
+  /** The agent needs a human decision before it can continue. The runner
+   *  pauses the wall-clock budget, marks the task input-required, and routes
+   *  the question to a human inbox; the answer comes back via
+   *  AgentHandle.answer(). A one-shot CLI simply never emits this. */
+  | { kind: "question"; id: string; question: string };
 
 export interface AgentHandle {
   events: AsyncIterable<AgentEvent>;
@@ -26,6 +31,10 @@ export interface AgentHandle {
   interrupt(): void;
   /** Hard stop — must land within ~2s. */
   kill(): void;
+  /** Deliver a human's answer to the running process. Only meaningful for
+   *  harnesses whose CLI actually listens to stdin (interactive runs);
+   *  implementations that cannot deliver should accept and ignore. */
+  answer?(text: string): void;
 }
 
 export interface AgentHarness {

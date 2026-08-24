@@ -1587,11 +1587,33 @@
             const acts = document.createElement('div');
             acts.className = 'chat-actions';
             for (const c of m.ask.options) {
-              const b = document.createElement('button');
-              b.className = c === 'approve' ? 'btn-approve' : 'btn-reject';
-              b.textContent = c === 'approve' ? '✓ Approve' : 'Reject';
-              b.onclick = () => answerAsk(m.ask.taskId, c);
-              acts.appendChild(b);
+              if (c === 'answer') {
+                // A mid-task question wants WORDS, not a button — inline
+                // reply field. Enter sends; the field disables on answer.
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex;gap:8px;margin-top:10px;width:100%';
+                const inp = document.createElement('input');
+                inp.placeholder = 'Type your answer…';
+                inp.style.cssText = 'flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:12.5px;background:var(--surface-2);color:var(--text)';
+                const send = document.createElement('button');
+                send.className = 'btn-approve';
+                send.textContent = 'Reply';
+                const go = () => {
+                  if (!inp.value.trim()) return;
+                  answerAsk(m.ask.taskId, 'answer', inp.value.trim());
+                  inp.disabled = true; send.disabled = true;
+                };
+                send.onclick = go;
+                inp.onkeydown = (e) => { if (e.key === 'Enter') go(); };
+                row.append(inp, send);
+                acts.appendChild(row);
+              } else {
+                const b = document.createElement('button');
+                b.className = c === 'approve' ? 'btn-approve' : 'btn-reject';
+                b.textContent = c === 'approve' ? '✓ Approve' : 'Reject';
+                b.onclick = () => answerAsk(m.ask.taskId, c);
+                acts.appendChild(b);
+              }
             }
             body.appendChild(acts);
           }
@@ -1601,10 +1623,10 @@
       log.scrollTop = log.scrollHeight;
     }
 
-    function answerAsk(taskId, choice) {
+    function answerAsk(taskId, choice, text) {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify({ type: 'answer', taskId, choice }));
-      answeredChoice.set(taskId, choice);
+      ws.send(JSON.stringify({ type: 'answer', taskId, choice, ...(text ? { text } : {}) }));
+      answeredChoice.set(taskId, choice + (text ? `: "${text}"` : ''));
       renderChat();
     }
 

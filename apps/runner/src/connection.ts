@@ -135,6 +135,20 @@ export class RunnerConnection {
       (taskId, state, reason, costUsd) => {
         this.sendEnvelope(this.resultEnvelope(taskId, state, reason, costUsd));
         this.rememberOutcome(taskId, state, reason);
+      },
+      (taskId, _questionId, question) => {
+        // Tell the server two ways: the task moved to input-required (drives
+        // zones/leases), and there is a question for a human inbox.
+        const project = this.taskProject.get(taskId) ?? "";
+        this.sendEnvelope(this.statusEnvelope(taskId, "input-required"));
+        this.sendEnvelope({
+          v: 1, id: crypto.randomUUID(), type: "human.ask", project,
+          from: { kind: "node", id: this.opts.identity.machineId },
+          to: { kind: "node", id: this.opts.identity.machineId },
+          task: taskId, idem: crypto.randomUUID(), ts: new Date().toISOString(),
+          body: { taskId, question, options: ["answer"] },
+        } as EnvelopeT);
+        this.log(`agent asked (task ${taskId}): ${question}`);
       }
     );
   }
@@ -280,6 +294,19 @@ export class RunnerConnection {
     if (env.type === "task.cancel") {
       this.log(`server canceled ${body.taskId}: ${body.reason ?? "no reason given"}`);
       this.taskRunner.stop(body.taskId);
+      return;
+    }
+
+    // A human answered a mid-task question. Deliver it and restart the clock.
+    if (env.type === "human.answer") {
+      const taskId = body.askId ?? body.taskId;
+      if (this.taskRunner.isAwaitingAnswer(taskId)) {
+        this.log(`answer for ${taskId}: ${body.text}`);
+        this.taskRunner.answer(taskId, String(body.text ?? ""));
+        this.sendEnvelope(this.statusEnvelope(taskId, "working"));
+      } else {
+        this.log(`answer for ${taskId} arrived but nothing is waiting — ignoring`);
+      }
       return;
     }
 
@@ -641,7 +668,10 @@ export class RunnerConnection {
     const intervalMs = Math.max(500, (leaseSeconds * 1000) / 4); // ~4 heartbeats per lease, matching SYSTEM.md's 60s/15s ratio
     this.heartbeatTimer = setInterval(() => {
       for (const taskId of this.taskRunner.activeIds()) {
-        this.sendEnvelope(this.statusEnvelope(taskId));
+        // A task paused on a human question must keep reporting input-required —
+        // heartbeating "working" here would silently unblock it server-side.
+        const state = this.taskRunner.isAwaitingAnswer(taskId) ? "input-required" : "working";
+        this.sendEnvelope(this.statusEnvelope(taskId, state));
       }
     }, intervalMs);
   }
@@ -693,11 +723,11 @@ export class RunnerConnection {
   private acceptEnvelope(taskId: string, project: string): EnvelopeT {
     return this.envelope("task.accept", taskId, project, { taskId });
   }
-  private statusEnvelope(taskId: string): EnvelopeT {
+  private statusEnvelope(taskId: string, state: "working" | "input-required" = "working"): EnvelopeT {
     const project = this.taskProject.get(taskId) ?? "";
     return this.envelope("task.status", taskId, project, {
       taskId,
-      state: "working",
+      state,
       note: `elapsed ${this.taskRunner.elapsedSeconds(taskId)}s`,
     });
   }

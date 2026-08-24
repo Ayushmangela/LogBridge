@@ -4,7 +4,7 @@
 // cryptographically." See SYSTEM.md §3b and DECISIONS.md D23.
 import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "ws";
-import { canTransition, isSideEffecting, parseEnvelope, type EnvelopeT } from "@logbridge/protocol";
+import { canTransition, isSideEffecting, parseEnvelope, type ChatMessageT, type EnvelopeT } from "@logbridge/protocol";
 import {
   type Db,
   appendEvent,
@@ -129,6 +129,9 @@ export type NodeSockets = Map<string, WebSocket>; // machineId -> socket, only w
 export interface NodeGatewayOptions {
   leaseSeconds?: number;
   sweepIntervalMs?: number;
+  /** Broadcast a chat message to every browser — the question inbox lives
+   *  in the room, not in a private channel. See PLAN.md §8. */
+  onChat?: (chat: ChatMessageT) => void;
 }
 
 export function registerNodeGateway(
@@ -248,7 +251,7 @@ export function registerNodeGateway(
       }
       // parsed.body is the zod-validated body (schema defaults applied);
       // env.body is the raw one the older handlers below still read.
-      handleNodeEnvelope(db, parsed.envelope, app, onChange, LEASE_SECONDS, parsed.body, send, nodeSockets);
+      handleNodeEnvelope(db, parsed.envelope, app, onChange, LEASE_SECONDS, parsed.body, send, nodeSockets, opts.onChat);
     });
 
     socket.on("close", () => {
@@ -389,7 +392,8 @@ function handleNodeEnvelope(
   leaseSeconds: number,
   validBody: any,
   send: (m: unknown) => void,
-  nodeSockets: NodeSockets
+  nodeSockets: NodeSockets,
+  onChat?: (chat: ChatMessageT) => void
 ) {
   const body = env.body as any;
 
@@ -505,6 +509,37 @@ function handleNodeEnvelope(
         error: validBody.error ?? null,
       });
     }
+    return;
+  }
+
+  // ---- mid-task questions (HANDOFF.md prompt 3) ----
+  // The runner already moved the task to input-required; this surfaces the
+  // question to the room and pins the agent in its owner's cabin. The task
+  // stays input-required until the human's answer is relayed back.
+  if (env.type === "human.ask") {
+    const t = getTask(db, validBody.taskId);
+    if (!t || !t.agent_id) return;
+    const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(t.agent_id) as any;
+    if (!agent) return;
+    const owner = db.prepare("SELECT name FROM users WHERE id = ?").get(agent.owner_id) as any;
+    setAgentStatus(db, agent.id, "needs_input", t.id);
+    db.prepare("UPDATE agents SET waiting_on = ? WHERE id = ?").run(
+      `human: ${owner?.name ?? "you"}`, agent.id
+    );
+    appendEvent(db, env.project, t.id, "human.ask", { question: validBody.question });
+    // The question lives in the room where everyone can see it (PLAN.md §8) —
+    // same feed as proposals, different options.
+    if (onChat) {
+      onChat({
+        id: crypto.randomUUID(),
+        roomId: env.project,
+        from: { kind: "agent", id: agent.id, name: agent.name },
+        text: String(validBody.question),
+        ts: new Date().toISOString(),
+        ask: { taskId: t.id, options: ["answer"] },
+      });
+    }
+    onChange();
     return;
   }
 

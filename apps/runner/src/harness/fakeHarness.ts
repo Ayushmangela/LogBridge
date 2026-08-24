@@ -15,21 +15,32 @@ const FAKE_COST_PER_SECOND = 0.01;
 // use that; otherwise (a real task title/spec in prompt form) default short.
 // A real harness never does this — it just sends the prompt to a real CLI.
 function workSecondsFromPrompt(prompt: string, maxSeconds: number): number {
-  try {
-    const parsed = JSON.parse(prompt);
-    if (typeof parsed.durationSeconds === "number") return parsed.durationSeconds;
-  } catch {
-    /* not JSON — a real prompt string */
-  }
-  return Math.max(1, Math.min(maxSeconds - 1, 5));
+  const p = promptJson(prompt);
+  return typeof p?.durationSeconds === "number" ? p.durationSeconds : Math.max(1, Math.min(maxSeconds - 1, 5));
+}
+
+// Same channel, for the question flow: {"askAfter": N} makes the worker ask
+// a question N seconds in and wait on stdin for the answer.
+function askAfterFromPrompt(prompt: string): number | null {
+  const p = promptJson(prompt);
+  return typeof p?.askAfter === "number" ? p.askAfter : null;
+}
+
+function promptJson(prompt: string): any | null {
+  try { return JSON.parse(prompt); } catch { return null; }
 }
 
 export const fakeHarness: AgentHarness = {
   name: "fake-worker",
   spawn(opts: SpawnOptions): AgentHandle {
     const workSeconds = workSecondsFromPrompt(opts.prompt, opts.maxSeconds);
-    const child = spawn(process.execPath, [FAKE_WORKER, "--duration", String(workSeconds)], {
-      stdio: ["ignore", "pipe", "pipe"],
+    const askAfter = askAfterFromPrompt(opts.prompt);
+    const child = spawn(process.execPath, [
+      FAKE_WORKER,
+      "--duration", String(workSeconds),
+      ...(askAfter != null ? ["--ask-after", String(askAfter)] : []),
+    ], {
+      stdio: ["pipe", "pipe", "pipe"],
       cwd: opts.cwd,
     });
     const queue = new AsyncEventQueue<AgentEvent>();
@@ -47,6 +58,8 @@ export const fakeHarness: AgentHarness = {
           const parsed = JSON.parse(line);
           if (parsed.done) {
             queue.push({ kind: "done", ok: true });
+          } else if (parsed.question) {
+            queue.push({ kind: "question", id: `q_${parsed.elapsed ?? 0}`, question: parsed.question });
           } else {
             queue.push({ kind: "output", text: parsed.note ?? line });
             queue.push({ kind: "cost", usd: Number(((parsed.elapsed ?? 0) * FAKE_COST_PER_SECOND).toFixed(4)) });
@@ -74,6 +87,11 @@ export const fakeHarness: AgentHarness = {
           if (!child.killed) child.kill("SIGKILL");
         }, 2000);
         queue.close();
+      },
+      // The worker is blocked reading stdin while its question is pending —
+      // the answer line is what unblocks it.
+      answer: (text) => {
+        try { child.stdin?.write(text + "\n"); } catch { /* already gone */ }
       },
     };
   },
