@@ -192,6 +192,32 @@ export const BodySchemas = {
     ),
   }),
 
+  // ---- runtime agent creation (browser asks a machine to add an agent) ----
+  // This message makes the SERVER able to start a real CLI on someone's
+  // machine. The runner refuses it unless that machine opted in — see
+  // allowAgentCreation in apps/runner/src/connection.ts and DECISIONS.md D1/D3.
+  "agent.create": z.object({
+    requestId: z.string(),
+    name: z.string().min(1).max(64),
+    role: z.enum(["developer", "research", "qa", "review", "docs", "planner"]),
+    // Validated against the runner's provider registry, not here — the wire
+    // stays permissive so providers can be added without a protocol bump.
+    provider: z.string().nullable().default(null),
+    model: z.string().nullable().default(null),
+    capabilities: z.array(z.string()).default([]),
+    projectId: z.string(),
+    cwd: z.string().nullable().default(null),
+    allowTools: z.array(z.string()).default([]),
+    denyPaths: z.array(z.string()).default([]),
+  }),
+
+  "agent.create.result": z.object({
+    requestId: z.string(),
+    ok: z.boolean(),
+    agentId: z.string().nullish().default(null),
+    error: z.string().nullish().default(null),
+  }),
+
   "agent.card": z.object({
     id: z.string(),
     name: z.string(),

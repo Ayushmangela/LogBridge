@@ -1,7 +1,7 @@
 # The Contract
 ### Single source of truth for everything exchanged between the office and the system.
 
-**Version 1.11** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
+**Version 1.12** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
 
 > **Rule: never change this file alone.** Both people present, both agree, bump the version, add a changelog line. A contract one person edited is not a contract.
 
@@ -114,6 +114,18 @@ type MachineView = {
   ownerId: string
   online: boolean              // ★ offline = that person's agents can't take work
   lastSeen: string
+  providers: ProviderInfo[]    // ★ CLIs the machine actually has installed —
+                               //   reported by the machine at handshake, not guessed
+  allowAgentCreation: boolean  // ★ machine accepts browser-initiated agent creation
+  allowUnsandboxed: boolean    // ★ machine accepts providers with no tool policy
+}
+
+type ProviderInfo = {
+  id: string                   // "opencode"
+  label: string                // "OpenCode"
+  policy: "claude-settings" | "none"   // none = cannot enforce allowTools/denyPaths
+  verified: boolean            // output format observed here, or assumed?
+  models: string[]
 }
 
 type ChatMessage = {
@@ -242,6 +254,7 @@ Five tilesets are registered in the map, all 32 px:
 
 | Version | Change | Why |
 |---|---|---|
+| **1.12** | **`agent.create` (server → node) and `agent.create.result` (node → server)**; `MachineView` gains `providers`, `allowAgentCreation`, `allowUnsandboxed` | Creating an agent from the browser. The machine reports what it can do (installed CLIs, its own gates) so the dialog offers only real options — and the runner, not the UI, is what refuses: creation is opt-in per machine (`--allow-agent-creation`), and a provider with no enforceable tool policy is refused unless the owner accepts unsandboxed runs. An agent that would refuse every task never gets born |
 | **1.11** | **`task.offer` carries `agentId`** (nullable, so an older runner still parses it) | A machine can run several agents, on different CLIs. Without this the runner had to guess — it used `agents[0]` — so a second agent could never receive work and every agent shared one harness. Prerequisite for choosing a provider per agent |
 | **1.10** | Added **`Room.activity: ActivityItem[]`** (30 newest, noise filtered) | The office shows the present tense and the board shows task state; neither can say *"the lease expired"*, *"it learned something"* or *"a result arrived late"*. Those only exist in the event log. The **summary is written server-side** for the same reason `zone` is (invariant 2): one place decides the wording, so the UI cannot narrate something the log doesn't support |
 | **1.9** | Added **`Room.memories: MemoryView[]`** (project-scoped only, 30 newest) and the `memory.write` / `memory.recall` / `memory.result` envelope types | Shared agent memory — see `MEMORY.md` and D25. An agent recalls what the team learned before it starts, including from agents on other machines, which only works if the store is server-side. Agent-scoped memories stay out of the view: they're for that agent's recall, not a team display |

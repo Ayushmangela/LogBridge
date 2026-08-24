@@ -15,6 +15,7 @@ import {
   markMachineOnline,
   getMachine,
   registerMachine,
+  setMachineCapabilities,
   setSealingPubkey,
   sealingKeyForAgent,
   renewLease,
@@ -42,6 +43,86 @@ const HELLO_TIMEOUT_MS = 5000;
 // Persistent (cross-restart) idem tracking is a real gap, not silently
 // ignored — see DECISIONS.md D23.
 const seenResultIdem = new Set<string>();
+
+// Browser-initiated agent creations awaiting the machine's verdict. Same
+// process-lifetime caveat as above: an in-flight request at server restart
+// just times out on the browser side, which is the honest outcome anyway.
+const pendingAgentCreates = new Map<
+  string,
+  (r: { ok: boolean; agentId: string | null; error: string | null }) => void
+>();
+
+export interface AgentCreateRequest {
+  machineId: string;
+  projectId: string;
+  name: string;
+  role: string;
+  provider?: string | null;
+  model?: string | null;
+  capabilities?: string[];
+  cwd?: string | null;
+  allowTools?: string[];
+  denyPaths?: string[];
+}
+
+/**
+ * Ask a machine to create an agent at runtime. Resolves with the machine's
+ * actual answer — including its refusal — or a timeout. The gates that matter
+ * live on the runner; the pre-checks here exist so the browser gets an honest
+ * error immediately instead of after a round trip the machine will refuse.
+ */
+export async function requestAgentCreate(
+  db: Db, nodeSockets: NodeSockets, opts: AgentCreateRequest
+): Promise<{ ok: boolean; agentId: string | null; error: string | null }> {
+  const machine = getMachine(db, opts.machineId) as any;
+  if (!machine) return { ok: false, agentId: null, error: "unknown machine" };
+  if (!machine.online) return { ok: false, agentId: null, error: `"${machine.name ?? opts.machineId}" is offline` };
+  if (!machine.allow_agent_creation) {
+    return {
+      ok: false, agentId: null,
+      error: `"${machine.name ?? opts.machineId}" has not enabled agent creation — start its runner with --allow-agent-creation`,
+    };
+  }
+
+  const requestId = crypto.randomUUID();
+  const env: EnvelopeT = {
+    v: 1, id: crypto.randomUUID(), type: "agent.create", project: opts.projectId,
+    from: { kind: "server", id: "server" }, to: { kind: "node", id: opts.machineId },
+    task: null, idem: crypto.randomUUID(), ts: new Date().toISOString(),
+    body: {
+      requestId, name: opts.name, role: opts.role,
+      provider: opts.provider ?? null, model: opts.model ?? null,
+      capabilities: opts.capabilities ?? [], projectId: opts.projectId,
+      cwd: opts.cwd ?? null, allowTools: opts.allowTools ?? [], denyPaths: opts.denyPaths ?? [],
+    },
+  };
+
+  const result = new Promise<{ ok: boolean; agentId: string | null; error: string | null }>((resolve) => {
+    const timer = setTimeout(() => {
+      if (pendingAgentCreates.delete(requestId)) {
+        resolve({ ok: false, agentId: null, error: "the machine did not answer in time" });
+      }
+    }, AGENT_CREATE_TIMEOUT_MS);
+    if (timer.unref) timer.unref();
+    pendingAgentCreates.set(requestId, (r) => { clearTimeout(timer); resolve(r); });
+  });
+
+  const socket = nodeSockets.get(opts.machineId)!;
+  socket.send(JSON.stringify(env));
+  appendEvent(db, opts.projectId, null, "agent.create.request", {
+    requestId, name: opts.name, role: opts.role, provider: opts.provider ?? null,
+    model: opts.model ?? null, machineId: opts.machineId,
+  });
+
+  const answer = await result;
+  appendEvent(db, opts.projectId, null, "agent.create.result", {
+    requestId, ok: answer.ok, agentId: answer.agentId, error: answer.error,
+    name: opts.name, machineId: opts.machineId,
+  });
+  return answer;
+}
+
+const AGENT_CREATE_TIMEOUT_MS = 8_000;
 
 export type NodeSockets = Map<string, WebSocket>; // machineId -> socket, only while authenticated
 
@@ -137,6 +218,13 @@ export function registerNodeGateway(
           }
         }
         markMachineOnline(db, hello.machineId, true);
+        // Capabilities are re-recorded every connect (see db.ts comment).
+        setMachineCapabilities(
+          db, hello.machineId,
+          hello.providers ?? [],
+          Boolean(hello.allowAgentCreation),
+          Boolean(hello.allowUnsandboxed)
+        );
         nodeSockets.set(hello.machineId, socket as unknown as WebSocket);
         send({ type: "ready" });
         onChange();
@@ -403,6 +491,20 @@ function handleNodeEnvelope(
       task: env.task, idem: null, ts: new Date().toISOString(),
       body: { requestId: validBody.requestId, memories },
     });
+    return;
+  }
+
+  // ---- runtime agent creation ----
+  if (env.type === "agent.create.result") {
+    const resolve = pendingAgentCreates.get(validBody.requestId);
+    if (resolve) {
+      pendingAgentCreates.delete(validBody.requestId);
+      resolve({
+        ok: validBody.ok,
+        agentId: validBody.agentId ?? null,
+        error: validBody.error ?? null,
+      });
+    }
     return;
   }
 

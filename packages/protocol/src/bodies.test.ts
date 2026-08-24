@@ -124,6 +124,14 @@ describe("envelope schemas", () => {
             agentName: "dev-api", createdAt: new Date().toISOString(),
           }],
         };
+      case "agent.create":
+        return {
+          requestId: "req_1", name: "dev-new", role: "developer",
+          provider: "opencode", model: null, capabilities: ["fix_test"],
+          projectId: "prj_demo", cwd: null, allowTools: [], denyPaths: [],
+        };
+      case "agent.create.result":
+        return { requestId: "req_1", ok: true, agentId: "agt_new", error: null };
       default: throw new Error(`no fixture for ${type}`);
     }
   }

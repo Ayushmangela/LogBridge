@@ -8,11 +8,21 @@ import { open as openSealed, seal, sealAad, type EnvelopeT } from "@logbridge/pr
 import type { Identity } from "./identity.js";
 import type { AgentHarness } from "./harness/types.js";
 import { makePtyHarness } from "./harness/ptyHarness.js";
+import { detectInstalled, providerById } from "./harness/providers.js";
 import { Outbox } from "./outbox.js";
 import { TaskRunner } from "./taskRunner.js";
 
 const DEFAULT_ALLOW_TOOLS = ["Read", "Write", "Bash"];
 const DEFAULT_DENY_PATHS = [".env*", "**/secrets/**", "~/.ssh/**"];
+
+/** Installed providers, in the shape the contract's MachineView.providers
+ *  expects — computed from this machine's own registry, so the browser never
+ *  guesses what a machine can run. */
+function installedProviderSpecs() {
+  return detectInstalled()
+    .filter((p) => p.installed)
+    .map((p) => ({ id: p.id, label: p.label, policy: p.policy, verified: p.verified, models: p.models }));
+}
 
 // How long to wait for the server's memory.result before starting anyway.
 // Memory makes an agent better informed; it must never be what stops it
@@ -84,6 +94,10 @@ export interface RunnerOptions {
   /** Whether this machine will execute work delegated by other machines.
    *  Off by default — see handleDelegateRequest and SYSTEM.md §7. */
   acceptDelegations?: boolean;
+  /** Whether agents may be created from the browser on this machine. Off by
+   *  default — this is the message that lets a remote UI start a real CLI
+   *  here, so it gets the same gate as delegations. See D1/D3. */
+  allowAgentCreation?: boolean;
   /** Passed to per-agent harnesses — see PROVIDERS.md. */
   allowUnsandboxed?: boolean;
   leaseSeconds?: number;
@@ -142,6 +156,12 @@ export class RunnerConnection {
           // Published so other machines can seal payloads to this one. The
           // matching private key never leaves this process. See SEALED.md.
           sealingPubkey: this.opts.identity.sealingPublicKeyB64,
+          // What this machine can and will do — the browser renders it, the
+          // runner enforces it. Sent every connect because the flags are
+          // CLI/runtime state that changes between restarts.
+          providers: installedProviderSpecs(),
+          allowAgentCreation: Boolean(this.opts.allowAgentCreation),
+          allowUnsandboxed: Boolean(this.opts.allowUnsandboxed),
         })
       );
     });
@@ -303,6 +323,12 @@ export class RunnerConnection {
       }
       return;
     }
+
+    // ---- runtime agent creation ----
+    if (env.type === "agent.create") {
+      this.handleAgentCreate(env, body);
+      return;
+    }
   }
 
   private agentById(id: string | null | undefined): AgentDecl | undefined {
@@ -433,6 +459,92 @@ export class RunnerConnection {
     this.sendDelegateResult(env, body.requestId, ok ? "completed" : "failed", output.join("\n").slice(0, 4000));
   }
 
+  // ---- runtime agent creation ----
+
+  /**
+   * The browser asked to add an agent on THIS machine. Three gates, all
+   * enforced here rather than in the UI — the dialog greying something out
+   * is a courtesy; this method is the enforcement (D3):
+   *   1. the machine opted into creation at all (--allow-agent-creation)
+   *   2. the provider exists and is actually installed on this machine
+   *   3. a provider with no enforceable tool policy is refused unless the
+   *      owner accepted unsandboxed runs — same rule ptyHarness applies at
+   *      spawn time, so an agent that would refuse every task is never born
+   */
+  private handleAgentCreate(env: EnvelopeT, body: any) {
+    const requestId = body.requestId;
+    const refuse = (error: string) => {
+      this.log(`refused agent.create "${body.name}": ${error}`);
+      this.sendEnvelope({
+        v: 1, id: crypto.randomUUID(), type: "agent.create.result", project: env.project,
+        from: { kind: "node", id: this.opts.identity.machineId },
+        to: { kind: "node", id: this.opts.identity.machineId },
+        task: null, idem: null, ts: new Date().toISOString(),
+        body: { requestId, ok: false, agentId: null, error },
+      } as EnvelopeT);
+    };
+
+    if (!this.opts.allowAgentCreation) {
+      refuse("this machine does not accept agent creation (owner has not enabled it)");
+      return;
+    }
+
+    if (body.provider) {
+      const spec = providerById(body.provider);
+      if (!spec) {
+        refuse(`unknown provider "${body.provider}"`);
+        return;
+      }
+      if (!detectInstalled().some((p) => p.id === spec.id && p.installed)) {
+        refuse(`provider "${spec.label}" is not installed on this machine`);
+        return;
+      }
+      if (spec.policy === "none" && !this.opts.allowUnsandboxed) {
+        refuse(
+          `provider "${spec.label}" cannot enforce allowTools/denyPaths on this machine — ` +
+          "every task would be refused. Enable --allow-unsandboxed if you accept that."
+        );
+        return;
+      }
+    }
+
+    // A stable, collision-free id even if two agents share a name.
+    const slug = String(body.name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "agent";
+    let id = `agt_${this.opts.identity.machineId}_${slug}`;
+    while (this.agentById(id)) id = `${id}_${crypto.randomUUID().slice(0, 4)}`;
+
+    const cwd = body.cwd ?? join(this.opts.dataDir, "work", id);
+    mkdirSync(cwd, { recursive: true });
+
+    const decl: AgentDecl = {
+      id,
+      name: body.name,
+      role: body.role ?? "developer",
+      capabilities: body.capabilities ?? [],
+      projects: [body.projectId],
+      cwd,
+      allowTools: body.allowTools?.length ? body.allowTools : undefined,
+      denyPaths: body.denyPaths?.length ? body.denyPaths : undefined,
+      provider: body.provider ?? undefined,
+      model: body.model ?? null,
+    };
+    this.opts.agents.push(decl);
+
+    // Announce it now — no restart, no waiting for a reconnect. The card is
+    // what makes it appear in the office and what makes the orchestrator
+    // consider it capacity (the server's agent.card handler runs both).
+    this.publishCard(decl);
+    this.log(`created agent ${decl.name} (${decl.provider ?? "default harness"}) from browser request`);
+
+    this.sendEnvelope({
+      v: 1, id: crypto.randomUUID(), type: "agent.create.result", project: env.project,
+      from: { kind: "node", id: this.opts.identity.machineId },
+      to: { kind: "node", id: this.opts.identity.machineId },
+      task: null, idem: null, ts: new Date().toISOString(),
+      body: { requestId, ok: true, agentId: id, error: null },
+    } as EnvelopeT);
+  }
+
   /** Seal the findings back to whoever asked. */
   private sendDelegateResult(reqEnv: EnvelopeT, requestId: string, state: string, findings: string) {
     const agent = this.opts.agents[0];
@@ -557,22 +669,24 @@ export class RunnerConnection {
   }
 
   private publishAgentCards() {
-    for (const a of this.opts.agents) {
-      const env: EnvelopeT = {
-        v: 1, id: crypto.randomUUID(), type: "agent.card",
-        project: a.projects[0] ?? "",
-        from: { kind: "node", id: this.opts.identity.machineId },
-        to: { kind: "node", id: this.opts.identity.machineId },
-        task: null, idem: crypto.randomUUID(), ts: new Date().toISOString(),
-        body: {
-          id: a.id, name: a.name, ownerId: this.opts.ownerId,
-          machineId: this.opts.identity.machineId, role: a.role,
-          capabilities: a.capabilities, harness: "fake-worker",
-          projects: a.projects, concurrency: a.concurrency ?? 1, status: "idle",
-        },
-      };
-      if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(env));
-    }
+    for (const a of this.opts.agents) this.publishCard(a);
+  }
+
+  private publishCard(a: AgentDecl) {
+    const env: EnvelopeT = {
+      v: 1, id: crypto.randomUUID(), type: "agent.card",
+      project: a.projects[0] ?? "",
+      from: { kind: "node", id: this.opts.identity.machineId },
+      to: { kind: "node", id: this.opts.identity.machineId },
+      task: null, idem: crypto.randomUUID(), ts: new Date().toISOString(),
+      body: {
+        id: a.id, name: a.name, ownerId: this.opts.ownerId,
+        machineId: this.opts.identity.machineId, role: a.role,
+        capabilities: a.capabilities, harness: a.provider ?? "fake-worker",
+        projects: a.projects, concurrency: a.concurrency ?? 1, status: "idle",
+      },
+    };
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(env));
   }
 
   // ---- envelope builders ----

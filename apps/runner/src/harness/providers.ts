@@ -12,6 +12,8 @@
 // it genuinely works (you see the CLI's output and its exit status), it just
 // can't structure tool calls. That is deliberately better than inventing a
 // parser for a format nobody here has observed.
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type { AgentEvent } from "./types.js";
 
 /**
@@ -221,8 +223,6 @@ export function detectInstalled(
 function defaultLookup(cmd: string): boolean {
   // Resolved via PATH rather than `which`, so this stays synchronous and
   // doesn't spawn a shell per provider on every call.
-  const { existsSync } = require("node:fs") as typeof import("node:fs");
-  const { join } = require("node:path") as typeof import("node:path");
   const paths = (process.env.PATH ?? "").split(":").filter(Boolean);
   return paths.some((dir) => {
     try { return existsSync(join(dir, cmd)); } catch { return false; }

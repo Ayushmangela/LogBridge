@@ -7,6 +7,7 @@ export const MESSAGE_TYPES = [
   "context.share", "context.ack",
   "human.ask", "human.answer",
   "memory.write", "memory.recall", "memory.result",
+  "agent.create", "agent.create.result",
   "peer.directory",
   "agent.card", "node.status", "presence", "chat", "position",
 ] as const;
@@ -44,4 +45,7 @@ const SIDE_EFFECTING: ReadonlySet<MessageType> = new Set([
   "human.ask", "human.answer",
   // memory.write creates a durable record; recall/result are pure reads.
   "memory.write",
+  // agent.create starts a real CLI on someone's machine — the most
+  // side-effecting message in the protocol. Its result is a reply.
+  "agent.create",
 ]);

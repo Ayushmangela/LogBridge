@@ -7,7 +7,7 @@ import type { WebSocket } from "ws";
 import { createTask, openDb, type Db } from "./db.js";
 import { Positions } from "./view.js";
 import { registerGateway } from "./gateway.js";
-import { orchestrate, registerNodeGateway, sendTaskOffer, taskCancelEnvelope, type NodeSockets } from "./nodeGateway.js";
+import { orchestrate, registerNodeGateway, requestAgentCreate, sendTaskOffer, taskCancelEnvelope, type NodeSockets } from "./nodeGateway.js";
 
 export interface BuiltServer {
   app: ReturnType<typeof Fastify>;
@@ -90,6 +90,37 @@ export async function buildServer(
     broadcastView();
     const assignedTo = (db.prepare("SELECT agent_id FROM tasks WHERE id = ?").get(taskId) as any)?.agent_id ?? null;
     return { ok: true, taskId, assignedTo, queued: assignedTo === null };
+  });
+
+  // Create an agent on a machine, from the browser. This is NOT a debug
+  // endpoint: it starts a real CLI on someone's machine. The machine gates
+  // it (runner refuses unless started with --allow-agent-creation) — the
+  // server only routes and relays the verdict. See HANDOFF.md prompt 1.
+  app.post<{
+    Body: {
+      machineId: string; projectId: string; name: string; role?: string;
+      provider?: string | null; model?: string | null; capabilities?: string[];
+      cwd?: string | null; allowTools?: string[]; denyPaths?: string[];
+    };
+  }>("/api/agents", async (req, reply) => {
+    const b = req.body;
+    if (!b?.machineId || !b?.projectId || !b?.name) {
+      return reply.code(400).send({ error: "machineId, projectId and name are required" });
+    }
+    const result = await requestAgentCreate(db, nodeSockets, {
+      machineId: b.machineId,
+      projectId: b.projectId,
+      name: String(b.name).slice(0, 64),
+      role: b.role ?? "developer",
+      provider: b.provider ?? null,
+      model: b.model ?? null,
+      capabilities: Array.isArray(b.capabilities) ? b.capabilities : [],
+      cwd: b.cwd ?? null,
+      allowTools: Array.isArray(b.allowTools) ? b.allowTools : [],
+      denyPaths: Array.isArray(b.denyPaths) ? b.denyPaths : [],
+    });
+    broadcastView(); // success path already published a card; refresh either way
+    return reply.code(result.ok ? 200 : 409).send(result);
   });
 
   app.post<{ Body: { taskId: string; reason?: string } }>("/debug/stop-task", async (req, reply) => {

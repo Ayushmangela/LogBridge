@@ -82,8 +82,17 @@ const conn = new RunnerConnection({
   agents,
   harness,
   allowUnsandboxed: process.argv.includes("--allow-unsandboxed"),
+  // Opt-in, like --accept-delegations: this is what allows a browser to
+  // start real CLIs on this machine. Default off. See D1/D3.
+  allowAgentCreation:
+    process.argv.includes("--allow-agent-creation") ||
+    process.env.LOGBRIDGE_ALLOW_AGENT_CREATION === "1",
   log: (msg) => console.log(`[runner ${machineId}] ${msg}`),
 });
+
+if (process.argv.includes("--allow-agent-creation") || process.env.LOGBRIDGE_ALLOW_AGENT_CREATION === "1") {
+  console.log(`[runner ${machineId}] agent creation from the browser is ENABLED on this machine`);
+}
 
 console.log(`[runner ${machineId}] starting, connecting to ${arg("server") ?? "ws://localhost:8787/node-ws"}`);
 conn.connect();

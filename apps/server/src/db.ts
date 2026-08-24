@@ -19,7 +19,13 @@ CREATE TABLE IF NOT EXISTS machines (
   sealing_pubkey TEXT,
   last_seen TEXT,
   online INT DEFAULT 0,
-  revoked INT DEFAULT 0
+  revoked INT DEFAULT 0,
+  -- what the machine reported at handshake: installed providers (JSON array
+  -- of {id,label,policy,verified,models}) and its own two gates. The UI
+  -- renders these; the RUNNER is what enforces them.
+  providers TEXT,
+  allow_agent_creation INT DEFAULT 0,
+  allow_unsandboxed INT DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS agents (
   id TEXT PRIMARY KEY,
@@ -133,6 +139,9 @@ export function openDb(dbPath?: string): Db {
     "ALTER TABLE tasks ADD COLUMN created_at TEXT",
     "ALTER TABLE machines ADD COLUMN sealing_pubkey TEXT",
     "ALTER TABLE tasks ADD COLUMN required_capability TEXT",
+    "ALTER TABLE machines ADD COLUMN providers TEXT",
+    "ALTER TABLE machines ADD COLUMN allow_agent_creation INT DEFAULT 0",
+    "ALTER TABLE machines ADD COLUMN allow_unsandboxed INT DEFAULT 0",
   ]) {
     try {
       db.exec(alter);
@@ -183,6 +192,17 @@ export function registerMachine(
   db.prepare(
     "INSERT INTO machines (id, owner_id, name, pubkey, sealing_pubkey, last_seen, online, revoked) VALUES (?, ?, ?, ?, ?, ?, 1, 0)"
   ).run(id, ownerId, name, pubkey, sealingPubkey ?? null, new Date().toISOString());
+}
+
+// Re-recorded on every handshake — these are runtime flags and PATH state,
+// both of which change between runner restarts. Stale "installed providers"
+// would grey out something that now exists (or offer something that's gone).
+export function setMachineCapabilities(
+  db: Db, machineId: string, providers: unknown, allowAgentCreation: boolean, allowUnsandboxed: boolean
+) {
+  db.prepare(
+    "UPDATE machines SET providers = ?, allow_agent_creation = ?, allow_unsandboxed = ? WHERE id = ?"
+  ).run(JSON.stringify(providers ?? []), allowAgentCreation ? 1 : 0, allowUnsandboxed ? 1 : 0, machineId);
 }
 
 // A machine that connected before it had a sealing key (or that rotated one)

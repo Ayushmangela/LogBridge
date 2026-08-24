@@ -94,12 +94,31 @@ export const AgentView = z.object({
     .nullable(),
 });
 
+// What a machine reports about the CLIs it actually has installed — computed
+// by the runner from its own provider registry at connect time. The browser
+// renders this; it never guesses what a machine can run.
+export const ProviderInfo = z.object({
+  id: z.string(),
+  label: z.string(),
+  policy: z.enum(["claude-settings", "none"]),
+  verified: z.boolean(),
+  models: z.array(z.string()),
+});
+
+export type ProviderInfoT = z.infer<typeof ProviderInfo>;
+
 export const MachineView = z.object({
   id: z.string(),
   name: z.string(),
   ownerId: z.string(),
   online: z.boolean(),
   lastSeen: z.string(),
+  // Installed providers (only ones actually on that machine's PATH).
+  providers: z.array(ProviderInfo),
+  // Gates, reported by the machine itself and enforced by it too — the UI
+  // greys things out, but the runner is what refuses.
+  allowAgentCreation: z.boolean(),
+  allowUnsandboxed: z.boolean(),
 });
 
 export const Room = z.object({

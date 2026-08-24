@@ -6,6 +6,7 @@ import {
   type AgentViewT,
   type BoardTaskT,
   type MachineViewT,
+  type ProviderInfoT,
   type RoomT,
   type WorkspaceViewT,
 } from "@logbridge/protocol";
@@ -19,6 +20,15 @@ export class Positions {
 
   get(userId: string) {
     return this.map.get(userId) ?? null;
+  }
+}
+
+function parseJsonArray(raw: unknown): ProviderInfoT[] {
+  try {
+    const parsed = JSON.parse(String(raw ?? "[]"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
   }
 }
 
@@ -119,6 +129,12 @@ export function buildView(db: Db, positions: Positions, meId: string): Workspace
         ownerId: m.owner_id,
         online: Boolean(m.online),
         lastSeen: m.last_seen,
+        // What the machine itself reported at its last handshake. An empty
+        // provider list is honest: an older runner that predates capability
+        // reporting genuinely offers nothing creatable.
+        providers: parseJsonArray(m.providers),
+        allowAgentCreation: Boolean(m.allow_agent_creation),
+        allowUnsandboxed: Boolean(m.allow_unsandboxed),
       }));
 
     const boardTasks: BoardTaskT[] = tasksForProject(db, p.id).map((t) => ({

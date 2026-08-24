@@ -343,6 +343,41 @@
     .section-label { font-size: 11px; font-weight: 750; letter-spacing: .7px; color: var(--text-faint);
                      text-transform: uppercase; margin: 20px 0 10px; }
 
+    /* ---- add-agent dialog ---- */
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(23,26,43,.42); z-index: 900;
+                      display: none; align-items: flex-start; justify-content: center; padding: 6vh 16px; }
+    .modal-backdrop.open { display: flex; }
+    .modal { background: var(--surface); border-radius: 14px; box-shadow: var(--shadow);
+             width: 560px; max-width: 100%; max-height: 86vh; overflow-y: auto; padding: 22px 24px; }
+    .modal h2 { margin: 0 0 4px; font-size: 17px; }
+    .modal .sub { color: var(--text-dim); font-size: 12.5px; line-height: 1.5; margin-bottom: 16px; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
+    .form-grid .wide { grid-column: 1 / -1; }
+    .field label { display: block; font-size: 11px; font-weight: 700; letter-spacing: .4px;
+                   color: var(--text-faint); text-transform: uppercase; margin-bottom: 5px; }
+    .field input, .field select {
+      width: 100%; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px;
+      font-family: inherit; font-size: 13px; color: var(--text); background: var(--surface-2);
+      box-sizing: border-box;
+    }
+    .field input:focus, .field select:focus { outline: none; border-color: var(--accent); }
+    .provider-note { font-size: 11.5px; line-height: 1.5; margin-top: 5px; display: none; }
+    .provider-note.warn  { color: #b45309; display: block; }
+    .provider-note.info  { color: var(--text-dim); display: block; }
+    .provider-note.block { color: var(--red); display: block; }
+    details.adv { grid-column: 1 / -1; font-size: 12.5px; color: var(--text-dim); }
+    details.adv summary { cursor: pointer; font-weight: 650; user-select: none; }
+    details.adv .form-grid { margin-top: 10px; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+    .dialog-actions button { padding: 9px 18px; border-radius: 8px; font-family: inherit;
+                             font-size: 13px; font-weight: 700; cursor: pointer; border: 1px solid; }
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn-primary:disabled { opacity: .45; cursor: default; }
+    .btn-ghost { background: var(--surface); border-color: var(--border); color: var(--text-dim); }
+    #agent-create-error { display: none; margin-top: 12px; padding: 10px 12px; border-radius: 8px;
+                          background: #fef2f2; border: 1px solid #fecaca; color: var(--red);
+                          font-size: 12.5px; line-height: 1.5; }
+
     /* inspector, floated over the office */
     .inspector {
       position: absolute; left: 12px; bottom: 54px; z-index: 40; width: 290px;
@@ -543,14 +578,15 @@
           <div class="panel-body">
             <div id="agents-full"></div>
             <div class="section-label">Add an agent</div>
-            <div class="temp"><b>Not built yet</b>
-              Agents are declared per machine in <code>apps/runner/src/cli.ts</code> and published
-              when that machine connects. Creating one here needs a runtime registration path the
-              runner doesn't have.
-              <ul><li>pick provider — claude / codex / gemini / opencode</li>
-                  <li>pick model, preview the generated command</li>
-                  <li>choose workspace folder and tool policy</li></ul>
-            </div>
+            <p style="font-size:13px; color:var(--text-dim); line-height:1.55; max-width:620px; margin:0 0 12px;">
+              Creates a real agent on one of your machines — it appears on the floor as soon as that
+              machine accepts. Only machines whose owner started them with
+              <code style="background:#f1f3f8;padding:1px 5px;border-radius:4px;">--allow-agent-creation</code>
+              will agree.
+            </p>
+            <button class="btn-primary" id="open-add-agent" style="padding:9px 18px;border-radius:8px;border:1px solid var(--accent);cursor:pointer;font-family:inherit;font-weight:700;font-size:13px;background:var(--accent);color:#fff;">
+              + Add Agent
+            </button>
           </div>
         </div>
       </section>
@@ -598,6 +634,74 @@
         </div>
       </section>
 
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="add-agent-modal">
+  <div class="modal">
+    <h2>Add an agent</h2>
+    <div class="sub">The agent is registered on the machine you pick, runs that machine's CLI, and works in
+      the project's folder there. The machine has the final say — it refuses anything its owner hasn't allowed.</div>
+    <div class="form-grid">
+      <div class="field">
+        <label for="aa-machine">Machine</label>
+        <select id="aa-machine"></select>
+      </div>
+      <div class="field">
+        <label for="aa-project">Project</label>
+        <select id="aa-project"></select>
+      </div>
+      <div class="field">
+        <label for="aa-name">Name</label>
+        <input id="aa-name" placeholder="dev-api" maxlength="64" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="aa-role">Role</label>
+        <select id="aa-role">
+          <option value="developer" selected>Developer</option>
+          <option value="research">Research</option>
+          <option value="qa">QA</option>
+          <option value="review">Review</option>
+          <option value="docs">Docs</option>
+          <option value="planner">Planner</option>
+        </select>
+      </div>
+      <div class="field wide">
+        <label for="aa-provider">Provider (the CLI this agent runs)</label>
+        <select id="aa-provider"></select>
+        <div class="provider-note" id="aa-provider-note"></div>
+      </div>
+      <div class="field wide">
+        <label for="aa-model">Model</label>
+        <select id="aa-model"></select>
+      </div>
+      <div class="field wide">
+        <label for="aa-caps">Capabilities <span style="text-transform:none;font-weight:500">(comma-separated, e.g. implement_feature, fix_test)</span></label>
+        <input id="aa-caps" placeholder="optional" autocomplete="off">
+      </div>
+      <details class="adv">
+        <summary>Advanced — working folder and tool policy</summary>
+        <div class="form-grid">
+          <div class="field wide">
+            <label for="aa-cwd">Working folder on that machine</label>
+            <input id="aa-cwd" placeholder="default: ~/.logbridge/work/&lt;agent-id&gt;">
+          </div>
+          <div class="field">
+            <label for="aa-allow">Allowed tools</label>
+            <input id="aa-allow" placeholder="Read, Write, Bash">
+          </div>
+          <div class="field">
+            <label for="aa-deny">Denied paths</label>
+            <input id="aa-deny" placeholder=".env*, **/secrets/**">
+          </div>
+        </div>
+      </details>
+    </div>
+    <div id="agent-create-error"></div>
+    <div class="dialog-actions">
+      <button class="btn-ghost" id="aa-cancel">Cancel</button>
+      <button class="btn-primary" id="aa-submit">Create agent</button>
     </div>
   </div>
 </div>
@@ -1175,6 +1279,205 @@
         }));
       }
     }
+
+    // ---------------- add-agent dialog ----------------
+    // Everything this shows comes from the live view: which machines exist,
+    // what they reported as installed, and which gates they have on. The UI
+    // greys things out; the RUNNER is what actually refuses — these notes
+    // predict its answer, they don't replace it.
+    const aaModal = document.getElementById('add-agent-modal');
+
+    function aaMachine() {
+      const id = document.getElementById('aa-machine').value;
+      return activeRoom()?.machines?.find((m) => m.id === id) ?? null;
+    }
+
+    function providerBlockedReason(machine, p) {
+      if (!machine.allowUnsandboxed && p.policy === 'none') {
+        return 'block|' + p.label + ' has no per-run tool policy on this machine, so allowTools/denyPaths cannot be enforced. ' +
+               'The runner will refuse every task it is offered unless its owner starts it with --allow-unsandboxed.';
+      }
+      return null;
+    }
+
+    function aaPopulateProviders() {
+      const machine = aaMachine();
+      const sel = document.getElementById('aa-provider');
+      const note = document.getElementById('aa-provider-note');
+      sel.innerHTML = '';
+      note.className = 'provider-note';
+      note.textContent = '';
+
+      if (!machine) {
+        sel.innerHTML = '<option value="">—</option>';
+        sel.disabled = true;
+        return;
+      }
+      if (!machine.allowAgentCreation) {
+        sel.disabled = true;
+        sel.innerHTML = '<option value="">—</option>';
+        note.className = 'provider-note block';
+        note.textContent = machine.name + ' has not enabled agent creation. Start its runner with --allow-agent-creation to allow it.';
+        return;
+      }
+      sel.disabled = false;
+
+      // A default-harness option only exists when the machine runs a single
+      // declared agent... it doesn't, really — runtime agents name providers.
+      // Keep the list honest: installed providers only.
+      const providers = machine.providers ?? [];
+      if (!providers.length) {
+        sel.innerHTML = '<option value="">—</option>';
+        note.className = 'provider-note block';
+        note.textContent = 'This machine reports no installed agent CLIs.';
+        return;
+      }
+      let firstEnabled = null;
+      for (const p of providers) {
+        const blocked = providerBlockedReason(machine, p);
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.label + (p.verified ? '' : ' (unverified parser)');
+        if (blocked) { opt.disabled = true; opt.textContent += ' — unavailable'; }
+        else if (!firstEnabled) firstEnabled = p.id;
+        sel.appendChild(opt);
+      }
+      if (!firstEnabled) {
+        sel.value = '';
+        note.className = 'provider-note block';
+        note.textContent = 'Every installed provider on ' + machine.name + ' is unavailable (tool policy cannot be enforced).';
+        return;
+      }
+      sel.value = firstEnabled;
+      aaProviderChanged();
+    }
+
+    function aaProviderChanged() {
+      const machine = aaMachine();
+      const p = machine?.providers?.find((x) => x.id === document.getElementById('aa-provider').value);
+      const note = document.getElementById('aa-provider-note');
+      const modelSel = document.getElementById('aa-model');
+      note.className = 'provider-note';
+      note.textContent = '';
+      modelSel.innerHTML = '';
+
+      const models = p?.models ?? [];
+      if (models.length) {
+        for (const m of models) {
+          const opt = document.createElement('option');
+          opt.value = m; opt.textContent = m;
+          modelSel.appendChild(opt);
+        }
+        const any = document.createElement('option');
+        any.value = ''; any.textContent = "CLI's default";
+        modelSel.appendChild(any);
+      } else {
+        const def = document.createElement('option');
+        def.value = ''; def.textContent = "CLI's default (configured in the CLI itself)";
+        modelSel.appendChild(def);
+      }
+
+      if (!p) return;
+      if (!p.verified) {
+        note.className = 'provider-note info';
+        note.textContent = p.label + "'s output format hasn't been verified here — the agent runs and reports text/exit status, but tool calls won't show up.";
+      } else if (p.policy === 'none') {
+        note.className = 'provider-note warn';
+        note.textContent = p.label + ' cannot enforce tool policy per run. This machine allows unsandboxed runs, so tasks will execute — with the CLI\'s own defaults, not the policy below.';
+      }
+    }
+
+    function aaOpen() {
+      const room = activeRoom();
+      const machines = room?.machines ?? [];
+      const mSel = document.getElementById('aa-machine');
+      const pSel = document.getElementById('aa-project');
+      mSel.innerHTML = '';
+      pSel.innerHTML = '';
+      for (const m of machines) {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.name + (m.online ? '' : ' (offline)') + (m.allowAgentCreation ? '' : ' — creation off');
+        opt.disabled = !m.online || !m.allowAgentCreation;
+        mSel.appendChild(opt);
+      }
+      if (!machines.some((m) => m.online && m.allowAgentCreation)) {
+        document.getElementById('agent-create-error').style.display = 'block';
+        document.getElementById('agent-create-error').textContent =
+          'No machine currently accepts agent creation. A runner must be online AND started with --allow-agent-creation.';
+      } else {
+        document.getElementById('agent-create-error').style.display = 'none';
+      }
+      for (const r of latestView?.rooms ?? []) {
+        const opt = document.createElement('option');
+        opt.value = r.id; opt.textContent = r.name;
+        pSel.appendChild(opt);
+      }
+      document.getElementById('aa-name').value = '';
+      document.getElementById('aa-caps').value = '';
+      document.getElementById('aa-cwd').value = '';
+      document.getElementById('aa-allow').value = '';
+      document.getElementById('aa-deny').value = '';
+      aaPopulateProviders();
+      aaModal.classList.add('open');
+      setTimeout(() => document.getElementById('aa-name').focus(), 50);
+    }
+
+    function splitList(s) {
+      return s.split(',').map((x) => x.trim()).filter(Boolean);
+    }
+
+    async function aaSubmit() {
+      const errEl = document.getElementById('agent-create-error');
+      errEl.style.display = 'none';
+      const btn = document.getElementById('aa-submit');
+      const body = {
+        machineId: document.getElementById('aa-machine').value,
+        projectId: document.getElementById('aa-project').value,
+        name: document.getElementById('aa-name').value.trim(),
+        role: document.getElementById('aa-role').value,
+        provider: document.getElementById('aa-provider').value || null,
+        model: document.getElementById('aa-model').value || null,
+        capabilities: splitList(document.getElementById('aa-caps').value),
+        cwd: document.getElementById('aa-cwd').value.trim() || null,
+        allowTools: splitList(document.getElementById('aa-allow').value),
+        denyPaths: splitList(document.getElementById('aa-deny').value),
+      };
+      if (!body.name) {
+        errEl.textContent = 'Give the agent a name.';
+        errEl.style.display = 'block';
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = 'Creating…';
+      try {
+        const res = await fetch('/api/agents', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          aaModal.classList.remove('open');
+        } else {
+          errEl.textContent = data.error || 'The machine refused.';
+          errEl.style.display = 'block';
+        }
+      } catch (e) {
+        errEl.textContent = 'Could not reach the server: ' + e.message;
+        errEl.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Create agent';
+      }
+    }
+
+    document.getElementById('open-add-agent').addEventListener('click', aaOpen);
+    document.getElementById('aa-cancel').addEventListener('click', () => aaModal.classList.remove('open'));
+    document.getElementById('aa-machine').addEventListener('change', aaPopulateProviders);
+    document.getElementById('aa-provider').addEventListener('change', aaProviderChanged);
+    document.getElementById('aa-submit').addEventListener('click', aaSubmit);
+    aaModal.addEventListener('click', (e) => { if (e.target === aaModal) aaModal.classList.remove('open'); });
 
     // ---------------- bottom strip ----------------
     function renderCurrentTask(room) {
