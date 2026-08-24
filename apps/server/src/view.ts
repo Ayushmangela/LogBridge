@@ -7,6 +7,7 @@ import {
   type BoardTaskT,
   type MachineViewT,
   type ProviderInfoT,
+  type PullViewT,
   type RoomT,
   type WorkspaceViewT,
 } from "@logbridge/protocol";
@@ -30,6 +31,22 @@ function parseJsonArray(raw: unknown): ProviderInfoT[] {
   } catch {
     return [];
   }
+}
+
+// Newest-first, capped — the same bounded-projection rule as tasks/memories.
+function recentPulls(db: Db, projectId: string, limit: number): PullViewT[] {
+  const rows = db.prepare(
+    "SELECT * FROM github_pulls WHERE project_id = ? ORDER BY updated_at DESC LIMIT ?"
+  ).all(projectId, limit) as any[];
+  return rows.map((r) => ({
+    id: r.id,
+    number: r.number,
+    title: r.title ?? "",
+    state: r.state === "merged" || r.state === "closed" || r.state === "draft" ? r.state : "open",
+    ci: r.ci === "success" || r.ci === "failure" || r.ci === "pending" ? r.ci : null,
+    author: r.author ?? null,
+    updatedAt: r.updated_at ?? new Date().toISOString(),
+  }));
 }
 
 export function buildView(db: Db, positions: Positions, meId: string): WorkspaceViewT {
@@ -65,7 +82,13 @@ export function buildView(db: Db, positions: Positions, meId: string): Workspace
       const taskRow = a.current_task
         ? (db.prepare("SELECT * FROM tasks WHERE id = ?").get(a.current_task) as any)
         : null;
-      const ghRef = a.github_ref ? JSON.parse(a.github_ref) : null;
+      // M6: a task that came from a GitHub issue carries its origin in the
+      // idem key ("gh:owner/repo#42") — surface it so the office links back.
+      let ghRef = a.github_ref ? JSON.parse(a.github_ref) : null;
+      if (!ghRef && taskRow?.idem?.startsWith("gh:")) {
+        const ref = String(taskRow.idem).slice(3); // "acme/api#42"
+        ghRef = { kind: ref.includes("#") && Number(ref.split("#")[1]) % 1 === 0 ? "issue" : "issue", ref };
+      }
 
       return {
         id: a.id,
@@ -164,6 +187,7 @@ export function buildView(db: Db, positions: Positions, meId: string): Workspace
       // working notes are for that agent's own recall, not a team display.
       memories: recentMemories(db, p.id, 30).filter((m) => m.scope === "project"),
       activity: recentActivity(db, p.id, 30),
+      pulls: recentPulls(db, p.id, 20),
     };
   });
 

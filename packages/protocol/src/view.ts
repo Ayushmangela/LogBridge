@@ -15,6 +15,20 @@ export const ZoneId = z.enum([
   "blocked", "needs_human", "done",
 ]);
 
+// One open/recent pull request, mirrored read-only from GitHub (M6, D10).
+// CI state comes from commit statuses; null = none published yet. Capped in
+// the view like everything else on Room.
+export const PullView = z.object({
+  id: z.string(),              // "pr_acme_api#212"
+  number: z.number().int().positive(),
+  title: z.string(),
+  state: z.enum(["open", "draft", "merged", "closed"]),
+  ci: z.enum(["pending", "success", "failure"]).nullable(),
+  author: z.string().nullable(),
+  updatedAt: z.string(),
+});
+export type PullViewT = z.infer<typeof PullView>;
+
 export const TaskBrief = z.object({
   id: z.string(),
   title: z.string(),
@@ -42,8 +56,7 @@ export const BoardTask = z.object({
 // What the team knows (MEMORY.md). Capped in the view for the same reason
 // BoardTask is — CONTRACT.md invariant 1 only stays true if the snapshot
 // stays small. The full store is queried by agents, not shipped to browsers.
-export const MemoryView = z.object({
-  id: z.string(),
+export const MemoryView = z.object({  id: z.string(),
   scope: z.enum(["project", "agent"]),
   kind: z.enum(["fact", "preference", "decision", "outcome"]),
   text: z.string(),
@@ -130,6 +143,7 @@ export const Room = z.object({
   agents: z.array(AgentView),
   machines: z.array(MachineView),
   tasks: z.array(BoardTask),
+  pulls: z.array(PullView),
   memories: z.array(MemoryView),
   activity: z.array(ActivityItem),
 });
@@ -144,6 +158,10 @@ export const WorkspaceView = z.object({
 export type TaskBriefT = z.infer<typeof TaskBrief>;
 export type BoardTaskT = z.infer<typeof BoardTask>;
 export type MemoryViewT = z.infer<typeof MemoryView>;
+
+// One open/recent pull request, mirrored read-only from GitHub (M6, D10).
+// CI state comes from commit statuses; null = none published yet. Capped in
+// the view like everything else on Room.
 export type ActivityItemT = z.infer<typeof ActivityItem>;
 export type HumanViewT = z.infer<typeof HumanView>;
 export type AgentViewT = z.infer<typeof AgentView>;

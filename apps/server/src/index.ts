@@ -145,6 +145,22 @@ export async function buildServer(
     return { ok: true };
   });
 
+  // M6: GitHub mirror. Off unless configured — needs a READ-ONLY PAT
+  // (D10: the server never writes to anyone's repos) and an explicit repo
+  // list. Polls with ETags (D9), so the quota cost is near zero when quiet.
+  if (process.env.GITHUB_TOKEN && process.env.GITHUB_REPOS) {
+    const repos = process.env.GITHUB_REPOS.split(",").map((r) => r.trim()).filter(Boolean);
+    const gh = await import("./github.js");
+    gh.startGithubMirror(db, {
+      token: process.env.GITHUB_TOKEN,
+      repos,
+      intervalMs: Number(process.env.GITHUB_POLL_MS ?? 60_000),
+      onChange: broadcastView,
+      log: (m) => app.log.warn(m),
+    });
+    app.log.info(`github mirror running for: ${repos.join(", ")}`);
+  }
+
   return { app, db, nodeSockets, browserSockets };
 }
 

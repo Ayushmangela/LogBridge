@@ -94,6 +94,24 @@ export function describeEvent(
     case "delegate.result.undeliverable":
       return { ...base, actor: null, summary: `could not deliver a cross-machine message — ${short(body.reason, 40)}` };
 
+    case "github.pull":
+      return { ...base, actor: body.author ?? null, summary: `${body.verb} “${short(body.title, 50)}” (${body.repo}#${body.number})` };
+
+    case "github.ci_failed":
+      return { ...base, actor: null, summary: `CI went red on ${body.repo}#${body.number} — ${short(body.title, 45)}` };
+
+    case "github.ci_passed":
+      return { ...base, actor: null, summary: `CI green on ${body.repo}#${body.number}` };
+
+    case "github.issue_task":
+      return { ...base, actor: body.author ?? null, summary: `opened an issue that became queued work: ${short(body.title, 50)}` };
+
+    case "github.issue_closed":
+      return { ...base, actor: null, summary: `${body.repo}#${body.number} closed upstream — its work item was retired` };
+
+    case "github.room_linked":
+      return { ...base, actor: null, summary: `linked repository ${short(body.repo, 50)} to this room` };
+
     default:
       // Unknown types still show up rather than vanishing: a silent feed
       // during a new feature is worse than an ugly line.

@@ -78,6 +78,16 @@ CREATE TABLE IF NOT EXISTS events (
   body TEXT,
   ts TEXT
 );
+CREATE TABLE IF NOT EXISTS github_pulls (
+  id TEXT PRIMARY KEY,
+  project_id TEXT,
+  number INTEGER,
+  title TEXT,
+  state TEXT,
+  author TEXT,
+  ci TEXT,
+  updated_at TEXT
+);
 CREATE TABLE IF NOT EXISTS grants (
   id TEXT PRIMARY KEY,
   grantor_id TEXT,
