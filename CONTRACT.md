@@ -1,7 +1,7 @@
 # The Contract
 ### Single source of truth for everything exchanged between the office and the system.
 
-**Version 1.16** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
+**Version 1.17** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
 
 > **Rule: never change this file alone.** Both people present, both agree, bump the version, add a changelog line. A contract one person edited is not a contract.
 
@@ -145,6 +145,7 @@ type ChatMessage = {
 
 ```ts
 type ClientMessage =
+  | { type: "join";     roomId: string }   // ★ 1.17 which room this browser is in
   | { type: "position"; roomId: string; x: number; y: number }   // throttle to 5/sec
   | { type: "chat";     roomId: string; text: string }
   | { type: "answer";   taskId: string;
@@ -254,6 +255,7 @@ Five tilesets are registered in the map, all 32 px:
 
 | Version | Change | Why |
 |---|---|---|
+| **1.17** | Added **`ClientMessage.join`** | The server had no idea which room a browser was looking at — membership was only implied by `position`, which doesn't exist until the player moves. So chat was broadcast and replayed to every socket and the browser filtered it for display. Survivable with one room; wrong once the GitHub mirror started creating one per repo. A socket that hasn't joined now receives no chat at all: silence is recoverable, another project's conversation arriving is not |
 | **1.16** | **`Room.pulls`** (`PullView[]`, capped 20) — number/title/state/CI/author; `AgentView.githubRef` now populates from issue-sourced tasks | GitHub mirror (M6/prompt 7). Read-only polling with ETags (D9/D10): repo → room, open issues → queued tasks keyed by a UNIQUE `idem` of `gh:<repo>#<n>` so no poll ever duplicates one, closed issues retire their task, PR state and CI transitions land once in the activity feed. Left out and labelled: commit aggregation (needs per-push grouping the poll loop doesn't model yet) |
 | **1.15** | **`review.request`/`review.result`/`context.share` now carry `sealed` payloads**; results gain plaintext `note` for refusals; `context.share` gains `shareId` and drops plaintext `body` | Reviews and context sharing built (prompt 6), following D15: a review returns a judgement, not work. Findings, criteria and context bodies are CONTENT — sealed like delegation payloads; only routing metadata stays plaintext. Server-generated refusals carry their reason as plaintext `note` since nobody sealed them. Received context is stored on the receiving machine only — putting it in server-side team memory would hand the server what the sealing kept from it |
 | **1.14** | `delegate.request` gains optional **`summary`** (requester-authored plaintext); `answer` gains optional **`mode`** (`once\|always\|never`) | Per-request consent (prompt 5). The server holds a delegation until the target machine's owner approves it in the room — shown the requester's summary of intent, never the payload. `always`/`never` persist to `grants` and are honoured silently afterwards; a machine that hasn't opted into delegations at all refuses immediately without asking. Trade-off documented in SEALED.md |

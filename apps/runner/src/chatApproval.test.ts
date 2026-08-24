@@ -76,10 +76,17 @@ function agentRow(agentId: string) {
   return server.db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId) as any;
 }
 
+const ROOM = "prj_test";
+
 function connectBrowser(): Promise<WebSocket> {
   return new Promise((resolve) => {
     const ws = new WebSocket(`${wsBase}/ws`);
-    ws.once("open", () => resolve(ws));
+    ws.once("open", () => {
+      // Chat is scoped per room server-side now — a browser that never
+      // joins receives nothing, deliberately. Announce like the real UI.
+      ws.send(JSON.stringify({ type: "join", roomId: ROOM }));
+      setTimeout(() => resolve(ws), 120); // let the join land first
+    });
   });
 }
 

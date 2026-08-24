@@ -96,10 +96,17 @@ async function waitFor(check: () => boolean, timeoutMs: number, label: string) {
   throw new Error(`timed out waiting for: ${label}`);
 }
 
+const ROOM = "prj_test";
+
 function connectBrowser(): Promise<WebSocket> {
   return new Promise((resolve) => {
     const ws = new WebSocket(`ws://127.0.0.1:${(server.app.server.address() as AddressInfo).port}/ws`);
-    ws.once("open", () => resolve(ws));
+    ws.once("open", () => {
+      // Chat is scoped per room server-side now — a browser that never joins
+      // receives nothing, deliberately. Announce like the real UI.
+      ws.send(JSON.stringify({ type: "join", roomId: ROOM }));
+      setTimeout(() => resolve(ws), 120); // let the join land first
+    });
   });
 }
 

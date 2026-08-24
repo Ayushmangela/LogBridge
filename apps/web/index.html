@@ -960,7 +960,10 @@
 
       ws.addEventListener('open', () => setConnLabel('● Connected', true));
       ws.addEventListener('close', () => {
-        announcedRoom = null; // re-announce after reconnecting setConnLabel('● Disconnected — retrying…', false); setTimeout(connect, 1500); });
+        announcedRoom = null; // must re-announce the room after reconnecting
+        setConnLabel('● Disconnected — retrying…', false);
+        setTimeout(connect, 1500);
+      });
       ws.addEventListener('error', () => ws.close());
 
       ws.addEventListener('message', (ev) => {
