@@ -53,6 +53,21 @@ export function registerGateway(
       })
     );
 
+    // Chat history (prompt 8a): the room's last 50 messages replay as normal
+    // chat messages, so a late joiner sees the conversation that happened
+    // before them. Capped — invariant 1 applies to history too.
+    const recent = db.prepare(
+      "SELECT body FROM events WHERE type = 'chat' ORDER BY seq DESC LIMIT 50"
+    ).all() as any[];
+    for (const row of recent.reverse()) {
+      try {
+        const msg = JSON.parse(row.body);
+        if (msg?.roomId) socket.send(JSON.stringify({ type: "chat", roomId: msg.roomId, msg }));
+      } catch {
+        /* skip a malformed row rather than dropping the rest */
+      }
+    }
+
     socket.on("message", (raw: Buffer) => {
       let parsedJson: unknown;
       try {

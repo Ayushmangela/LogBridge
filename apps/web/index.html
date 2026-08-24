@@ -485,6 +485,14 @@
             <button class="zoom-btn" onclick="adjustZoom(-0.15)">−</button>
             <button class="zoom-btn" onclick="resetZoom()" style="font-size:11px;">1:1</button>
           </div>
+          <div id="office-legend" style="position:absolute;bottom:12px;left:12px;z-index:120;display:flex;flex-direction:column;gap:6px;background:rgba(255,255,255,.88);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:11px;color:var(--text-dim);">
+            <div style="display:flex;gap:10px;flex-wrap:wrap;max-width:340px;" id="legend-chips"></div>
+            <div style="display:flex;gap:8px;border-top:1px solid var(--border-soft);padding-top:7px;">
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="flt-agents" checked> Agents</label>
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="flt-humans" checked> People</label>
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="flt-bubbles" checked> Task bubbles</label>
+            </div>
+          </div>
           <div class="inspector" id="inspector">
             <div class="inspector-header">
               <div><div class="inspector-name" id="insp-name">—</div>
@@ -991,6 +999,51 @@
       return latestView && latestView.rooms.length ? latestView.rooms[0] : null;
     }
 
+    // ---------------- office legend + filters (prompt 8b) ----------------
+    // Filters are CLIENT-side only: the server keeps sending the full
+    // snapshot (CONTRACT.md invariant 1); this just decides what to draw.
+    const officeFilters = { agents: true, humans: true, bubbles: true };
+
+    function applyOfficeFilters() {
+      for (const entry of renderedAgents.values()) {
+        entry.sprite.visible = officeFilters.agents;
+        if (entry.bubble) {
+          // Bubbles live inside the agent sprite; when agents are hidden the
+          // bubble goes with them. When only bubbles are off, hide directly.
+          if (officeFilters.agents) entry.bubble.container.visible = officeFilters.bubbles;
+        }
+      }
+      for (const entry of renderedHumans.values()) {
+        entry.sprite.visible = officeFilters.humans;
+      }
+    }
+
+    function initLegend() {
+      const chips = document.getElementById('legend-chips');
+      if (!chips) return;
+      for (const [zone, [label, cls]] of Object.entries(ZONE_BADGE)) {
+        const chip = document.createElement('span');
+        chip.style.cssText = 'display:inline-flex;align-items:center;gap:4px;';
+        const dot = document.createElement('span');
+        dot.style.cssText = 'width:8px;height:8px;border-radius:50%;background:' +
+          ({ idle: '#b3b8c8', working: '#22c55e', reviewing: '#5b5ef0', collaborating: '#8b5cf6',
+             blocked: '#f59e0b', needs_human: '#ef4444', done: '#3b82f6' }[zone] ?? '#b3b8c8');
+        const txt = document.createElement('span');
+        txt.textContent = label.toLowerCase();
+        chip.append(dot, txt);
+        chips.appendChild(chip);
+      }
+      document.getElementById('flt-agents').addEventListener('change', (e) => {
+        officeFilters.agents = e.target.checked; applyOfficeFilters();
+      });
+      document.getElementById('flt-humans').addEventListener('change', (e) => {
+        officeFilters.humans = e.target.checked; applyOfficeFilters();
+      });
+      document.getElementById('flt-bubbles').addEventListener('change', (e) => {
+        officeFilters.bubbles = e.target.checked; applyOfficeFilters();
+      });
+    }
+
     // ---------------- Rendering: reconcile sprites against real state ----------------
     function renderView(view) {
       const room = view.rooms[0];
@@ -1005,6 +1058,7 @@
         entry.bubbleLevel = bubbleLevels.get(a.id) ?? 0;
         updateAgentSprite(entry, a);
       }
+      applyOfficeFilters();
       for (const [id, entry] of renderedAgents) {
         if (!seenAgents.has(id)) { worldContainer.removeChild(entry.sprite); renderedAgents.delete(id); }
       }
@@ -1550,8 +1604,8 @@
     }
 
     // ---------------- chat ----------------
-    // Client-side history only: the server broadcasts chat but never replays
-    // it, so a late joiner starts empty. Noted rather than faked.
+    // History replays from the server on connect (last 50, prompt 8a);
+    // anything older stays in the event log rather than the browser.
     const chatLog = [];
     let unreadChat = 0;
     const answeredChoice = new Map();
@@ -1899,6 +1953,7 @@
       setupInput();
       setupResize();
       initMinimap();
+      initLegend();
       connect();
 
       app.ticker.add((delta) => update(delta));
