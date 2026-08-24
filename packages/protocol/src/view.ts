@@ -181,7 +181,10 @@ export const ClientMessage = z.discriminatedUnion("type", [
     type: z.literal("answer"),
     taskId: z.string(),
     choice: z.enum(["approve", "edit", "reject", "answer"]),
+    // edit: `text` replaces the title, `spec` (when given) the instructions.
+    // answer: `text` is what the human said. Others ignore both.
     text: z.string().optional(),
+    spec: z.string().optional(),
   }),
 ]);
 

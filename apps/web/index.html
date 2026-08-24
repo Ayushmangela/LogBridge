@@ -1607,6 +1607,41 @@
                 inp.onkeydown = (e) => { if (e.key === 'Enter') go(); };
                 row.append(inp, send);
                 acts.appendChild(row);
+              } else if (c === 'edit') {
+                const b = document.createElement('button');
+                b.className = 'btn-reject';
+                b.textContent = '✎ Edit';
+                b.onclick = () => {
+                  // Swap the actions row for an inline editor pre-filled with
+                  // the proposed text (the part after "Proposed: \"").
+                  const current = (m.text.match(/Proposed: "(.*)"\.?/) || [])[1] ?? '';
+                  acts.style.display = 'none';
+                  const editor = document.createElement('div');
+                  editor.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-top:10px;width:100%';
+                  const inp = document.createElement('input');
+                  inp.value = current;
+                  inp.style.cssText = 'width:100%;padding:8px 12px;border:1px solid var(--accent);border-radius:8px;font-family:inherit;font-size:12.5px;background:var(--surface-2);color:var(--text);box-sizing:border-box';
+                  const row = document.createElement('div');
+                  row.style.cssText = 'display:flex;gap:8px';
+                  const save = document.createElement('button');
+                  save.className = 'btn-approve';
+                  save.textContent = 'Save & re-propose';
+                  save.onclick = () => {
+                    if (!inp.value.trim()) return;
+                    answerAsk(m.ask.taskId, 'edit', inp.value.trim());
+                    editor.remove();
+                    acts.style.display = '';
+                  };
+                  const cancelBtn = document.createElement('button');
+                  cancelBtn.className = 'btn-reject';
+                  cancelBtn.textContent = 'Cancel';
+                  cancelBtn.onclick = () => { editor.remove(); acts.style.display = ''; };
+                  row.append(save, cancelBtn);
+                  editor.append(inp, row);
+                  body.appendChild(editor);
+                  inp.focus();
+                };
+                acts.appendChild(b);
               } else {
                 const b = document.createElement('button');
                 b.className = c === 'approve' ? 'btn-approve' : 'btn-reject';

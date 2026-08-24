@@ -64,6 +64,12 @@ export function describeEvent(
     case "task.cancel":
       return { ...base, actor: null, summary: `cancelled “${short(title ?? "a task")}”${body.reason ? ` — ${short(body.reason, 40)}` : ""}` };
 
+    case "task.edit":
+      return { ...base, actor: body.by ?? "You", summary: `revised “${short(body.from, 40)}” → “${short(body.to, 40)}”` };
+
+    case "task.edit.refused":
+      return { ...base, actor: null, summary: `an edit arrived too late for “${short(title ?? "a task")}” — ${short(body.reason, 50)}` };
+
     case "memory.write":
       return { ...base, actor: body.agentName ?? null, summary: `learned: ${short(body.text, 60)}` };
 

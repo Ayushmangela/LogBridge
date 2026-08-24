@@ -113,7 +113,7 @@ describe("chat mention -> proposal -> approval", () => {
       const proposal = chats.find((c) => c.ask);
       expect(proposal.from).toMatchObject({ kind: "agent", id: "agt_chat" });
       expect(proposal.text).toContain("write a hello world script");
-      expect(proposal.ask.options).toEqual(["approve", "reject"]);
+      expect(proposal.ask.options).toEqual(["approve", "edit", "reject"]);
 
       // The task exists but must NOT have been offered to the runner yet —
       // that's the whole point of the approval gate.

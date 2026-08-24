@@ -103,7 +103,7 @@ export function registerGateway(
               from: { kind: "agent", id: agent.id, name: agent.name },
               text: `Proposed: "${mention.body}". Approve to run it?`,
               ts: new Date().toISOString(),
-              ask: { taskId, options: ["approve", "reject"] },
+              ask: { taskId, options: ["approve", "edit", "reject"] },
             };
             appendEvent(db, msg.data.roomId, taskId, "chat", ask);
             broadcastChat(ask);
@@ -144,6 +144,49 @@ export function registerGateway(
           } else {
             appendEvent(db, task.project_id, task.id, "human.answer.undeliverable", { reason: "machine offline" });
           }
+        }
+
+        // Edit a proposal before it runs. Only while `submitted` — the task
+        // state machine is enforced, not advisory: once a runner has accepted
+        // the work, the human's recourse is Stop, not silent rewrites.
+        if (task && msg.data.choice === "edit" && task.agent_id) {
+          const newTitle = (msg.data.text ?? "").trim();
+          if (!newTitle) {
+            socket.send(JSON.stringify({ type: "error", error: "An edit needs the replacement text." }));
+            return;
+          }
+          if (task.state !== "submitted") {
+            appendEvent(db, task.project_id, task.id, "task.edit.refused", { reason: `state was ${task.state}` });
+            socket.send(JSON.stringify({ type: "error", error: "Too late to edit — that task has already left submitted." }));
+            broadcastView();
+            return;
+          }
+          const oldTitle = task.title;
+          // After an edit, spec is always the edited text: "what you typed is
+          // exactly what runs". A null spec would fall back to title at offer
+          // time anyway — making it explicit beats implying a distinction.
+          db.prepare("UPDATE tasks SET title = ?, spec = ? WHERE id = ?")
+            .run(newTitle, msg.data.spec ?? newTitle, task.id);
+          appendEvent(db, task.project_id, task.id, "task.edit", {
+            by: "you", from: oldTitle, to: newTitle,
+            specEdited: Boolean(msg.data.spec),
+          });
+
+          // Re-post the proposal with the new wording so every viewer sees
+          // what would actually run — not just the person who edited.
+          const agentRow = db.prepare("SELECT * FROM agents WHERE id = ?").get(task.agent_id) as any;
+          const revised: ChatMessageT = {
+            id: crypto.randomUUID(),
+            roomId: task.project_id,
+            from: { kind: "agent", id: agentRow.id, name: agentRow.name },
+            text: `Revised: "${newTitle}". Approve to run it?`,
+            ts: new Date().toISOString(),
+            ask: { taskId: task.id, options: ["approve", "edit", "reject"] },
+          };
+          appendEvent(db, task.project_id, task.id, "chat", revised);
+          broadcastChat(revised);
+          broadcastView();
+          return;
         }
 
         if (task && task.state === "submitted" && task.agent_id) {
