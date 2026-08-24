@@ -7,6 +7,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { loadOrCreateIdentity } from "./identity.js";
 import { RunnerConnection, type AgentDecl } from "./connection.js";
+import { fakeHarness } from "./harness/fakeHarness.js";
+import { makePtyHarness } from "./harness/ptyHarness.js";
 
 function arg(name: string, fallback?: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -37,6 +39,14 @@ const agents: AgentDecl[] = [
   },
 ];
 
+// Which harness actually does the work. Defaults to the fake worker —
+// spending real money is opt-in, never accidental. See DECISIONS.md D24.
+const harnessKind = arg("harness") ?? process.env.AGENT_HARNESS ?? "fake";
+const harness = harnessKind === "fake" ? fakeHarness : makePtyHarness({ command: arg("cli-command") });
+if (harnessKind !== "fake") {
+  console.log(`[runner ${machineId}] ⚠ using REAL harness (${harness.name}) — unverified in this environment, see ptyHarness.ts header`);
+}
+
 const conn = new RunnerConnection({
   serverUrl: arg("server") ?? "ws://localhost:8787/node-ws",
   identity,
@@ -45,6 +55,7 @@ const conn = new RunnerConnection({
   ownerName: arg("owner-name") ?? "dev",
   dataDir,
   agents,
+  harness,
   log: (msg) => console.log(`[runner ${machineId}] ${msg}`),
 });
 

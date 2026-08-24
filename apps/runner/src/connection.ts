@@ -2,10 +2,16 @@
 // and — the whole point — survive the socket dying without losing or
 // duplicating anything. See SYSTEM.md §3b-§3d and DECISIONS.md D20.
 import WebSocket from "ws";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import type { EnvelopeT } from "@logbridge/protocol";
 import type { Identity } from "./identity.js";
+import type { AgentHarness } from "./harness/types.js";
 import { Outbox } from "./outbox.js";
 import { TaskRunner } from "./taskRunner.js";
+
+const DEFAULT_ALLOW_TOOLS = ["Read", "Write", "Bash"];
+const DEFAULT_DENY_PATHS = [".env*", "**/secrets/**", "~/.ssh/**"];
 
 export interface AgentDecl {
   id: string;
@@ -14,6 +20,9 @@ export interface AgentDecl {
   capabilities: string[];
   projects: string[];
   concurrency?: number;
+  cwd?: string;             // defaults to <dataDir>/work/<agentId>
+  allowTools?: string[];    // SYSTEM.md §7 local policy file, in code
+  denyPaths?: string[];
 }
 
 export interface RunnerOptions {
@@ -24,6 +33,7 @@ export interface RunnerOptions {
   ownerName: string;
   dataDir: string;
   agents: AgentDecl[]; // declared locally — SYSTEM.md §7: "the machine owner decides"
+  harness: AgentHarness;
   leaseSeconds?: number;
   log?: (msg: string) => void;
 }
@@ -44,6 +54,7 @@ export class RunnerConnection {
     this.outbox = new Outbox(opts.dataDir);
     this.log = opts.log ?? (() => {});
     this.taskRunner = new TaskRunner(
+      opts.harness,
       (taskId, summary, data) => this.sendEnvelope(this.eventEnvelope(taskId, summary, data)),
       (taskId, state, reason, costUsd) => this.sendEnvelope(this.resultEnvelope(taskId, state, reason, costUsd))
     );
@@ -134,10 +145,20 @@ export class RunnerConnection {
 
     if (env.type === "task.offer") {
       if (this.taskRunner.has(body.taskId)) return; // duplicate delivery — ignore
-      this.log(`accepting task ${body.taskId}: ${body.title}`);
+      this.log(`accepting task ${body.taskId} on ${this.opts.harness.name}: ${body.title}`);
       this.sendEnvelope(this.acceptEnvelope(body.taskId, env.project));
-      const workSeconds = tryParseWorkSeconds(body.spec) ?? Math.max(1, Math.min(body.budget.seconds - 1, 5));
-      this.taskRunner.start(body.taskId, body.budget, workSeconds);
+
+      // Single declared agent per runner today — task.offer doesn't carry
+      // an agentId, and this CLI only ever declares one. Multi-agent
+      // machines will need that field added; noted, not silently assumed.
+      const agent = this.opts.agents[0];
+      const cwd = agent?.cwd ?? join(this.opts.dataDir, "work", agent?.id ?? "default");
+      mkdirSync(cwd, { recursive: true });
+      const prompt = body.spec ?? body.title;
+      this.taskRunner.start(body.taskId, body.budget, cwd, prompt, {
+        allowTools: agent?.allowTools ?? DEFAULT_ALLOW_TOOLS,
+        denyPaths: agent?.denyPaths ?? DEFAULT_DENY_PATHS,
+      });
       return;
     }
 
@@ -255,12 +276,3 @@ export class RunnerConnection {
   }
 }
 
-function tryParseWorkSeconds(spec: string | null): number | null {
-  if (!spec) return null;
-  try {
-    const parsed = JSON.parse(spec);
-    return typeof parsed.durationSeconds === "number" ? parsed.durationSeconds : null;
-  } catch {
-    return null;
-  }
-}

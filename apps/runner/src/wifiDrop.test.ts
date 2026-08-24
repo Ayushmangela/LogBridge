@@ -21,6 +21,7 @@ import { buildServer, type BuiltServer } from "../../server/src/index.js";
 import { loadOrCreateIdentity } from "./identity.js";
 import { RunnerConnection } from "./connection.js";
 import { ChaosProxy } from "../test-support/chaosProxy.js";
+import { fakeHarness } from "./harness/fakeHarness.js";
 
 const LEASE_SECONDS = 2;
 const SWEEP_INTERVAL_MS = 400;
@@ -67,6 +68,7 @@ function makeRunner(machineSuffix: string) {
     ownerName: "test",
     dataDir: dir,
     leaseSeconds: LEASE_SECONDS,
+    harness: fakeHarness,
     agents: [
       {
         id: `agt_${machineSuffix}`,
