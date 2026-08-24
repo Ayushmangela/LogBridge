@@ -1,5 +1,7 @@
 # UI rebuild — phase plan
 
+> **Status:** phases 1–4 are done. See the per-phase notes below.
+
 Target: the full application shell (left nav + office canvas + right panel),
 replacing today's floating-glass-panels-over-a-canvas layout.
 
@@ -13,7 +15,7 @@ the only way to trigger it is `ws.send()` in the browser console.
 
 ---
 
-## Phase 1 — App shell
+## Phase 1 — App shell  ✅ DONE
 
 Restructure `index.html` from fixed-position floating panels into a real
 three-column grid: left nav, centre canvas, right panel. Top bar with
@@ -27,7 +29,7 @@ workspace name and online count.
 **Ends with:** the same features, in the target shape.
 **Suggested commit:** `feat: three-column app shell`
 
-## Phase 2 — Chat panel + approval UI  ← the one that closes a real gap
+## Phase 2 — Chat panel + approval UI  ✅ DONE
 
 A chat list and input in the right panel, and **approve / reject buttons** on
 any message carrying `ask`.
@@ -42,7 +44,7 @@ any message carrying `ask`.
 **Ends with:** the M4 slice-1 flow driveable by a person.
 **Suggested commit:** `feat: room chat panel with inline task approval`
 
-## Phase 3 — Sidebar rosters
+## Phase 3 — Sidebar rosters  ✅ DONE
 
 PEOPLE and AGENTS lists in the left nav, with live status dots and current
 activity, driven by `room.humans` / `room.agents`.
@@ -52,7 +54,7 @@ activity, driven by `room.humans` / `room.agents`.
 
 **Suggested commit:** `feat: people and agent rosters in the sidebar`
 
-## Phase 4 — Activity feed + current task
+## Phase 4 — Activity feed + current task  ✅ DONE
 
 Right-panel feed of recent events, and a card for the task in focus.
 
@@ -63,9 +65,19 @@ Right-panel feed of recent events, and a card for the task in focus.
 - The event log already records everything needed (`task.assigned`,
   `task.result`, `memory.write`, `delegate.request`, …).
 
-**Suggested commit:** `feat: activity feed and current-task panel — CONTRACT.md 1.10`
+**Landed as** `Room.activity: ActivityItem[]` (CONTRACT.md 1.10). The summary
+text is written **server-side** in `apps/server/src/activity.ts`, for the same
+reason `zone` is (invariant 2): one place decides the wording, so the UI can't
+narrate something the log doesn't support. Noise (`position`, `task.status`,
+`task.event`) is filtered, and the query over-fetches so a burst of position
+events can't return an empty page.
 
-## Phase 5 — Canvas name tags and task bubbles
+**Still not real:** the current-task progress bar shows *elapsed time*, not
+completion — a task reports start and finish and nothing between. Labelled
+"elapsed" rather than shown as a fake percentage. Real progress needs a
+progress event from the harness.
+
+## Phase 5 — Canvas name tags and task bubbles  ← next
 
 Per-agent labels and a speech bubble showing what each one is doing, drawn
 over the office.

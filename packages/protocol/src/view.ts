@@ -51,6 +51,19 @@ export const MemoryView = z.object({
   createdAt: z.string(),
 });
 
+// One line of "what just happened", projected server-side from the event
+// log so the wording lives in exactly one place. Capped in the view like
+// tasks and memories — CONTRACT.md invariant 1 only holds while the
+// snapshot stays small.
+export const ActivityItem = z.object({
+  seq: z.number().int().nonnegative(),   // event log sequence — stable ordering
+  type: z.string(),                      // the raw event type, for filtering
+  actor: z.string().nullable(),          // agent/human name, null for the system
+  summary: z.string(),                   // already human-readable
+  taskId: z.string().nullable(),
+  ts: z.string(),
+});
+
 const Point = z.object({ x: z.number(), y: z.number() });
 
 export const HumanView = z.object({
@@ -99,6 +112,7 @@ export const Room = z.object({
   machines: z.array(MachineView),
   tasks: z.array(BoardTask),
   memories: z.array(MemoryView),
+  activity: z.array(ActivityItem),
 });
 
 export const WorkspaceView = z.object({
@@ -111,6 +125,7 @@ export const WorkspaceView = z.object({
 export type TaskBriefT = z.infer<typeof TaskBrief>;
 export type BoardTaskT = z.infer<typeof BoardTask>;
 export type MemoryViewT = z.infer<typeof MemoryView>;
+export type ActivityItemT = z.infer<typeof ActivityItem>;
 export type HumanViewT = z.infer<typeof HumanView>;
 export type AgentViewT = z.infer<typeof AgentView>;
 export type MachineViewT = z.infer<typeof MachineView>;

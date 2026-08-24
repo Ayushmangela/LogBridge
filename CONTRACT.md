@@ -1,7 +1,7 @@
 # The Contract
 ### Single source of truth for everything exchanged between the office and the system.
 
-**Version 1.9** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
+**Version 1.10** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
 
 > **Rule: never change this file alone.** Both people present, both agree, bump the version, add a changelog line. A contract one person edited is not a contract.
 
@@ -41,6 +41,16 @@ type Room = {
   machines: MachineView[]
   tasks: BoardTask[]           // ★ 1.8 every task in the room — the board's rows
   memories: MemoryView[]       // ★ 1.9 what the team has learned (project scope only)
+  activity: ActivityItem[]     // ★ 1.10 what just happened, newest first (30 max)
+}
+
+type ActivityItem = {         // projected from the event log, server-side
+  seq: number                 // event log sequence — stable ordering
+  type: string                // raw event type, so the UI can filter/tint
+  actor: string | null        // agent or human name; null = the system
+  summary: string             // ALREADY human-readable — the UI only renders
+  taskId: string | null
+  ts: string
 }
 
 type MemoryView = {           // see MEMORY.md
@@ -232,6 +242,7 @@ Five tilesets are registered in the map, all 32 px:
 
 | Version | Change | Why |
 |---|---|---|
+| **1.10** | Added **`Room.activity: ActivityItem[]`** (30 newest, noise filtered) | The office shows the present tense and the board shows task state; neither can say *"the lease expired"*, *"it learned something"* or *"a result arrived late"*. Those only exist in the event log. The **summary is written server-side** for the same reason `zone` is (invariant 2): one place decides the wording, so the UI cannot narrate something the log doesn't support |
 | **1.9** | Added **`Room.memories: MemoryView[]`** (project-scoped only, 30 newest) and the `memory.write` / `memory.recall` / `memory.result` envelope types | Shared agent memory — see `MEMORY.md` and D25. An agent recalls what the team learned before it starts, including from agents on other machines, which only works if the store is server-side. Agent-scoped memories stay out of the view: they're for that agent's recall, not a team display |
 | **1.8** | Added **`Room.tasks: BoardTask[]`** — every task in the room, capped at 100, newest first | The office shows what each agent is doing *right now*; it structurally cannot show a queue, a rejected proposal, or yesterday's failures. The board view needs task identity and the full `TaskState`, neither of which `TaskBrief` carries (it's scoped to one agent's current task). Same snapshot, second view — no new socket messages |
 | **1.7** | Map height **40 → 46 tiles** (2048 × 1472 px) | The cafeteria and chill room needed more floor. Growing the map downward gives it to them without shrinking the desk floor — the alternative was taking rows from the open office |

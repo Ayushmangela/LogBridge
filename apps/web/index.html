@@ -1195,35 +1195,51 @@
       document.getElementById('ct-state').textContent = 'Running · ' + formatElapsed(busy.task.elapsedSec) + ' elapsed';
     }
 
-    const FEED_LABEL = {
-      'task.assigned': 'was assigned a task', 'task.result': 'finished a task',
-      'task.accept': 'started a task', 'memory.write': 'learned something',
-      'lease.expired': 'went silent mid-task', 'task.late_result': 'reported late',
-      'delegate.request': 'delegated work', 'delegate.result': 'returned a delegation',
+    // The feed comes from room.activity — the server projects the event log
+    // into wording (see activity.ts), so the browser only renders. Previously
+    // this was inferred from recent tasks, which could only ever say "a task
+    // changed state" and never "the lease expired" or "it learned something".
+    const FEED_TINT = {
+      'task.result': 'var(--blue)', 'task.assigned': 'var(--accent)',
+      'task.accept': 'var(--green)', 'memory.write': 'var(--purple)',
+      'lease.expired': 'var(--red)', 'task.late_result': 'var(--orange)',
+      'human.answer': 'var(--accent)', 'task.cancel': 'var(--red)',
     };
+
     function renderFeed(room) {
       const el = document.getElementById('feed');
       el.innerHTML = '';
-      // No event history is in the view yet (that's a protocol addition), so
-      // the feed is derived from what the snapshot does carry: recent tasks.
-      const recent = [...(room.tasks ?? [])].slice(0, 6);
-      if (!recent.length) { el.innerHTML = '<div class="empty-note" style="padding:12px 0;">Nothing has happened yet.</div>'; return; }
-      for (const t of recent) {
+      const items = room.activity ?? [];
+      if (!items.length) {
+        el.innerHTML = '<div class="empty-note" style="padding:12px 0;">Nothing has happened yet.</div>';
+        return;
+      }
+      for (const a of items.slice(0, 12)) {
         const row = document.createElement('div');
         row.className = 'feed-row';
+
+        const av = document.createElement('div');
+        av.className = 'av';
+        av.style.background = FEED_TINT[a.type] ?? 'var(--gray)';
+        av.style.fontSize = '11px';
+        av.textContent = a.actor ? a.actor[0].toUpperCase() : '•';
+
         const main = document.createElement('div');
         main.className = 'feed-main';
         const who = document.createElement('div');
         who.className = 'feed-who';
-        who.textContent = t.agentName ?? 'Unassigned';
+        who.textContent = a.actor ?? 'System';
         const what = document.createElement('div');
         what.className = 'feed-what';
-        what.textContent = `${t.state} · ${t.title}`;
+        what.textContent = a.summary;      // server-authored, still textContent
         main.append(who, what);
+
         const when = document.createElement('div');
         when.className = 'feed-when';
-        when.textContent = relativeTime(t.startedAt ?? t.createdAt);
-        row.append(avatarFor(t.agentName ?? '?', !!t.agentName), main, when);
+        when.textContent = relativeTime(a.ts);
+
+        row.append(av, main, when);
+        row.title = a.summary;
         el.appendChild(row);
       }
     }
