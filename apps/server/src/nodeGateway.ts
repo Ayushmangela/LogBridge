@@ -176,6 +176,21 @@ export function taskCancelEnvelope(taskId: string, projectId: string, machineId:
   };
 }
 
+// Shared by /debug/offer-task and the chat approve flow (gateway.ts) — the
+// only two places a task actually gets sent to a runner. Returns false
+// (task stays `submitted`, silently retried on the runner's next reconnect
+// via reconcileOnConnect) if the runner isn't currently connected.
+export function sendTaskOffer(db: Db, nodeSockets: NodeSockets, taskId: string): boolean {
+  const task = getTask(db, taskId);
+  if (!task || !task.agent_id) return false;
+  const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(task.agent_id) as any;
+  if (!agent) return false;
+  const socket = nodeSockets.get(agent.machine_id);
+  if (!socket || socket.readyState !== socket.OPEN) return false;
+  socket.send(JSON.stringify(taskOfferEnvelope({ ...task, _machineId: agent.machine_id })));
+  return true;
+}
+
 export function taskOfferEnvelope(t: any): EnvelopeT {
   return {
     v: 1, id: crypto.randomUUID(), type: "task.offer", project: t.project_id,

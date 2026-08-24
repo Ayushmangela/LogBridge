@@ -4,10 +4,10 @@ import websocket from "@fastify/websocket";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { WebSocket } from "ws";
-import { openDb, type Db } from "./db.js";
+import { createTask, openDb, type Db } from "./db.js";
 import { Positions } from "./view.js";
 import { registerGateway } from "./gateway.js";
-import { registerNodeGateway, taskCancelEnvelope, taskOfferEnvelope, type NodeSockets } from "./nodeGateway.js";
+import { registerNodeGateway, sendTaskOffer, taskCancelEnvelope, type NodeSockets } from "./nodeGateway.js";
 
 export interface BuiltServer {
   app: ReturnType<typeof Fastify>;
@@ -45,7 +45,7 @@ export async function buildServer(
   });
   app.get("/", async (_req, reply) => reply.sendFile("index.html"));
 
-  const broadcastView = registerGateway(app, db, positions, browserSockets);
+  const broadcastView = registerGateway(app, db, positions, browserSockets, nodeSockets);
   registerNodeGateway(app, db, nodeSockets, broadcastView, {
     leaseSeconds: opts.leaseSeconds,
     sweepIntervalMs: opts.sweepIntervalMs,
@@ -63,17 +63,11 @@ export async function buildServer(
       const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId) as any;
       if (!agent) return reply.code(404).send({ error: "no such agent" });
 
-      const taskId = `tsk_${crypto.randomUUID()}`;
-      db.prepare(
-        `INSERT INTO tasks (id, project_id, title, spec, creator_id, agent_id, state, budget_seconds, budget_usd, cost_usd)
-         VALUES (?, ?, ?, ?, 'debug', ?, 'submitted', ?, ?, 0)`
-      ).run(taskId, agent.project_id, title, spec ?? null, agentId, budgetSeconds ?? 60, budgetUsd ?? 1.0);
-
-      const task = db.prepare("SELECT *, ? AS _machineId FROM tasks WHERE id = ?").get(agent.machine_id, taskId) as any;
-      const socket = nodeSockets.get(agent.machine_id);
-      if (socket && socket.readyState === socket.OPEN) {
-        socket.send(JSON.stringify(taskOfferEnvelope(task)));
-      }
+      const taskId = createTask(db, {
+        projectId: agent.project_id, title, spec, creatorId: "debug", agentId,
+        budgetSeconds, budgetUsd,
+      });
+      sendTaskOffer(db, nodeSockets, taskId);
       broadcastView();
       return { ok: true, taskId };
     }

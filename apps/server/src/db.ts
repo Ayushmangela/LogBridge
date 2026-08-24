@@ -179,6 +179,54 @@ export function expiredLeaseTasks(db: Db) {
     .all(new Date().toISOString()) as any[];
 }
 
+// Every caller of this (task.accept -> "working", task.result -> "idle")
+// is a real lifecycle transition away from waiting on anyone — clear
+// waiting_on here so it can't outlive the needs_input state that set it.
+// waiting_on's only other writer is setAgentWaitingOnHuman/clearAgentWaiting.
 export function setAgentStatus(db: Db, agentId: string, status: string, currentTask: string | null) {
-  db.prepare("UPDATE agents SET status = ?, current_task = ? WHERE id = ?").run(status, currentTask, agentId);
+  db.prepare("UPDATE agents SET status = ?, current_task = ?, waiting_on = NULL WHERE id = ?").run(
+    status,
+    currentTask,
+    agentId
+  );
+}
+
+// A task proposed via chat (D16: natural language in, typed contract out)
+// sits in `submitted` without being offered to the runner yet — the human
+// has to approve it first. See M4-KICKOFF.md.
+export function createTask(
+  db: Db,
+  opts: {
+    projectId: string;
+    title: string;
+    spec?: string | null;
+    creatorId: string;
+    agentId: string;
+    budgetSeconds?: number;
+    budgetUsd?: number;
+  }
+): string {
+  const taskId = `tsk_${crypto.randomUUID()}`;
+  db.prepare(
+    `INSERT INTO tasks (id, project_id, title, spec, creator_id, agent_id, state, budget_seconds, budget_usd, cost_usd)
+     VALUES (?, ?, ?, ?, ?, ?, 'submitted', ?, ?, 0)`
+  ).run(
+    taskId, opts.projectId, opts.title, opts.spec ?? null, opts.creatorId, opts.agentId,
+    opts.budgetSeconds ?? 60, opts.budgetUsd ?? 1.0
+  );
+  return taskId;
+}
+
+// The agent is now blocked on a specific human decision — a task proposal,
+// a mid-task question, whatever. zoneFor() already maps this to needs_human
+// and resolves the right cabin; this is the only write side of that.
+export function setAgentWaitingOnHuman(db: Db, agentId: string, humanName: string) {
+  db.prepare("UPDATE agents SET status = 'needs_input', waiting_on = ? WHERE id = ?").run(
+    `human: ${humanName}`,
+    agentId
+  );
+}
+
+export function clearAgentWaiting(db: Db, agentId: string) {
+  db.prepare("UPDATE agents SET status = 'idle', waiting_on = NULL, current_task = NULL WHERE id = ?").run(agentId);
 }
