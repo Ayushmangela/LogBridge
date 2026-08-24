@@ -340,9 +340,24 @@ Do not "fix" these by faking them; they are honest gaps.
 | Thing | Why |
 |---|---|
 | Current Task progress bar shows elapsed, not % complete | tasks report start and finish, nothing between |
-| Recent Activity has no commits/PRs | needs the GitHub mirror (prompt 7) |
+| Activity feed has no commit aggregation | PRs/issues/CI land via the mirror; "pushed 4 commits" grouping needs a per-push window the poll loop doesn't model yet |
 | `opencode` tool policy not enforced | it has no per-run mechanism this runner knows; the harness refuses rather than pretending — see `PROVIDERS.md` |
 | No enrolment, no accounts | trust-on-first-sight, `DECISIONS.md` D23 |
 | Orchestrator does not decide *what* work exists | routing only; decomposition needs an LLM — `ORCHESTRATOR.md` |
 | Memory recall is BM25, not semantic | no embedding model available — `MEMORY.md` |
 | No forward secrecy for a sealed-message recipient | sealed box, not a ratchet — `SEALED.md` |
+| Claude `tool_use` parser verified against an UNAUTHENTICATED capture | needs the machine owner to run `claude /login`, then re-capture per prompt 8c |
+| Seven providers unverified (`codex`…`kimi`) | plain-text readers; capture real output only for CLIs actually installed |
+
+---
+
+## Status of the eight prompts (updated after completion)
+
+1. **Add Agent** ✅ runtime registration + dialog, opt-in per machine
+2. **Name tags + task bubbles** ✅ resolution-3 text, stacked bubbles
+3. **Mid-task questions** ✅ input-required + budget pause + PTY stdin answer
+4. **Edit proposals** ✅ submitted-only edits, re-proposed to the room
+5. **Per-request consent** ✅ hold/approve/always/never via grants table
+6. **Reviews + context sharing** ✅ sealed both ways, local-only context store
+7. **GitHub mirror** ✅ repos→rooms, issues→tasks, PR/CI feed (commit agg. left)
+8. **Smaller gaps** ✅ a) chat replay, b) legend/filters · c) d) blocked as noted above
