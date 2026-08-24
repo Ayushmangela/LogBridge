@@ -133,6 +133,38 @@ export const BodySchemas = {
     text: z.string().nullable().default(null),
   }),
 
+  // ---- shared memory (MEMORY.md) ----
+  // Scope is the whole point: "project" is what the *team* knows and every
+  // agent in the room recalls; "agent" is one agent's own working notes.
+  // A memory written by one machine's agent is recallable by another's —
+  // that only holds because it lives on the server (D2), not on the node.
+  "memory.write": z.object({
+    scope: z.enum(["project", "agent"]),
+    kind: z.enum(["fact", "preference", "decision", "outcome"]),
+    text: z.string().min(1).max(2000),
+    sourceTaskId: z.string().nullable().default(null),
+  }),
+
+  "memory.recall": z.object({
+    requestId: z.string(),
+    query: z.string(),
+    limit: z.number().int().positive().max(50).default(5),
+  }),
+
+  "memory.result": z.object({
+    requestId: z.string(),
+    memories: z.array(
+      z.object({
+        id: z.string(),
+        scope: z.enum(["project", "agent"]),
+        kind: z.enum(["fact", "preference", "decision", "outcome"]),
+        text: z.string(),
+        agentName: z.string(),
+        createdAt: z.string(),
+      })
+    ),
+  }),
+
   "agent.card": z.object({
     id: z.string(),
     name: z.string(),

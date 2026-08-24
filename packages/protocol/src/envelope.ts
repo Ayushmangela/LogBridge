@@ -6,6 +6,7 @@ export const MESSAGE_TYPES = [
   "review.request", "review.result",
   "context.share", "context.ack",
   "human.ask", "human.answer",
+  "memory.write", "memory.recall", "memory.result",
   "agent.card", "node.status", "presence", "chat", "position",
 ] as const;
 
@@ -40,4 +41,6 @@ const SIDE_EFFECTING: ReadonlySet<MessageType> = new Set([
   "review.request", "review.result",
   "context.share",
   "human.ask", "human.answer",
+  // memory.write creates a durable record; recall/result are pure reads.
+  "memory.write",
 ]);

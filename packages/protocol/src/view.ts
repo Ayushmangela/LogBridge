@@ -39,6 +39,18 @@ export const BoardTask = z.object({
   costUsd: z.number(),
 });
 
+// What the team knows (MEMORY.md). Capped in the view for the same reason
+// BoardTask is — CONTRACT.md invariant 1 only stays true if the snapshot
+// stays small. The full store is queried by agents, not shipped to browsers.
+export const MemoryView = z.object({
+  id: z.string(),
+  scope: z.enum(["project", "agent"]),
+  kind: z.enum(["fact", "preference", "decision", "outcome"]),
+  text: z.string(),
+  agentName: z.string(),
+  createdAt: z.string(),
+});
+
 const Point = z.object({ x: z.number(), y: z.number() });
 
 export const HumanView = z.object({
@@ -86,6 +98,7 @@ export const Room = z.object({
   agents: z.array(AgentView),
   machines: z.array(MachineView),
   tasks: z.array(BoardTask),
+  memories: z.array(MemoryView),
 });
 
 export const WorkspaceView = z.object({
@@ -97,6 +110,7 @@ export const WorkspaceView = z.object({
 
 export type TaskBriefT = z.infer<typeof TaskBrief>;
 export type BoardTaskT = z.infer<typeof BoardTask>;
+export type MemoryViewT = z.infer<typeof MemoryView>;
 export type HumanViewT = z.infer<typeof HumanView>;
 export type AgentViewT = z.infer<typeof AgentView>;
 export type MachineViewT = z.infer<typeof MachineView>;

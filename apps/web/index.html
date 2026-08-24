@@ -508,6 +508,67 @@
       padding: 18px 6px;
       opacity: 0.55;
     }
+
+    /* ---- Memory view: what the team knows ---- */
+    #memory {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      background: rgba(9, 11, 16, 0.94);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      display: none;
+      flex-direction: column;
+      padding: 76px 24px 24px;
+    }
+    #memory.open { display: flex; }
+    .mem-list {
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-width: 860px;
+      width: 100%;
+    }
+    .mem-item {
+      background: rgba(255,255,255,0.045);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-left: 3px solid var(--accent-purple);
+      border-radius: 8px;
+      padding: 11px 13px;
+      display: flex;
+      gap: 12px;
+      align-items: baseline;
+    }
+    .mem-kind {
+      font-size: 9.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      font-weight: 800;
+      padding: 2px 7px;
+      border-radius: 20px;
+      flex-shrink: 0;
+      background: rgba(179,136,255,0.16);
+      color: var(--accent-purple);
+    }
+    .mem-kind.k-outcome { background: rgba(0,229,255,0.14);  color: var(--accent-cyan); }
+    .mem-kind.k-decision{ background: rgba(255,215,64,0.14); color: var(--accent-amber); }
+    .mem-kind.k-preference { background: rgba(0,230,118,0.14); color: var(--accent-green); }
+    .mem-text { flex: 1; font-size: 13px; line-height: 1.45; overflow-wrap: break-word; min-width: 0; }
+    .mem-meta {
+      font-size: 10.5px;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .mem-note {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+      max-width: 860px;
+      line-height: 1.5;
+    }
     /* Column accents mirror the office's own status colours */
     .col-proposed  .board-col-title { color: var(--accent-amber); }
     .col-working   .board-col-title { color: var(--accent-green); }
@@ -553,7 +614,7 @@
       <div>
         <div style="display:flex; align-items:center; gap:6px;">
           <span class="brand-title">LogBridge Office</span>
-          <span class="brand-version">v1.8</span>
+          <span class="brand-version">v1.9</span>
         </div>
       </div>
     </div>
@@ -567,6 +628,21 @@
   <div class="view-toggle">
     <button id="tab-office" class="active" onclick="setView('office')">Office</button>
     <button id="tab-board" onclick="setView('board')">Board</button>
+    <button id="tab-memory" onclick="setView('memory')">Memory</button>
+  </div>
+
+  <!-- Memory view -->
+  <div id="memory">
+    <div class="board-head">
+      <h2>Team Memory</h2>
+      <span class="board-room" id="mem-room-name"></span>
+    </div>
+    <div class="mem-note">
+      What agents have learned in this room. Every agent recalls this before starting
+      a task — including agents on other machines. Retrieval is keyword relevance
+      (BM25), not semantic embeddings.
+    </div>
+    <div class="mem-list" id="mem-list"></div>
   </div>
 
   <!-- Board view -->
@@ -988,6 +1064,41 @@
       }
 
       renderBoard(room);
+      renderMemory(room);
+    }
+
+    // ---------------- Memory view ----------------
+    function renderMemory(room) {
+      const nameEl = document.getElementById('mem-room-name');
+      if (nameEl) nameEl.textContent = room.name;
+      const list = document.getElementById('mem-list');
+      if (!list) return;
+      const memories = room.memories ?? [];
+      list.innerHTML = '';
+
+      if (memories.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'board-empty';
+        empty.textContent = 'Nothing learned yet — memories form as agents finish tasks.';
+        list.appendChild(empty);
+        return;
+      }
+
+      for (const m of memories) {
+        const item = document.createElement('div');
+        item.className = 'mem-item';
+        const kind = document.createElement('span');
+        kind.className = `mem-kind k-${m.kind}`;
+        kind.textContent = m.kind;
+        const text = document.createElement('span');
+        text.className = 'mem-text';
+        text.textContent = m.text; // agent-authored — never innerHTML
+        const meta = document.createElement('span');
+        meta.className = 'mem-meta';
+        meta.textContent = `${m.agentName} · ${relativeTime(m.createdAt)}`;
+        item.append(kind, text, meta);
+        list.appendChild(item);
+      }
     }
 
     // ---------------- Board view ----------------
@@ -1064,19 +1175,22 @@
       }
     }
 
+    const VIEW_MODES = ['office', 'board', 'memory'];
     let currentViewMode = 'office';
     window.setView = function (mode) {
       currentViewMode = mode;
       document.getElementById('board').classList.toggle('open', mode === 'board');
-      document.getElementById('tab-office').classList.toggle('active', mode === 'office');
-      document.getElementById('tab-board').classList.toggle('active', mode === 'board');
-      // Movement keys are held in `keys` — a key still down when the board
+      document.getElementById('memory').classList.toggle('open', mode === 'memory');
+      for (const m of VIEW_MODES) {
+        document.getElementById(`tab-${m}`).classList.toggle('active', mode === m);
+      }
+      // Movement keys are held in `keys` — a key still down when an overlay
       // opens would otherwise stay stuck and walk the player while it's up.
       for (const k of Object.keys(keys)) keys[k] = false;
-      if (mode === 'board' && latestView) {
-        const room = latestView.rooms[0];
-        if (room) renderBoard(room);
-      }
+      const room = latestView?.rooms?.[0];
+      if (!room) return;
+      if (mode === 'board') renderBoard(room);
+      if (mode === 'memory') renderMemory(room);
     };
 
     function makeNameTag(text, color) {
@@ -1251,11 +1365,12 @@
         // Tab flips between the two views of the same room.
         if (e.key === 'Tab') {
           e.preventDefault();
-          window.setView(currentViewMode === 'office' ? 'board' : 'office');
+          const next = (VIEW_MODES.indexOf(currentViewMode) + 1) % VIEW_MODES.length;
+          window.setView(VIEW_MODES[next]);
           return;
         }
-        if (e.key === 'Escape' && currentViewMode === 'board') { window.setView('office'); return; }
-        if (currentViewMode === 'board') return; // board is up — nothing to drive
+        if (e.key === 'Escape' && currentViewMode !== 'office') { window.setView('office'); return; }
+        if (currentViewMode !== 'office') return; // an overlay is up — nothing to drive
         if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') keys.w = keys.up = true;
         if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') keys.a = keys.left = true;
         if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') keys.s = keys.down = true;
@@ -1270,7 +1385,7 @@
         if (e.key === 'Shift') keys.shift = false;
       });
       window.addEventListener('wheel', (e) => {
-        if (currentViewMode === 'board') return; // let the columns scroll normally
+        if (currentViewMode !== 'office') return; // let the overlay scroll normally
         e.preventDefault();
         adjustZoom(e.deltaY < 0 ? 0.08 : -0.08);
       }, { passive: false });

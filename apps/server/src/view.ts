@@ -1,5 +1,5 @@
 import type { Db } from "./db.js";
-import { lastSeq, tasksForProject } from "./db.js";
+import { lastSeq, recentMemories, tasksForProject } from "./db.js";
 import {
   zoneFor,
   type AgentViewT,
@@ -143,6 +143,9 @@ export function buildView(db: Db, positions: Positions, meId: string): Workspace
       agents: views,
       machines: roomMachines,
       tasks: boardTasks,
+      // Only project-scoped memories reach the browser: an agent's private
+      // working notes are for that agent's own recall, not a team display.
+      memories: recentMemories(db, p.id, 30).filter((m) => m.scope === "project"),
     };
   });
 

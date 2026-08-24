@@ -1,7 +1,7 @@
 # The Contract
 ### Single source of truth for everything exchanged between the office and the system.
 
-**Version 1.8** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
+**Version 1.9** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
 
 > **Rule: never change this file alone.** Both people present, both agree, bump the version, add a changelog line. A contract one person edited is not a contract.
 
@@ -40,6 +40,16 @@ type Room = {
   agents: AgentView[]
   machines: MachineView[]
   tasks: BoardTask[]           // ★ 1.8 every task in the room — the board's rows
+  memories: MemoryView[]       // ★ 1.9 what the team has learned (project scope only)
+}
+
+type MemoryView = {           // see MEMORY.md
+  id: string
+  scope: "project" | "agent"  // only "project" ones are sent to browsers
+  kind: "fact" | "preference" | "decision" | "outcome"
+  text: string
+  agentName: string           // who learned it
+  createdAt: string
 }
 
 type BoardTask = {
@@ -222,6 +232,7 @@ Five tilesets are registered in the map, all 32 px:
 
 | Version | Change | Why |
 |---|---|---|
+| **1.9** | Added **`Room.memories: MemoryView[]`** (project-scoped only, 30 newest) and the `memory.write` / `memory.recall` / `memory.result` envelope types | Shared agent memory — see `MEMORY.md` and D25. An agent recalls what the team learned before it starts, including from agents on other machines, which only works if the store is server-side. Agent-scoped memories stay out of the view: they're for that agent's recall, not a team display |
 | **1.8** | Added **`Room.tasks: BoardTask[]`** — every task in the room, capped at 100, newest first | The office shows what each agent is doing *right now*; it structurally cannot show a queue, a rejected proposal, or yesterday's failures. The board view needs task identity and the full `TaskState`, neither of which `TaskBrief` carries (it's scoped to one agent's current task). Same snapshot, second view — no new socket messages |
 | **1.7** | Map height **40 → 46 tiles** (2048 × 1472 px) | The cafeteria and chill room needed more floor. Growing the map downward gives it to them without shrinking the desk floor — the alternative was taking rows from the open office |
 | **1.6** | Added a **`props3`** layer for chairs, above `props2` | A chair pulled up to a desk overlaps both the desk's front edge and the keyboard on it. On `props2` it erased the clutter tile; it needs to be the last thing drawn |

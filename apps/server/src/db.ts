@@ -78,6 +78,40 @@ CREATE TABLE IF NOT EXISTS grants (
   mode TEXT,
   created TEXT
 );
+CREATE TABLE IF NOT EXISTS memories (
+  id TEXT PRIMARY KEY,
+  project_id TEXT,
+  scope TEXT,            -- 'project' (team knowledge) | 'agent' (own notes)
+  scope_id TEXT,         -- agent id when scope='agent', else NULL
+  kind TEXT,             -- fact | preference | decision | outcome
+  text TEXT,
+  source_task_id TEXT,
+  agent_id TEXT,
+  agent_name TEXT,
+  created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_memories_project ON memories (project_id, created_at DESC);
+-- Same text, same scope, written twice is one memory, not two. This is what
+-- stops an agent that repeats itself every task from burying everything else.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_dedupe
+  ON memories (project_id, scope, IFNULL(scope_id, ''), text);
+
+-- FTS5 external-content index over memories.text. Retrieval is lexical
+-- (BM25), NOT semantic embeddings — see MEMORY.md's "what this is not".
+CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+  text, content='memories', content_rowid='rowid'
+);
+CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
+  INSERT INTO memories_fts (rowid, text) VALUES (new.rowid, new.text);
+END;
+CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
+  INSERT INTO memories_fts (memories_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+END;
+CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
+  INSERT INTO memories_fts (memories_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+  INSERT INTO memories_fts (rowid, text) VALUES (new.rowid, new.text);
+END;
+
 CREATE INDEX IF NOT EXISTS idx_events_project ON events (project_id, seq);
 CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks (agent_id);
 `;
@@ -251,6 +285,108 @@ export function setAgentWaitingOnHuman(db: Db, agentId: string, humanName: strin
     `human: ${humanName}`,
     agentId
   );
+}
+
+// ---------------- shared memory (MEMORY.md) ----------------
+// Lives on the server, not the node, precisely so an agent on one machine
+// can recall what an agent on another machine learned (D2). The runner is
+// stateless about memory — it asks, it writes, it never caches.
+
+export interface MemoryRow {
+  id: string;
+  scope: "project" | "agent";
+  kind: "fact" | "preference" | "decision" | "outcome";
+  text: string;
+  agentName: string;
+  createdAt: string;
+}
+
+export function writeMemory(
+  db: Db,
+  m: {
+    projectId: string;
+    scope: "project" | "agent";
+    scopeId: string | null;
+    kind: string;
+    text: string;
+    sourceTaskId: string | null;
+    agentId: string;
+    agentName: string;
+  }
+): string | null {
+  const id = `mem_${crypto.randomUUID()}`;
+  // ON CONFLICT DO NOTHING against the dedupe index — re-learning a fact is
+  // a no-op, not an error and not a duplicate row.
+  const res = db
+    .prepare(
+      `INSERT INTO memories (id, project_id, scope, scope_id, kind, text, source_task_id, agent_id, agent_name, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT DO NOTHING`
+    )
+    .run(
+      id, m.projectId, m.scope, m.scopeId, m.kind, m.text.trim(),
+      m.sourceTaskId, m.agentId, m.agentName, new Date().toISOString()
+    );
+  return res.changes > 0 ? id : null;
+}
+
+// FTS5's MATCH takes a query *language*, not a plain string: bare `AND`,
+// `*`, `"` or `:` in a user/agent-authored query are syntax, and malformed
+// syntax throws rather than returning nothing. Reduce to bare word tokens
+// and OR them as quoted phrases, so arbitrary text is always a valid query.
+function toFtsQuery(raw: string): string | null {
+  const tokens = raw.toLowerCase().match(/[a-z0-9]+/g);
+  if (!tokens || tokens.length === 0) return null;
+  const unique = [...new Set(tokens)].filter((t) => t.length > 1).slice(0, 24);
+  if (unique.length === 0) return null;
+  return unique.map((t) => `"${t}"`).join(" OR ");
+}
+
+// Returns the project's shared memories plus this agent's own notes, ranked
+// by BM25 relevance. An empty/unmatchable query falls back to most-recent —
+// a new agent with nothing to search for should still inherit context.
+export function recallMemories(
+  db: Db,
+  opts: { projectId: string; agentId: string; query: string; limit: number }
+): MemoryRow[] {
+  const visible = "m.project_id = ? AND (m.scope = 'project' OR (m.scope = 'agent' AND m.scope_id = ?))";
+  const fts = toFtsQuery(opts.query);
+
+  const rows = fts
+    ? (db
+        .prepare(
+          `SELECT m.id, m.scope, m.kind, m.text, m.agent_name, m.created_at
+           FROM memories_fts f
+           JOIN memories m ON m.rowid = f.rowid
+           WHERE f.text MATCH ? AND ${visible}
+           ORDER BY bm25(memories_fts) LIMIT ?`
+        )
+        .all(fts, opts.projectId, opts.agentId, opts.limit) as any[])
+    : (db
+        .prepare(
+          `SELECT m.id, m.scope, m.kind, m.text, m.agent_name, m.created_at
+           FROM memories m WHERE ${visible}
+           ORDER BY m.created_at DESC LIMIT ?`
+        )
+        .all(opts.projectId, opts.agentId, opts.limit) as any[]);
+
+  return rows.map((r) => ({
+    id: r.id, scope: r.scope, kind: r.kind, text: r.text,
+    agentName: r.agent_name ?? "unknown", createdAt: r.created_at,
+  }));
+}
+
+export function recentMemories(db: Db, projectId: string, limit = 50): MemoryRow[] {
+  const rows = db
+    .prepare(
+      `SELECT id, scope, kind, text, agent_name, created_at FROM memories
+       WHERE project_id = ? ORDER BY created_at DESC LIMIT ?`
+    )
+    .all(projectId, limit) as any[];
+  return rows.map((r) => ({
+    id: r.id, scope: r.scope, kind: r.kind, text: r.text,
+    agentName: r.agent_name ?? "unknown", createdAt: r.created_at,
+  }));
 }
 
 export function clearAgentWaiting(db: Db, agentId: string) {

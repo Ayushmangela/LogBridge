@@ -94,6 +94,17 @@ describe("envelope schemas", () => {
       case "presence": return { userId: "u1", state: "online" };
       case "chat": return { roomId: "r1", fromKind: "user", fromId: "u1", fromName: "sam", text: "hi" };
       case "position": return { userId: "u1", roomId: "r1", x: 3, y: 4 };
+      case "memory.write":
+        return { scope: "project", kind: "fact", text: "the deploy script needs sudo", sourceTaskId: null };
+      case "memory.recall": return { requestId: "req_1", query: "how do we deploy", limit: 5 };
+      case "memory.result":
+        return {
+          requestId: "req_1",
+          memories: [{
+            id: "mem_1", scope: "project", kind: "fact", text: "the deploy script needs sudo",
+            agentName: "dev-api", createdAt: new Date().toISOString(),
+          }],
+        };
       default: throw new Error(`no fixture for ${type}`);
     }
   }

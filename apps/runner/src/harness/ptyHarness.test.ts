@@ -110,7 +110,18 @@ describe("ptyHarness", () => {
       });
 
       const iterator = handle.events[Symbol.asyncIterator]();
-      await iterator.next(); // the initial "received prompt" line
+      // Ctrl-C into a pty signals the foreground process group, so the child
+      // must already have installed its SIGINT handler or the default action
+      // kills it silently and no "interrupted" line is ever written.
+      // testScript.mjs registers that handler *after* its first two writes,
+      // so the first event proves nothing; a "working N" tick comes from the
+      // interval, which only runs once module load has fully finished.
+      // (Without this wait the test passes alone and races under load.)
+      while (true) {
+        const { value, done } = await iterator.next();
+        if (done) throw new Error("process exited before it started ticking");
+        if (value.kind === "output" && value.text.includes("working")) break;
+      }
       handle.interrupt();
 
       const events = await collect({ [Symbol.asyncIterator]: () => iterator }, (ev) => ev.kind === "done" || ev.kind === "error");

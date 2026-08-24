@@ -10,6 +10,8 @@ import {
   appendEvent,
   expiredLeaseTasks,
   getTask,
+  recallMemories,
+  writeMemory,
   markMachineOnline,
   getMachine,
   registerMachine,
@@ -122,7 +124,9 @@ export function registerNodeGateway(
         app.log.warn({ err: parsed.error }, "node sent an invalid envelope");
         return;
       }
-      handleNodeEnvelope(db, parsed.envelope, app, onChange, LEASE_SECONDS);
+      // parsed.body is the zod-validated body (schema defaults applied);
+      // env.body is the raw one the older handlers below still read.
+      handleNodeEnvelope(db, parsed.envelope, app, onChange, LEASE_SECONDS, parsed.body, send);
     });
 
     socket.on("close", () => {
@@ -203,8 +207,57 @@ export function taskOfferEnvelope(t: any): EnvelopeT {
   };
 }
 
-function handleNodeEnvelope(db: Db, env: EnvelopeT, app: FastifyInstance, onChange: () => void, leaseSeconds: number) {
+function handleNodeEnvelope(
+  db: Db,
+  env: EnvelopeT,
+  app: FastifyInstance,
+  onChange: () => void,
+  leaseSeconds: number,
+  validBody: any,
+  send: (m: unknown) => void
+) {
   const body = env.body as any;
+
+  // ---- shared memory (MEMORY.md) ----
+  if (env.type === "memory.write") {
+    const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(env.from.id) as any;
+    if (!agent) return; // memory is always attributed to a real registered agent
+    const id = writeMemory(db, {
+      projectId: agent.project_id,
+      scope: validBody.scope,
+      scopeId: validBody.scope === "agent" ? agent.id : null,
+      kind: validBody.kind,
+      text: validBody.text,
+      sourceTaskId: validBody.sourceTaskId ?? null,
+      agentId: agent.id,
+      agentName: agent.name,
+    });
+    // A duplicate write returns null — log it as such rather than pretending
+    // a new memory was formed.
+    appendEvent(db, agent.project_id, validBody.sourceTaskId ?? null,
+      id ? "memory.write" : "memory.write.duplicate", { ...validBody, agentName: agent.name });
+    onChange();
+    return;
+  }
+
+  if (env.type === "memory.recall") {
+    const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(env.from.id) as any;
+    const memories = agent
+      ? recallMemories(db, {
+          projectId: agent.project_id,
+          agentId: agent.id,
+          query: validBody.query,
+          limit: validBody.limit ?? 5,
+        })
+      : [];
+    send({
+      v: 1, id: crypto.randomUUID(), type: "memory.result", project: env.project,
+      from: { kind: "server", id: "server" }, to: env.from,
+      task: env.task, idem: null, ts: new Date().toISOString(),
+      body: { requestId: validBody.requestId, memories },
+    });
+    return;
+  }
 
   if (env.type === "task.accept") {
     const t = getTask(db, body.taskId);
