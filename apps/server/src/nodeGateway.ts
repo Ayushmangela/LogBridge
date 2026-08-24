@@ -15,6 +15,8 @@ import {
   markMachineOnline,
   getMachine,
   registerMachine,
+  setSealingPubkey,
+  sealingKeyForAgent,
   renewLease,
   setAgentStatus,
   setTaskState,
@@ -106,14 +108,34 @@ export function registerNodeGateway(
             hello.ownerId,
             hello.ownerName ?? hello.ownerId
           );
-          registerMachine(db, hello.machineId, hello.ownerId, hello.machineName, hello.pubkey);
+          registerMachine(db, hello.machineId, hello.ownerId, hello.machineName, hello.pubkey, hello.sealingPubkey ?? null);
           app.log.info({ machineId: hello.machineId }, "new machine registered (trust-on-first-sight)");
+        } else if (hello.sealingPubkey) {
+          const existing = (known as any).sealing_pubkey as string | null | undefined;
+          if (!existing) {
+            // First sealing key we've seen for an already-known machine —
+            // pin it, same TOFU rule the identity key follows (D23).
+            setSealingPubkey(db, hello.machineId, hello.sealingPubkey);
+          } else if (existing !== hello.sealingPubkey) {
+            // The identity key already proved this really is that machine,
+            // so this is a rotation, not an impostor — but it silently
+            // invalidates anything sealed to the old key, so it's logged
+            // rather than swapped in quietly.
+            app.log.warn({ machineId: hello.machineId }, "sealing key rotated — payloads sealed to the old key can no longer be opened");
+            setSealingPubkey(db, hello.machineId, hello.sealingPubkey);
+          }
         }
         markMachineOnline(db, hello.machineId, true);
         nodeSockets.set(hello.machineId, socket as unknown as WebSocket);
         send({ type: "ready" });
         onChange();
         reconcileOnConnect(db, hello.machineId, send, app);
+        // This machine learns who it can seal to; everyone else learns about
+        // this machine. Without the second half, whoever connected first
+        // could never reach whoever connected second.
+        const dir = peerDirectoryEnvelope(db, hello.machineId);
+        if (dir) send(dir);
+        broadcastPeerDirectory(db, nodeSockets);
         return;
       }
 
@@ -126,7 +148,7 @@ export function registerNodeGateway(
       }
       // parsed.body is the zod-validated body (schema defaults applied);
       // env.body is the raw one the older handlers below still read.
-      handleNodeEnvelope(db, parsed.envelope, app, onChange, LEASE_SECONDS, parsed.body, send);
+      handleNodeEnvelope(db, parsed.envelope, app, onChange, LEASE_SECONDS, parsed.body, send, nodeSockets);
     });
 
     socket.on("close", () => {
@@ -152,6 +174,57 @@ export function registerNodeGateway(
     if (sweep.unref) sweep.unref();
     onChange();
   }, SWEEP_INTERVAL_MS);
+}
+
+// Everyone this machine's agents could seal a message to. Sent on connect;
+// a machine that joins later is picked up on the next directory push.
+export function peerDirectoryEnvelope(db: Db, machineId: string): EnvelopeT | null {
+  const projects = db
+    .prepare("SELECT DISTINCT project_id FROM agents WHERE machine_id = ?")
+    .all(machineId) as any[];
+  if (projects.length === 0) return null;
+
+  const placeholders = projects.map(() => "?").join(",");
+  const peers = db
+    .prepare(
+      `SELECT a.id AS agentId, a.name AS agentName, a.machine_id AS machineId,
+              a.capabilities AS capabilities,
+              m.name AS machineName, m.online AS online, m.sealing_pubkey AS sealingPubkey,
+              COALESCE(u.name, u.gh_login, m.owner_id) AS ownerName
+       FROM agents a
+       JOIN machines m ON m.id = a.machine_id
+       LEFT JOIN users u ON u.id = m.owner_id
+       WHERE a.project_id IN (${placeholders}) AND a.machine_id != ?`
+    )
+    .all(...projects.map((p) => p.project_id), machineId) as any[];
+
+  return {
+    v: 1, id: crypto.randomUUID(), type: "peer.directory", project: projects[0].project_id,
+    from: { kind: "server", id: "server" }, to: { kind: "node", id: machineId },
+    task: null, idem: null, ts: new Date().toISOString(),
+    body: {
+      peers: peers.map((p) => ({
+        agentId: p.agentId,
+        agentName: p.agentName,
+        machineId: p.machineId,
+        machineName: p.machineName ?? p.machineId,
+        ownerName: p.ownerName ?? "unknown",
+        capabilities: (() => { try { return JSON.parse(p.capabilities ?? "[]"); } catch { return []; } })(),
+        online: Boolean(p.online),
+        sealingPubkey: p.sealingPubkey ?? null,
+      })),
+    },
+  };
+}
+
+/** Push a fresh directory to every connected node — called when the set of
+ *  agents or their keys changes, so a machine that joins second still becomes
+ *  reachable by one that connected first. */
+export function broadcastPeerDirectory(db: Db, nodeSockets: NodeSockets) {
+  for (const [mid, socket] of nodeSockets) {
+    const env = peerDirectoryEnvelope(db, mid);
+    if (env && socket.readyState === socket.OPEN) socket.send(JSON.stringify(env));
+  }
 }
 
 function reconcileOnConnect(db: Db, machineId: string, send: (m: unknown) => void, app: FastifyInstance) {
@@ -214,9 +287,70 @@ function handleNodeEnvelope(
   onChange: () => void,
   leaseSeconds: number,
   validBody: any,
-  send: (m: unknown) => void
+  send: (m: unknown) => void,
+  nodeSockets: NodeSockets
 ) {
   const body = env.body as any;
+
+  // ---- cross-machine delegation, end-to-end sealed (SEALED.md) ----
+  // The server is a router here and nothing more. It reads capability,
+  // target and budget to decide where the message goes and to draw the
+  // office; `sealed` passes through untouched, and the event log records
+  // only that a delegation happened — never what was in it.
+  if (env.type === "delegate.request" || env.type === "delegate.result") {
+    const isRequest = env.type === "delegate.request";
+    const targetAgentId = isRequest ? validBody.targetAgentId : null;
+    const target = isRequest
+      ? sealingKeyForAgent(db, targetAgentId)
+      : sealingKeyForAgent(db, (env.to as any).id);
+
+    if (!target) {
+      app.log.warn({ to: env.to }, "delegation for an unknown agent — dropped");
+      return;
+    }
+    const socket = nodeSockets.get(target.machineId);
+    if (!socket || socket.readyState !== socket.OPEN) {
+      appendEvent(db, env.project, env.task, `${env.type}.undeliverable`, {
+        targetMachine: target.machineId, reason: "machine offline",
+      });
+      onChange();
+      return;
+    }
+
+    // Forwarded byte-for-byte. Rewriting any of from/to/type/project/id here
+    // would break the AAD binding and the recipient's open() would fail —
+    // that is the intended behaviour, not an inconvenience to work around.
+    socket.send(JSON.stringify(env));
+
+    const sender = db.prepare("SELECT * FROM agents WHERE id = ?").get(env.from.id) as any;
+    if (isRequest && sender) {
+      // Blocked on another machine's agent -> zoneFor() reads the "@" and
+      // renders both of them in the meeting room. That's PHASES.md's M5
+      // visual, driven by real state rather than staged.
+      const targetAgent = db.prepare("SELECT * FROM agents WHERE id = ?").get(targetAgentId) as any;
+      const targetMachine = db.prepare("SELECT name FROM machines WHERE id = ?").get(target.machineId) as any;
+      db.prepare("UPDATE agents SET status = 'blocked', waiting_on = ? WHERE id = ?").run(
+        `${targetAgent?.name ?? targetAgentId}@${targetMachine?.name ?? target.machineId}`,
+        sender.id
+      );
+    } else if (!isRequest) {
+      const requester = db.prepare("SELECT * FROM agents WHERE id = ?").get((env.to as any).id) as any;
+      if (requester) {
+        db.prepare("UPDATE agents SET status = 'idle', waiting_on = NULL WHERE id = ?").run(requester.id);
+      }
+    }
+
+    appendEvent(db, env.project, env.task, env.type, {
+      requestId: validBody.requestId,
+      capability: validBody.capability ?? null,
+      from: env.from.id,
+      to: isRequest ? targetAgentId : (env.to as any).id,
+      state: validBody.state ?? null,
+      sealed: true, // the payload itself is deliberately not logged
+    });
+    onChange();
+    return;
+  }
 
   // ---- shared memory (MEMORY.md) ----
   if (env.type === "memory.write") {
@@ -297,6 +431,7 @@ function handleNodeEnvelope(
       body.id, body.machineId, owner?.owner_id ?? "usr_dev", body.projects[0] ?? null,
       body.name, body.role, JSON.stringify(body.capabilities ?? []), body.concurrency ?? 1
     );
+    broadcastPeerDirectory(db, nodeSockets); // a new agent is a new possible peer
     onChange();
     return;
   }

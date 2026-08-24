@@ -149,3 +149,19 @@ Ported from Munder Difflin's "MemPalace". Full rationale in `MEMORY.md`; the two
 **Would change it:** an embedding model becoming available. `recallMemories()` takes a query and returns ranked rows; nothing above it assumes *how* they were ranked, so embeddings slot in underneath without touching the protocol, the runner, or the UI.
 
 **Also decided, deliberately:** recall can never block work (2s timeout, resolves rather than rejects — a memory system that can stop an agent working is worse than none), and recall bypasses the offline outbox while writes go through it (a recall is only useful now; a memory formed during an outage is still worth keeping).
+
+### D26 — Sealed payloads encrypt the message body, never the envelope
+Ported from Munder Difflin's clone-to-clone encryption. Full detail in `SEALED.md`.
+
+Agent-to-agent payloads are sealed with X25519/HKDF-SHA256/AES-256-GCM (HPKE base mode, ephemeral sender key per message). The envelope's metadata — from, to, type, project, task, capability, budget — stays readable.
+
+**Why not seal everything:** D2 makes the server the only path between machines and justifies it by the server being "the one log"; D4 and D11 then make state server-authoritative and the office a pure function of logged events. A fully opaque message breaks all three simultaneously — it cannot be routed, meaningfully logged, or drawn. So the server learns *that* dev-a asked dev-b to run_integration_tests, and never what it was asked to run.
+**The metadata is bound in as AES-GCM additional data**, so this is not merely a convention: the server cannot re-address, relabel, or re-project a sealed payload without the recipient's `open()` throwing. Tested per case.
+**Cost, stated plainly:** the server still sees the full communication graph. This buys confidentiality of content, not metadata privacy.
+**Would change it:** wanting metadata privacy too, which would mean giving up the event log the office is rendered from — i.e. reopening D4 and D11, not just this decision.
+
+**Consent is per-machine, not per-request.** `acceptDelegations` defaults to off; a machine refuses delegated work until its owner opts in. That is the buildable-without-UI version of PHASES.md M5's "he approves once". The per-request `delegate.decision` flow (approve/deny/always/never) is speced in the protocol and **not built** — it's the remaining half of M5's consent story.
+**Why default off:** silently executing a payload because it arrived would defeat D1 and D3 entirely. Refusing is the safe default; opting in is a deliberate act.
+
+**Not forward secret for the recipient.** The ephemeral sender key protects past messages against later compromise of the *sender's* key. Compromising the *recipient's* long-term key decrypts everything ever sealed to it. Real forward secrecy needs a double ratchet with shared session state — a much larger feature. This is a sealed box and must not be described as a ratchet.
+**Would change it:** a threat model where recipient key compromise is realistic. Then Signal-style ratcheting, as its own project.

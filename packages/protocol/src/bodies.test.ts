@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { generateSealingKeypair, seal } from "./sealed.js";
 import {
   BodySchemas,
   Envelope,
@@ -12,6 +13,14 @@ import {
   zoneFor,
 } from "./index.js";
 import type { TaskStateT } from "./index.js";
+
+// A genuine sealed payload rather than a hand-written stub, so the fixture
+// stays valid if the wire shape ever changes.
+function sampleSealed() {
+  const kp = generateSealingKeypair();
+  return seal(kp.publicKeyB64, JSON.stringify({ inputs: {} }), "aad");
+}
+
 
 const ALL_STATES: TaskStateT[] = [
   "submitted", "working", "input-required", "auth-required", "blocked",
@@ -71,10 +80,13 @@ describe("envelope schemas", () => {
         return { taskId: "t1", state: "completed", reason: null, artifact: null };
       case "task.cancel": return { taskId: "t1", by: "user", reason: null };
       case "delegate.request":
-        return { capability: "run_tests", targetNodeId: "n1", projectId: "p1", inputs: {}, acceptance: null, budget, contextRefs: [], contextNote: null };
+        return {
+          requestId: "r1", capability: "run_tests", targetAgentId: "agt_b",
+          targetNodeId: "n1", projectId: "p1", budget, sealed: sampleSealed(),
+        };
       case "delegate.decision": return { requestId: "r1", decision: "once", by: null };
       case "delegate.result":
-        return { requestId: "r1", taskId: "t1", state: "completed", verified: true, artifact: null };
+        return { requestId: "r1", taskId: "t1", state: "completed", verified: true, sealed: null, artifact: null };
       case "review.request":
         return { toAgentId: null, subject: { kind: "pr", ref: "a/b#1" }, criteria: ["correct"], depth: "quick", budget };
       case "review.result":
@@ -94,6 +106,13 @@ describe("envelope schemas", () => {
       case "presence": return { userId: "u1", state: "online" };
       case "chat": return { roomId: "r1", fromKind: "user", fromId: "u1", fromName: "sam", text: "hi" };
       case "position": return { userId: "u1", roomId: "r1", x: 3, y: 4 };
+      case "peer.directory":
+        return {
+          peers: [{
+            agentId: "agt_b", agentName: "dev-b", machineId: "n2", machineName: "bob-mbp",
+            ownerName: "bob", capabilities: ["run_tests"], online: true, sealingPubkey: "AAAA",
+          }],
+        };
       case "memory.write":
         return { scope: "project", kind: "fact", text: "the deploy script needs sudo", sourceTaskId: null };
       case "memory.recall": return { requestId: "req_1", query: "how do we deploy", limit: 5 };

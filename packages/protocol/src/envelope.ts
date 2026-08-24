@@ -7,6 +7,7 @@ export const MESSAGE_TYPES = [
   "context.share", "context.ack",
   "human.ask", "human.answer",
   "memory.write", "memory.recall", "memory.result",
+  "peer.directory",
   "agent.card", "node.status", "presence", "chat", "position",
 ] as const;
 

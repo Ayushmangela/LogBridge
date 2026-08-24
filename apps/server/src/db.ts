@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS machines (
   owner_id TEXT,
   name TEXT,
   pubkey TEXT,
+  sealing_pubkey TEXT,
   last_seen TEXT,
   online INT DEFAULT 0,
   revoked INT DEFAULT 0
@@ -127,10 +128,15 @@ export function openDb(dbPath?: string): Db {
   // TABLE IF NOT EXISTS` is a no-op against a db file from before a column
   // existed. This is the one column added after the fact so far; if more
   // pile up, that's the signal to actually build migrations.
-  try {
-    db.exec("ALTER TABLE tasks ADD COLUMN created_at TEXT");
-  } catch {
-    // already there, either from SCHEMA on a fresh db or a prior run of this
+  for (const alter of [
+    "ALTER TABLE tasks ADD COLUMN created_at TEXT",
+    "ALTER TABLE machines ADD COLUMN sealing_pubkey TEXT",
+  ]) {
+    try {
+      db.exec(alter);
+    } catch {
+      // already there, either from SCHEMA on a fresh db or a prior run of this
+    }
   }
   return db;
 }
@@ -169,10 +175,32 @@ export function getMachine(db: Db, id: string) {
     | undefined;
 }
 
-export function registerMachine(db: Db, id: string, ownerId: string, name: string, pubkey: string) {
+export function registerMachine(
+  db: Db, id: string, ownerId: string, name: string, pubkey: string, sealingPubkey?: string | null
+) {
   db.prepare(
-    "INSERT INTO machines (id, owner_id, name, pubkey, last_seen, online, revoked) VALUES (?, ?, ?, ?, ?, 1, 0)"
-  ).run(id, ownerId, name, pubkey, new Date().toISOString());
+    "INSERT INTO machines (id, owner_id, name, pubkey, sealing_pubkey, last_seen, online, revoked) VALUES (?, ?, ?, ?, ?, ?, 1, 0)"
+  ).run(id, ownerId, name, pubkey, sealingPubkey ?? null, new Date().toISOString());
+}
+
+// A machine that connected before it had a sealing key (or that rotated one)
+// gets it recorded on the next handshake. Pinning is handled by the caller —
+// this is the raw write.
+export function setSealingPubkey(db: Db, machineId: string, sealingPubkey: string) {
+  db.prepare("UPDATE machines SET sealing_pubkey = ? WHERE id = ?").run(sealingPubkey, machineId);
+}
+
+/** The sealing key to encrypt to when sending to an agent. Null means that
+ *  agent's machine hasn't published one — the caller must NOT silently fall
+ *  back to plaintext; see nodeGateway's delegate handler. */
+export function sealingKeyForAgent(db: Db, agentId: string): { machineId: string; sealingPubkey: string | null } | null {
+  const row = db
+    .prepare(
+      `SELECT a.machine_id AS machineId, m.sealing_pubkey AS sealingPubkey
+       FROM agents a JOIN machines m ON m.id = a.machine_id WHERE a.id = ?`
+    )
+    .get(agentId) as any;
+  return row ? { machineId: row.machineId, sealingPubkey: row.sealingPubkey ?? null } : null;
 }
 
 export function markMachineOnline(db: Db, id: string, online: boolean) {

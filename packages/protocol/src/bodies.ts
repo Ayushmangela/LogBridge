@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Envelope, MESSAGE_TYPES, isSideEffecting, type EnvelopeT, type MessageType } from "./envelope.js";
 import { TaskState } from "./task-state.js";
+import { SealedPayload } from "./sealed.js";
 
 export const BodySchemas = {
   "task.offer": z.object({
@@ -50,15 +51,17 @@ export const BodySchemas = {
     reason: z.string().nullable().default(null),
   }),
 
+  // `sealed` holds the encrypted half (inputs, acceptance, context note) —
+  // the server routes on the plaintext fields and cannot read the rest.
+  // See SEALED.md for why the split falls exactly here.
   "delegate.request": z.object({
+    requestId: z.string(),
     capability: z.string(),
+    targetAgentId: z.string(),
     targetNodeId: z.string(),
     projectId: z.string(),
-    inputs: z.record(z.unknown()),
-    acceptance: z.string().nullable().default(null),
     budget: z.object({ seconds: z.number().int().positive(), usd: z.number() }),
-    contextRefs: z.array(z.string()).default([]),
-    contextNote: z.string().nullable().default(null),
+    sealed: SealedPayload,
   }),
 
   "delegate.decision": z.object({
@@ -72,6 +75,7 @@ export const BodySchemas = {
     taskId: z.string(),
     state: z.enum(["completed", "failed"]),
     verified: z.boolean(),
+    sealed: SealedPayload.nullish().default(null), // the encrypted findings
     artifact: z
       .object({
         id: z.string(),
@@ -161,6 +165,26 @@ export const BodySchemas = {
         text: z.string(),
         agentName: z.string(),
         createdAt: z.string(),
+      })
+    ),
+  }),
+
+  // Server -> node: who else is in this project and how to seal to them.
+  // A sender needs the recipient's key *before* it can encrypt, and the
+  // envelope's `to` is bound into the AAD, so the server cannot re-address a
+  // sealed payload on the sender's behalf — it has to be addressed correctly
+  // from the start. Hence a directory rather than server-side routing magic.
+  "peer.directory": z.object({
+    peers: z.array(
+      z.object({
+        agentId: z.string(),
+        agentName: z.string(),
+        machineId: z.string(),
+        machineName: z.string(),
+        ownerName: z.string(),
+        capabilities: z.array(z.string()),
+        online: z.boolean(),
+        sealingPubkey: z.string().nullable(), // null = cannot be sealed to yet
       })
     ),
   }),

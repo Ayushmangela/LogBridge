@@ -4,7 +4,7 @@
 import WebSocket from "ws";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { EnvelopeT } from "@logbridge/protocol";
+import { open as openSealed, seal, sealAad, type EnvelopeT } from "@logbridge/protocol";
 import type { Identity } from "./identity.js";
 import type { AgentHarness } from "./harness/types.js";
 import { Outbox } from "./outbox.js";
@@ -17,6 +17,17 @@ const DEFAULT_DENY_PATHS = [".env*", "**/secrets/**", "~/.ssh/**"];
 // Memory makes an agent better informed; it must never be what stops it
 // working. A slow or lost recall degrades to "no memory", never to a hang.
 const RECALL_TIMEOUT_MS = 2000;
+
+export interface PeerEntry {
+  agentId: string;
+  agentName: string;
+  machineId: string;
+  machineName: string;
+  ownerName: string;
+  capabilities: string[];
+  online: boolean;
+  sealingPubkey: string | null;
+}
 
 export interface RecalledMemory {
   id: string;
@@ -65,6 +76,9 @@ export interface RunnerOptions {
   dataDir: string;
   agents: AgentDecl[]; // declared locally — SYSTEM.md §7: "the machine owner decides"
   harness: AgentHarness;
+  /** Whether this machine will execute work delegated by other machines.
+   *  Off by default — see handleDelegateRequest and SYSTEM.md §7. */
+  acceptDelegations?: boolean;
   leaseSeconds?: number;
   log?: (msg: string) => void;
 }
@@ -82,6 +96,11 @@ export class RunnerConnection {
   private taskProject = new Map<string, string>(); // taskId -> projectId, for envelope routing
   private taskTitle = new Map<string, string>();   // taskId -> title, for the outcome memory
   private pendingRecalls = new Map<string, (memories: RecalledMemory[]) => void>();
+  private peers: PeerEntry[] = [];
+  private pendingDelegations = new Map<
+    string,
+    { resolve: (r: { state: string; findings: string | null }) => void; reject: (e: Error) => void }
+  >();
 
   constructor(private opts: RunnerOptions) {
     this.outbox = new Outbox(opts.dataDir);
@@ -110,6 +129,9 @@ export class RunnerConnection {
           ownerId: this.opts.ownerId,
           ownerName: this.opts.ownerName,
           pubkey: this.opts.identity.publicKeyPem,
+          // Published so other machines can seal payloads to this one. The
+          // matching private key never leaves this process. See SEALED.md.
+          sealingPubkey: this.opts.identity.sealingPublicKeyB64,
         })
       );
     });
@@ -227,6 +249,38 @@ export class RunnerConnection {
       return;
     }
 
+    // ---- cross-machine delegation, end-to-end sealed (SEALED.md) ----
+    if (env.type === "peer.directory") {
+      this.peers = body.peers ?? [];
+      return;
+    }
+
+    if (env.type === "delegate.request") {
+      void this.handleDelegateRequest(env, body);
+      return;
+    }
+
+    if (env.type === "delegate.result") {
+      const pending = this.pendingDelegations.get(body.requestId);
+      if (!pending) return;
+      this.pendingDelegations.delete(body.requestId);
+      let findings: string | null = null;
+      if (body.sealed) {
+        try {
+          findings = openSealed(this.opts.identity.sealingPrivateKey, body.sealed, sealAad(env));
+        } catch (err) {
+          // A payload that won't open is a real failure, not something to
+          // paper over — the server may have tampered, or keys rotated.
+          this.log(`delegate.result for ${body.requestId} failed to decrypt: ${(err as Error).message}`);
+          pending.reject(new Error("sealed result failed to open"));
+          return;
+        }
+      }
+      this.log(`delegation ${body.requestId} came back ${body.state}`);
+      pending.resolve({ state: body.state, findings });
+      return;
+    }
+
     if (env.type === "memory.result") {
       const resolve = this.pendingRecalls.get(body.requestId);
       if (resolve) {
@@ -235,6 +289,130 @@ export class RunnerConnection {
       }
       return;
     }
+  }
+
+  // ---- cross-machine delegation (SEALED.md) ----
+
+  /** Who this machine can currently seal a message to. */
+  peerList(): PeerEntry[] {
+    return this.peers;
+  }
+
+  /**
+   * Ask another machine's agent to do something, with the payload sealed so
+   * only that machine can read it. Resolves when the result comes back.
+   */
+  delegate(opts: {
+    capability: string;
+    targetAgentId: string;
+    inputs: Record<string, unknown>;
+    acceptance?: string | null;
+    budget?: { seconds: number; usd: number };
+  }): Promise<{ state: string; findings: string | null }> {
+    const agent = this.opts.agents[0];
+    const peer = this.peers.find((p) => p.agentId === opts.targetAgentId);
+    if (!agent) return Promise.reject(new Error("no local agent to delegate from"));
+    if (!peer) return Promise.reject(new Error(`unknown peer ${opts.targetAgentId}`));
+    // Refusing is the right move: falling back to plaintext because the
+    // recipient has no key would silently downgrade the security property
+    // the caller asked for.
+    if (!peer.sealingPubkey) return Promise.reject(new Error(`peer ${peer.agentName} has published no sealing key`));
+
+    const requestId = crypto.randomUUID();
+    const project = agent.projects[0];
+    const envId = crypto.randomUUID();
+    const to = { kind: "agent" as const, id: opts.targetAgentId };
+    const from = { kind: "agent" as const, id: agent.id };
+
+    const sealed = seal(
+      peer.sealingPubkey,
+      JSON.stringify({ inputs: opts.inputs, acceptance: opts.acceptance ?? null }),
+      sealAad({ id: envId, type: "delegate.request", project, from, to })
+    );
+
+    const promise = new Promise<{ state: string; findings: string | null }>((resolve, reject) => {
+      this.pendingDelegations.set(requestId, { resolve, reject });
+    });
+
+    this.sendEnvelope({
+      v: 1, id: envId, type: "delegate.request", project, from, to,
+      task: null, idem: crypto.randomUUID(), ts: new Date().toISOString(),
+      body: {
+        requestId, capability: opts.capability,
+        targetAgentId: opts.targetAgentId, targetNodeId: peer.machineId,
+        projectId: project, budget: opts.budget ?? { seconds: 120, usd: 1 },
+        sealed,
+      },
+    } as EnvelopeT);
+
+    this.log(`delegated ${opts.capability} to ${peer.agentName}@${peer.machineName} (sealed)`);
+    return promise;
+  }
+
+  private async handleDelegateRequest(env: EnvelopeT, body: any) {
+    const agent = this.opts.agents[0];
+    if (!agent) return;
+
+    // The machine owner decides whether this machine executes other people's
+    // work at all (SYSTEM.md §7). Default is off: silently running a
+    // stranger's payload because it arrived would defeat D1/D3 entirely.
+    if (!this.opts.acceptDelegations) {
+      this.log(`refused delegation ${body.requestId}: this machine does not accept delegated work`);
+      this.sendDelegateResult(env, body.requestId, "failed", "delegation not accepted on this machine");
+      return;
+    }
+
+    let payload: { inputs?: Record<string, unknown>; acceptance?: string | null };
+    try {
+      payload = JSON.parse(openSealed(this.opts.identity.sealingPrivateKey, body.sealed, sealAad(env)));
+    } catch (err) {
+      this.log(`delegation ${body.requestId} failed to decrypt: ${(err as Error).message}`);
+      this.sendDelegateResult(env, body.requestId, "failed", "sealed payload failed to open");
+      return;
+    }
+
+    this.log(`accepted delegation ${body.requestId}: ${body.capability}`);
+    const cwd = agent.cwd ?? join(this.opts.dataDir, "work", agent.id);
+    mkdirSync(cwd, { recursive: true });
+    const prompt = String(payload.inputs?.prompt ?? body.capability);
+
+    const handle = this.opts.harness.spawn({
+      cwd, prompt,
+      allowTools: agent.allowTools ?? DEFAULT_ALLOW_TOOLS,
+      denyPaths: agent.denyPaths ?? DEFAULT_DENY_PATHS,
+      maxSeconds: body.budget?.seconds ?? 120,
+      maxUsd: body.budget?.usd ?? 1,
+    });
+
+    const output: string[] = [];
+    let ok = true;
+    for await (const ev of handle.events) {
+      if (ev.kind === "output") output.push(ev.text);
+      else if (ev.kind === "error") { ok = false; output.push(ev.message); }
+      else if (ev.kind === "done") ok = ev.ok;
+    }
+    this.sendDelegateResult(env, body.requestId, ok ? "completed" : "failed", output.join("\n").slice(0, 4000));
+  }
+
+  /** Seal the findings back to whoever asked. */
+  private sendDelegateResult(reqEnv: EnvelopeT, requestId: string, state: string, findings: string) {
+    const agent = this.opts.agents[0];
+    if (!agent) return;
+    const requesterId = reqEnv.from.id;
+    const peer = this.peers.find((p) => p.agentId === requesterId);
+    const envId = crypto.randomUUID();
+    const to = { kind: "agent" as const, id: requesterId };
+    const from = { kind: "agent" as const, id: agent.id };
+
+    const sealed = peer?.sealingPubkey
+      ? seal(peer.sealingPubkey, findings, sealAad({ id: envId, type: "delegate.result", project: reqEnv.project, from, to }))
+      : null;
+
+    this.sendEnvelope({
+      v: 1, id: envId, type: "delegate.result", project: reqEnv.project, from, to,
+      task: null, idem: crypto.randomUUID(), ts: new Date().toISOString(),
+      body: { requestId, taskId: reqEnv.task ?? requestId, state, verified: false, sealed },
+    } as EnvelopeT);
   }
 
   // ---- shared memory (MEMORY.md) ----
