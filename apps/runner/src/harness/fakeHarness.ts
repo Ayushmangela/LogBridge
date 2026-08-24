@@ -26,8 +26,27 @@ function askAfterFromPrompt(prompt: string): number | null {
   return typeof p?.askAfter === "number" ? p.askAfter : null;
 }
 
+// The test control channel has to survive prompt decoration. withMemories()
+// prepends recalled context and puts the real task under a "Task:" heading,
+// so once a project has ANY memory the whole prompt stops being valid JSON —
+// which silently reverted duration to the default and made `askAfter` never
+// fire. Parse the task section, not the envelope around it.
 function promptJson(prompt: string): any | null {
-  try { return JSON.parse(prompt); } catch { return null; }
+  const direct = tryParse(prompt);
+  if (direct) return direct;
+  // Everything after the LAST "Task:" line is the task itself.
+  const idx = prompt.lastIndexOf("\nTask:\n");
+  if (idx === -1) return null;
+  return tryParse(prompt.slice(idx + "\nTask:\n".length));
+}
+
+function tryParse(s: string): any | null {
+  try {
+    const v = JSON.parse(s.trim());
+    return v && typeof v === "object" ? v : null;
+  } catch {
+    return null;
+  }
 }
 
 export const fakeHarness: AgentHarness = {

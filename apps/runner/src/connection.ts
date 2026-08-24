@@ -10,6 +10,7 @@ import type { AgentHarness } from "./harness/types.js";
 import { makePtyHarness } from "./harness/ptyHarness.js";
 import { detectInstalled, providerById } from "./harness/providers.js";
 import { Outbox } from "./outbox.js";
+import { loadCreatedAgents, saveCreatedAgents } from "./createdAgents.js";
 import { TaskRunner } from "./taskRunner.js";
 
 const DEFAULT_ALLOW_TOOLS = ["Read", "Write", "Bash"];
@@ -121,6 +122,8 @@ export class RunnerConnection {
   /** One harness per agent, built lazily and cached — spawning is cheap but
    *  the provider lookup and config shouldn't repeat per task. */
   private harnessCache = new Map<string, AgentHarness>();
+  /** Runtime-created agents, mirrored to disk so a restart keeps them. */
+  private createdAgents: AgentDecl[];
   private pendingDelegations = new Map<
     string,
     { resolve: (r: { state: string; findings: string | null }) => void; reject: (e: Error) => void }
@@ -134,6 +137,9 @@ export class RunnerConnection {
   constructor(private opts: RunnerOptions) {
     this.outbox = new Outbox(opts.dataDir);
     this.log = opts.log ?? (() => {});
+    // Anything created earlier is already in opts.agents (cli.ts merges it in
+    // at startup); this is the writable list we append to and persist.
+    this.createdAgents = loadCreatedAgents(opts.dataDir, this.log);
     this.taskRunner = new TaskRunner(
       (agentId) => this.harnessForAgent(agentId),
       (taskId, summary, data) => this.sendEnvelope(this.eventEnvelope(taskId, summary, data)),
@@ -261,9 +267,18 @@ export class RunnerConnection {
       // task.offer names its target agent (protocol 1.11). Falling back to
       // the first declared agent keeps a single-agent runner working against
       // an older server that doesn't send the field.
-      const agent = this.agentById(body.agentId) ?? this.opts.agents[0];
+      // Falling back is only correct when the server didn't NAME an agent
+      // (an older server, protocol < 1.11). If it named one this machine
+      // doesn't have, running it on agents[0] would silently execute the work
+      // under a different provider and a different tool policy — refuse.
+      const named = this.agentById(body.agentId);
+      const agent = named ?? (body.agentId ? undefined : this.opts.agents[0]);
       if (!agent) {
-        this.log(`no agent to run ${body.taskId} — declared none`);
+        const why = body.agentId
+          ? `no such agent "${body.agentId}" on this machine`
+          : "this machine declares no agents";
+        this.log(`cannot run ${body.taskId}: ${why}`);
+        this.sendEnvelope(this.resultEnvelope(body.taskId, "failed", why, 0));
         return;
       }
       this.log(`accepting task ${body.taskId} for ${agent.name} on ${this.harnessForAgent(agent.id).name}: ${body.title}`);
@@ -616,6 +631,10 @@ export class RunnerConnection {
       model: body.model ?? null,
     };
     this.opts.agents.push(decl);
+    // Survive a restart. Without this the server keeps the agent row while
+    // the runner forgets it — see createdAgents.ts.
+    this.createdAgents.push(decl);
+    saveCreatedAgents(this.opts.dataDir, this.createdAgents, this.log);
 
     // Announce it now — no restart, no waiting for a reconnect. The card is
     // what makes it appear in the office and what makes the orchestrator

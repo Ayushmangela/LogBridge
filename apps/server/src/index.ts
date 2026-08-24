@@ -109,6 +109,15 @@ export async function buildServer(
     if (!b?.machineId || !b?.projectId || !b?.name) {
       return reply.code(400).send({ error: "machineId, projectId and name are required" });
     }
+    // Presence isn't enough. An agent created against a project that doesn't
+    // exist is orphaned: registered on the runner, in no room, unable to
+    // receive work — and invisible, so nobody notices it failed.
+    if (!db.prepare("SELECT id FROM projects WHERE id = ?").get(b.projectId)) {
+      return reply.code(404).send({ ok: false, agentId: null, error: `no such project "${b.projectId}"` });
+    }
+    // Machine existence/reachability is already handled by requestAgentCreate,
+    // which returns 409 for unknown-or-offline — don't split that into two
+    // status codes here.
     const result = await requestAgentCreate(db, nodeSockets, {
       machineId: b.machineId,
       projectId: b.projectId,

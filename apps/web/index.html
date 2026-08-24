@@ -432,13 +432,13 @@
     <div class="side-scroll">
       <div class="roster-head hide-collapsed">
         <span class="roster-title">People</span>
-        <button class="roster-add" onclick="setView('settings')" title="Invite (not built)">+</button>
+        <button class="roster-add" onclick="setView('settings')" title="Invite someone (not built yet)">+</button>
       </div>
       <div class="roster-list" id="people-list"></div>
 
       <div class="roster-head hide-collapsed">
         <span class="roster-title">AI Agents</span>
-        <button class="roster-add" onclick="setView('agents')" title="Add agent (not built)">+</button>
+        <button class="roster-add" onclick="openAddAgent()" title="Add an agent">+</button>
       </div>
       <div class="roster-list" id="agent-list"></div>
     </div>
@@ -1197,6 +1197,9 @@
 
     window.setView = function (name) {
       if (!VIEWS.includes(name)) return;
+      // Leaving the view that owns the dialog must dismiss it — otherwise it
+      // floats over whatever you navigated to.
+      document.getElementById('add-agent-modal')?.classList.remove('open');
       currentView = name;
       for (const v of VIEWS) {
         document.getElementById('view-' + v)?.classList.toggle('active', v === name);
@@ -1529,6 +1532,7 @@
     }
 
     document.getElementById('open-add-agent').addEventListener('click', aaOpen);
+    window.openAddAgent = aaOpen; // the sidebar "+" calls this
     document.getElementById('aa-cancel').addEventListener('click', () => aaModal.classList.remove('open'));
     document.getElementById('aa-machine').addEventListener('change', aaPopulateProviders);
     document.getElementById('aa-provider').addEventListener('change', aaProviderChanged);
@@ -1729,6 +1733,14 @@
     };
 
     function onChatMessage(msg) {
+      // The server broadcasts and replays chat for every room to every
+      // browser — it has no concept of which room a browser is "in", since
+      // membership is only implied by position. The GitHub mirror makes
+      // multi-room real (one room per repo), so filter here rather than
+      // showing another project's conversation. Proper server-side scoping
+      // needs browser room membership, which doesn't exist yet.
+      const room = activeRoom();
+      if (room && msg.roomId && msg.roomId !== room.id) return;
       chatLog.push(msg);
       if (chatLog.length > 200) chatLog.shift();
       if (currentView === 'chat') { renderChat(); return; }
