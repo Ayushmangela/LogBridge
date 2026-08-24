@@ -2,7 +2,7 @@
 // and — the whole point — survive the socket dying without losing or
 // duplicating anything. See SYSTEM.md §3b-§3d and DECISIONS.md D20.
 import WebSocket from "ws";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { open as openSealed, seal, sealAad, type EnvelopeT } from "@logbridge/protocol";
 import type { Identity } from "./identity.js";
@@ -125,6 +125,11 @@ export class RunnerConnection {
     string,
     { resolve: (r: { state: string; findings: string | null }) => void; reject: (e: Error) => void }
   >();
+  private pendingReviews = new Map<
+    string,
+    (r: { verdict: string; findings: unknown; summary: string }) => void
+  >();
+  private pendingShares = new Map<string, () => void>();
 
   constructor(private opts: RunnerOptions) {
     this.outbox = new Outbox(opts.dataDir);
@@ -341,8 +346,54 @@ export class RunnerConnection {
           return;
         }
       }
+      if (!findings && !body.sealed && body.note) findings = String(body.note);
       this.log(`delegation ${body.requestId} came back ${body.state}`);
       pending.resolve({ state: body.state, findings });
+      return;
+    }
+
+    // ---- reviews (D15): a judgement returns, sealed like any finding ----
+    if (env.type === "review.result") {
+      const resolve = this.pendingReviews.get(body.requestId);
+      if (!resolve) return;
+      this.pendingReviews.delete(body.requestId);
+      if (!body.sealed) {
+        // Server-generated refusal — the reason rides in plaintext `note`.
+        this.log(`review ${body.requestId} refused: ${body.note}`);
+        resolve({ verdict: "rejected", findings: null, summary: String(body.note ?? "refused") });
+        return;
+      }
+      try {
+        const judgement = JSON.parse(
+          openSealed(this.opts.identity.sealingPrivateKey, body.sealed, sealAad(env))
+        );
+        this.log(`review ${body.requestId}: ${judgement.verdict}`);
+        resolve(judgement);
+      } catch (err) {
+        this.log(`review.result for ${body.requestId} failed to decrypt: ${(err as Error).message}`);
+        resolve({ verdict: "changes_requested", findings: null, summary: "the review result failed to open" });
+      }
+      return;
+    }
+
+    // ---- incoming review request ----
+    if (env.type === "review.request") {
+      void this.handleReviewRequest(env, body);
+      return;
+    }
+
+    // ---- incoming shared context ----
+    if (env.type === "context.share") {
+      void this.handleContextShare(env, body);
+      return;
+    }
+
+    if (env.type === "context.ack") {
+      const resolve = this.pendingShares.get(body.shareId);
+      if (resolve) {
+        this.pendingShares.delete(body.shareId);
+        resolve();
+      }
       return;
     }
 
@@ -599,6 +650,254 @@ export class RunnerConnection {
       v: 1, id: envId, type: "delegate.result", project: reqEnv.project, from, to,
       task: null, idem: crypto.randomUUID(), ts: new Date().toISOString(),
       body: { requestId, taskId: reqEnv.task ?? requestId, state, verified: false, sealed },
+    } as EnvelopeT);
+  }
+
+  // ---- reviews and shared context (prompt 6, D15) ----
+
+  /**
+   * Ask another machine's agent to REVIEW something — a judgement comes
+   * back, not work. Subject + criteria travel sealed; the verdict returns
+   * sealed to us. Deliberately a separate method from delegate(): a review
+   * is not a delegation with extra steps (D15).
+   */
+  requestReview(opts: {
+    targetAgentId: string;
+    subject: { kind: "pr" | "issue" | "diff" | "artifact"; ref: string };
+    criteria: string[];
+    depth?: "quick" | "thorough";
+    budget?: { seconds: number; usd: number };
+    summary?: string | null;
+  }): Promise<{ verdict: string; findings: unknown; summary: string }> {
+    const agent = this.opts.agents[0];
+    const peer = this.peers.find((p) => p.agentId === opts.targetAgentId);
+    if (!agent) return Promise.reject(new Error("no local agent to ask from"));
+    if (!peer) return Promise.reject(new Error(`unknown peer ${opts.targetAgentId}`));
+    if (!peer.sealingPubkey) return Promise.reject(new Error(`peer ${peer.agentName} has published no sealing key`));
+
+    const requestId = crypto.randomUUID();
+    const project = agent.projects[0];
+    const envId = crypto.randomUUID();
+    const to = { kind: "agent" as const, id: opts.targetAgentId };
+    const from = { kind: "agent" as const, id: agent.id };
+
+    const sealed = seal(
+      peer.sealingPubkey,
+      JSON.stringify({ subject: opts.subject, criteria: opts.criteria, depth: opts.depth ?? "quick" }),
+      sealAad({ id: envId, type: "review.request", project, from, to })
+    );
+
+    const promise = new Promise<{ verdict: string; findings: unknown; summary: string }>((resolve) => {
+      this.pendingReviews.set(requestId, resolve);
+    });
+
+    this.sendEnvelope({
+      v: 1, id: envId, type: "review.request", project, from, to,
+      task: null, idem: crypto.randomUUID(), ts: new Date().toISOString(),
+      body: {
+        requestId, toAgentId: opts.targetAgentId,
+        budget: opts.budget ?? { seconds: 600, usd: 1.5 },
+        sealed, summary: opts.summary ?? null,
+      },
+    } as EnvelopeT);
+
+    this.log(`asked ${peer.agentName} for a ${opts.depth ?? "quick"} review (${requestId.slice(0, 8)})`);
+    return promise;
+  }
+
+  private async handleReviewRequest(env: EnvelopeT, body: any) {
+    const agent = this.opts.agents[0];
+    // Same outer gate as delegations: reviews make this machine spend its
+    // own resources on someone else's question.
+    if (!this.opts.acceptDelegations) {
+      this.log(`refused review ${body.requestId}: this machine does not accept outside requests`);
+      this.sendReviewResult(env, body.requestId, { verdict: "rejected", summary: "machine does not accept review requests" });
+      return;
+    }
+
+    let payload: { subject?: any; criteria?: string[]; depth?: string };
+    try {
+      payload = JSON.parse(openSealed(this.opts.identity.sealingPrivateKey, body.sealed, sealAad(env)));
+    } catch (err) {
+      this.log(`review.request ${body.requestId} failed to decrypt: ${(err as Error).message}`);
+      this.sendReviewResult(env, body.requestId, { verdict: "rejected", summary: "sealed payload failed to open" });
+      return;
+    }
+
+    this.log(`reviewing for ${env.from.id}: ${payload.subject?.ref}`);
+    const cwd = join(this.opts.dataDir, "work", "reviews");
+    mkdirSync(cwd, { recursive: true });
+    const prompt = [
+      `REVIEW REQUEST (${payload.depth ?? "quick"}):`,
+      `Subject: ${JSON.stringify(payload.subject ?? {})}`,
+      `Judge against these criteria:`,
+      ...(payload.criteria ?? []).map((c) => `- ${c}`),
+    ].join("\n");
+
+    const handle = this.harnessForAgent(null).spawn({
+      cwd, prompt,
+      allowTools: ["Read"],
+      denyPaths: DEFAULT_DENY_PATHS,
+      maxSeconds: body.budget?.seconds ?? 600,
+      maxUsd: body.budget?.usd ?? 1.5,
+    });
+
+    const output: string[] = [];
+    let ok = true;
+    for await (const ev of handle.events) {
+      if (ev.kind === "output") output.push(ev.text);
+      else if (ev.kind === "error") { ok = false; output.push(ev.message); }
+      else if (ev.kind === "done") ok = ev.ok;
+    }
+    // Honest mapping of free-text CLI output onto the three-verdict shape:
+    // a run that finished is "approved with notes"; one that errored is a
+    // rejection carrying why. Real structured verdicts need a harness that
+    // emits them — no pretending today's CLIs do.
+    const summary = output.join("\n").slice(0, 2000);
+    this.sendReviewResult(env, body.requestId, ok
+      ? { verdict: "approved", summary }
+      : { verdict: "changes_requested", summary });
+  }
+
+  /** Seal the judgement back to WHOEVER ASKED — that's env.from, not env.to
+   *  (the request was addressed *to* us; the reply goes the other way). */
+  private sendReviewResult(reqEnv: EnvelopeT, requestId: string, judgement: { verdict: string; summary: string }) {
+    const agent = this.opts.agents[0];
+    if (!agent) return;
+    const peer = this.peers.find((p) => p.agentId === reqEnv.from.id);
+    const envId = crypto.randomUUID();
+    const from = { kind: "agent" as const, id: agent.id };
+    const to = { kind: "agent" as const, id: reqEnv.from.id };
+
+    const sealed = peer?.sealingPubkey
+      ? seal(peer.sealingPubkey, JSON.stringify({
+          verdict: judgement.verdict,
+          findings: [],
+          summary: judgement.summary,
+          confidence: "low",
+        }), sealAad({ id: envId, type: "review.result", project: reqEnv.project, from, to }))
+      : null;
+
+    this.sendEnvelope({
+      v: 1, id: envId, type: "review.result", project: reqEnv.project, from, to,
+      task: null, idem: crypto.randomUUID(), ts: new Date().toISOString(),
+      body: { requestId, taskId: null, state: sealed ? "completed" : "failed", verified: false, sealed },
+    } as EnvelopeT);
+  }
+
+  /**
+   * Share context with another machine's agent. The body is content and is
+   * sealed; the receiving side stores it LOCALLY and never re-uploads it —
+   * putting it in server-side team memory would hand the server what the
+   * sealing just kept from it.
+   */
+  async shareContext(opts: {
+    targetAgentId: string;
+    kind: "decision" | "file_excerpt" | "repo_state" | "finding" | "constraint";
+    title: string;
+    body: string;
+    refs?: string[];
+    ttlDays?: number;
+    summary?: string | null;
+  }): Promise<void> {
+    const agent = this.opts.agents[0];
+    const peer = this.peers.find((p) => p.agentId === opts.targetAgentId);
+    if (!agent) throw new Error("no local agent to share from");
+    if (!peer) throw new Error(`unknown peer ${opts.targetAgentId}`);
+    if (!peer.sealingPubkey) throw new Error(`peer ${peer.agentName} has published no sealing key`);
+
+    const shareId = crypto.randomUUID();
+    const project = agent.projects[0];
+    const envId = crypto.randomUUID();
+    const to = { kind: "agent" as const, id: opts.targetAgentId };
+    const from = { kind: "agent" as const, id: agent.id };
+
+    const sealed = seal(
+      peer.sealingPubkey,
+      JSON.stringify({ body: opts.body }),
+      sealAad({ id: envId, type: "context.share", project, from, to })
+    );
+
+    const done = new Promise<void>((resolve) => this.pendingShares.set(shareId, resolve));
+
+    this.sendEnvelope({
+      v: 1, id: envId, type: "context.share", project, from, to,
+      task: null, idem: crypto.randomUUID(), ts: new Date().toISOString(),
+      body: {
+        shareId, toAgentId: opts.targetAgentId, kind: opts.kind,
+        title: opts.title, refs: opts.refs ?? [], ttlDays: opts.ttlDays ?? 7,
+        sealed, summary: opts.summary ?? null,
+      },
+    } as EnvelopeT);
+
+    this.log(`shared "${opts.title}" with ${peer.agentName} (sealed)`);
+    return done;
+  }
+
+  private async handleContextShare(env: EnvelopeT, body: any) {
+    const agent = this.opts.agents[0];
+    if (!this.opts.acceptDelegations) {
+      this.log(`refused shared context "${body.title}": machine does not accept outside requests`);
+      this.sendContextAck(env, body.shareId, false);
+      return;
+    }
+
+    let payload: { body?: string };
+    try {
+      payload = JSON.parse(openSealed(this.opts.identity.sealingPrivateKey, body.sealed, sealAad(env)));
+    } catch (err) {
+      this.log(`context.share "${body.title}" failed to decrypt: ${(err as Error).message}`);
+      this.sendContextAck(env, body.shareId, false);
+      return;
+    }
+
+    // Stored locally only. The server saw the title, never the body.
+    mkdirSync(this.opts.dataDir, { recursive: true });
+    const line = JSON.stringify({
+      receivedAt: new Date().toISOString(),
+      from: env.from.id,
+      kind: body.kind,
+      title: body.title,
+      text: payload.body ?? "",
+      expiresAt: new Date(Date.now() + (body.ttlDays ?? 7) * 86_400_000).toISOString(),
+    }) + "\n";
+    appendFileSync(join(this.opts.dataDir, "shared-context.jsonl"), line);
+
+    this.log(`received context "${body.title}" from ${env.from.id} — stored locally`);
+    this.sendContextAck(env, body.shareId, true);
+  }
+
+  /** Recall locally-stored shared context whose text matches the query.
+   *  Merged into the pre-task prompt by the caller alongside server memories. */
+  recallSharedContext(query: string): Array<{ title: string; text: string; from: string }> {
+    const file = join(this.opts.dataDir, "shared-context.jsonl");
+    if (!existsSync(file)) return [];
+    const words = query.toLowerCase().split(/\W+/).filter((w) => w.length > 2);
+    const now = Date.now();
+    const out: Array<{ title: string; text: string; from: string }> = [];
+    for (const line of readFileSync(file, "utf8").split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const item = JSON.parse(line);
+        if (Date.parse(item.expiresAt) < now) continue;
+        const hay = `${item.title} ${item.text}`.toLowerCase();
+        if (words.some((w) => hay.includes(w))) {
+          out.push({ title: item.title, text: item.text, from: item.from });
+        }
+      } catch { /* skip malformed lines */ }
+    }
+    return out;
+  }
+
+  private sendContextAck(env: EnvelopeT, shareId: string, accepted: boolean) {
+    const envId = crypto.randomUUID();
+    this.sendEnvelope({
+      v: 1, id: envId, type: "context.ack", project: env.project,
+      from: { kind: "agent", id: this.opts.agents[0]?.id ?? "unknown" },
+      // Replies go back to whoever sent the request — same rule as results.
+      to: { kind: "agent", id: env.from.id },
+      task: null, idem: crypto.randomUUID(), ts: new Date().toISOString(),
+      body: { shareId, accepted },
     } as EnvelopeT);
   }
 

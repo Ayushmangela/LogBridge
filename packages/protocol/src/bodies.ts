@@ -83,6 +83,8 @@ export const BodySchemas = {
     taskId: z.string(),
     state: z.enum(["completed", "failed"]),
     verified: z.boolean(),
+    // Plaintext refusal reason when sealed is null (server-generated denial).
+    note: z.string().nullish().default(null),
     sealed: SealedPayload.nullish().default(null), // the encrypted findings
     artifact: z
       .object({
@@ -96,36 +98,52 @@ export const BodySchemas = {
       .default(null),
   }),
 
+  // Review is a separate flow from delegation (D15): it returns a JUDGEMENT,
+  // not an artifact. The subject and criteria are the reviewer-facing
+  // content and travel sealed; the verdict comes back sealed the same way.
+  // Plaintext keeps only what routing needs.
   "review.request": z.object({
+    requestId: z.string(),
     toAgentId: z.string().nullable(),
-    subject: z.object({ kind: z.enum(["pr", "issue", "diff", "artifact"]), ref: z.string() }),
-    criteria: z.array(z.string()),
-    depth: z.enum(["quick", "thorough"]),
     budget: z.object({ seconds: z.number().int().positive(), usd: z.number() }),
+    sealed: SealedPayload,
+    summary: z.string().max(200).nullish().default(null),
   }),
 
   "review.result": z.object({
     requestId: z.string(),
-    verdict: z.enum(["approved", "changes_requested", "rejected"]),
-    findings: z.array(
-      z.object({
-        severity: z.enum(["info", "minor", "major", "critical"]),
-        file: z.string().nullable(),
-        line: z.number().int().nonnegative().nullable(),
-        note: z.string(),
+    taskId: z.string().nullish().default(null),
+    state: z.enum(["completed", "failed"]).default("completed"),
+    verified: z.boolean().default(false),
+    // Plaintext refusal reason when sealed is null (server-generated denial).
+    note: z.string().nullish().default(null),
+    // The judgement itself — verdict, findings, summary, confidence — sealed
+    // to whoever asked. Same rule as delegated findings.
+    sealed: SealedPayload.nullish().default(null),
+    artifact: z
+      .object({
+        id: z.string(),
+        hash: z.string(),
+        mime: z.string(),
+        bytes: z.number().int().nonnegative(),
+        summary: z.string(),
       })
-    ),
-    summary: z.string(),
-    confidence: z.enum(["low", "medium", "high"]),
+      .nullish()
+      .default(null),
   }),
 
+  // Sharing context moves data onto another machine (PLAN.md §11) — the
+  // body IS the content, so it travels sealed. Kind/title/refs stay
+  // plaintext for routing and the receiving UI's "something arrived" line.
   "context.share": z.object({
+    shareId: z.string(),
     toAgentId: z.string(),
     kind: z.enum(["decision", "file_excerpt", "repo_state", "finding", "constraint"]),
     title: z.string(),
-    body: z.string(),
     refs: z.array(z.string()).default([]),
     ttlDays: z.number().int().positive().default(7),
+    sealed: SealedPayload,
+    summary: z.string().max(200).nullish().default(null),
   }),
 
   "context.ack": z.object({

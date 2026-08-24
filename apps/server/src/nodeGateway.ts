@@ -372,7 +372,7 @@ function holdForConsent(
 ) {
   const timer = setTimeout(() => {
     if (pendingDelegationConsents.delete(ctx.requestId)) {
-      denyHeldDelegation(db, nodeSockets, ctx.env, ctx.requestId, ctx.requesterOwner,
+      denySealedRequest(db, nodeSockets, ctx.env, ctx.requestId, ctx.requesterOwner,
         "the machine owner did not answer in time", app);
     }
   }, extra.consentTimeoutMs ?? 600_000);
@@ -403,26 +403,38 @@ function holdForConsent(
   app.log.info({ requestId: ctx.requestId }, "delegation held for owner consent");
 }
 
-/** Refuse on the requester's behalf: a failed result, so their await settles. */
-function denyHeldDelegation(
+/** Refuse a held request on the requester's behalf, in the shape their
+ *  pending promise expects: a failed delegate.result / review.result, or a
+ *  context.ack(false). Their await settles honestly either way. */
+function denySealedRequest(
   db: Db, nodeSockets: NodeSockets, reqEnv: EnvelopeT, requestId: string,
   _requesterOwnerId: string, reason: string, app: FastifyInstance
 ) {
-  // The result must reach the REQUESTING AGENT's machine.
+  // The refusal must reach the REQUESTING AGENT's machine.
   const requesterAgent = db.prepare("SELECT * FROM agents WHERE id = ?").get(reqEnv.from.id) as any;
   const socket = requesterAgent ? nodeSockets.get(requesterAgent.machine_id) : undefined;
   if (!socket || socket.readyState !== socket.OPEN) {
-    app.log.warn({ requestId }, "cannot deny a delegation to an offline requester");
+    app.log.warn({ requestId }, "cannot deny a sealed request to an offline requester");
     return;
   }
+
+  let type = "delegate.result";
+  let body: Record<string, unknown> = { requestId, taskId: reqEnv.task ?? requestId, state: "failed", verified: false, sealed: null, note: reason };
+  if (reqEnv.type === "review.request") {
+    type = "review.result";
+    body = { requestId, taskId: null, state: "failed", verified: false, sealed: null, note: reason };
+  } else if (reqEnv.type === "context.share") {
+    type = "context.ack";
+    body = { shareId: requestId, accepted: false };
+  }
   socket.send(JSON.stringify({
-    v: 1, id: crypto.randomUUID(), type: "delegate.result", project: reqEnv.project,
+    v: 1, id: crypto.randomUUID(), type, project: reqEnv.project,
     from: { kind: "server", id: "server" }, to: reqEnv.to,
     task: null, idem: crypto.randomUUID(), ts: new Date().toISOString(),
-    body: { requestId, taskId: reqEnv.task ?? requestId, state: "failed", verified: false, sealed: null },
+    body,
   }));
-  appendEvent(db, reqEnv.project, null, "delegate.request.denied", { requestId, reason });
-  app.log.info({ requestId, reason }, "delegation denied");
+  appendEvent(db, reqEnv.project, null, `${reqEnv.type}.denied`, { requestId, reason });
+  app.log.info({ requestId, reason }, "sealed request denied");
 }
 
 /** The owner answered. Forward or refuse; persist always/never grants.
@@ -449,7 +461,7 @@ export function resolveDelegationConsent(
   if (!approved) {
     if (mode === "never") setGrant(db, grantorId, granteeId, held.projectId, held.capability, "never");
     appendEvent(db, held.projectId, null, "delegate.decision", { requestId, decision: mode ?? "denied", by: grantorId });
-    denyHeldDelegation(db, nodeSockets, held.env, requestId, granteeId, "denied by the machine owner", app);
+    denySealedRequest(db, nodeSockets, held.env, requestId, granteeId, "denied by the machine owner", app);
     return true;
   }
 
@@ -463,7 +475,7 @@ export function resolveDelegationConsent(
   // Forward exactly what arrived — the AAD binding forbids anything else.
   const socket = nodeSockets.get(held.targetMachineId);
   if (!socket || socket.readyState !== socket.OPEN) {
-    denyHeldDelegation(db, nodeSockets, held.env, requestId, granteeId, "machine went offline before consent was given", app);
+    denySealedRequest(db, nodeSockets, held.env, requestId, granteeId, "machine went offline before consent was given", app);
     return true;
   }
   socket.send(JSON.stringify(held.env));
@@ -546,20 +558,30 @@ function handleNodeEnvelope(
 ) {
   const body = env.body as any;
 
-  // ---- cross-machine delegation, end-to-end sealed (SEALED.md) ----
-  // The server is a router here and nothing more. It reads capability,
-  // target and budget to decide where the message goes and to draw the
-  // office; `sealed` passes through untouched, and the event log records
-  // only that a delegation happened — never what was in it.
-  if (env.type === "delegate.request" || env.type === "delegate.result") {
-    const isRequest = env.type === "delegate.request";
-    const targetAgentId = isRequest ? validBody.targetAgentId : null;
+  // ---- cross-machine sealed flows: delegation, review, context (SEALED.md) ----
+  // The server is a router here and nothing more. It reads routing metadata
+  // to decide where messages go and to draw the office; sealed payloads pass
+  // through untouched. Requests for a capability the target owner hasn't
+  // granted are HELD for consent; every result/reply always flows.
+  if (
+    env.type === "delegate.request" || env.type === "delegate.result" ||
+    env.type === "review.request" || env.type === "review.result" ||
+    env.type === "context.share" || env.type === "context.ack"
+  ) {
+    const isReply =
+      env.type === "delegate.result" || env.type === "review.result" || env.type === "context.ack";
+    const isRequest = !isReply;
+    const targetAgentId = isRequest
+      ? (validBody.targetAgentId ?? validBody.toAgentId ?? null)
+      : null;
     const target = isRequest
       ? sealingKeyForAgent(db, targetAgentId)
       : sealingKeyForAgent(db, (env.to as any).id);
 
+    // context.share's recipient key lives on the ADDRESSEE agent; requests
+    // name their target in the body. Both resolve through the same table.
     if (!target) {
-      app.log.warn({ to: env.to }, "delegation for an unknown agent — dropped");
+      app.log.warn({ to: env.to }, "sealed flow for an unknown agent — dropped");
       return;
     }
     const socket = nodeSockets.get(target.machineId);
@@ -581,59 +603,69 @@ function handleNodeEnvelope(
       const targetAgentRow = db.prepare("SELECT * FROM agents WHERE id = ?").get(targetAgentId) as any;
       const grantorId = targetMachine?.owner_id ?? "unknown";
       const granteeId = requesterAgent?.owner_id ?? "unknown";
+      const requestId = String(validBody.requestId ?? validBody.shareId);
+      // What consent is being asked FOR. Reviews and context shares use a
+      // derived capability so owners can grant them separately from work.
+      const capability =
+        validBody.capability ??
+        (env.type === "review.request" ? "request_review" : "share_context");
+      const summary =
+        validBody.summary ??
+        validBody.title ??
+        (Array.isArray(validBody.criteria) ? validBody.criteria.join("; ") : null);
 
       // The machine-level gate comes first: a machine that never opted into
-      // delegated work gets an immediate refusal — asking its owner to
-      // approve something the runner would refuse anyway is just noise.
+      // outside work gets an immediate refusal — asking its owner to approve
+      // something the runner would refuse anyway is just noise.
       if (!targetMachine?.accept_delegations) {
-        appendEvent(db, env.project, env.task, "delegate.request", {
-          requestId: validBody.requestId,
-          capability: validBody.capability ?? null,
+        appendEvent(db, env.project, env.task, env.type, {
+          requestId,
+          capability,
           from: env.from.id, to: targetAgentId, state: null,
-          sealed: true, consent: "refused — machine not accepting delegations",
+          sealed: true, consent: "refused — machine not accepting outside requests",
         });
-        denyHeldDelegation(db, nodeSockets, env, String(validBody.requestId), granteeId,
-          "the target machine does not accept delegated work", app);
+        denySealedRequest(db, nodeSockets, env, requestId, granteeId,
+          "the target machine does not accept outside requests", app);
         onChange();
         return;
       }
 
-      const grant = getGrant(db, grantorId, granteeId, env.project ?? null, String(validBody.capability));
+      const grant = getGrant(db, grantorId, granteeId, env.project ?? null, capability);
 
-      appendEvent(db, env.project, env.task, "delegate.request", {
-        requestId: validBody.requestId,
-        capability: validBody.capability ?? null,
+      appendEvent(db, env.project, env.task, env.type, {
+        requestId,
+        capability,
         from: env.from.id,
         to: targetAgentId,
         state: null,
         sealed: true, // the payload itself is deliberately not logged
-        summary: validBody.summary ?? null,
+        summary: summary ?? null,
         consent: grant === "never" ? "auto-denied" : grant === "always" ? "granted" : "asked",
       });
 
       if (grant === "never") {
-        denyHeldDelegation(db, nodeSockets, env, validBody.requestId, granteeId, "denied by the machine owner's standing rule", app);
+        denySealedRequest(db, nodeSockets, env, requestId, granteeId, "denied by the machine owner's standing rule", app);
         onChange();
         return;
       }
       if (grant !== "always") {
         holdForConsent(db, nodeSockets, app, extra, {
           env,
-          requestId: String(validBody.requestId),
-          summary: validBody.summary ?? null,
+          requestId,
+          summary: summary ?? null,
           requesterName: requesterAgent?.name ?? env.from.id,
           requesterOwner: granteeId,
           targetMachineId: target.machineId,
           targetAgentName: targetAgentRow?.name ?? String(targetAgentId),
           grantorId,
-          capability: String(validBody.capability),
+          capability,
         });
         onChange();
         return;
       }
       // grant === 'always': fall through and forward immediately.
-      appendEvent(db, env.project, env.task, "delegate.request.granted", {
-        requestId: validBody.requestId, by: `standing grant from ${grantorId}`,
+      appendEvent(db, env.project, env.task, `${env.type}.granted`, {
+        requestId, by: `standing grant from ${grantorId}`,
       });
     }
 
@@ -643,10 +675,11 @@ function handleNodeEnvelope(
     socket.send(JSON.stringify(env));
 
     const sender = db.prepare("SELECT * FROM agents WHERE id = ?").get(env.from.id) as any;
-    if (isRequest && sender) {
+    if (isRequest && env.type !== "context.share" && sender) {
       // Blocked on ANOTHER MACHINE'S agent -> zoneFor() reads the "@" and
       // renders both of them in the meeting room. That's PHASES.md's M5
-      // visual, driven by real state rather than staged.
+      // visual, driven by real state rather than staged. Context shares are
+      // fire-and-forget — they block nobody.
       const targetAgent = db.prepare("SELECT * FROM agents WHERE id = ?").get(targetAgentId) as any;
       const targetMachine = db.prepare("SELECT name FROM machines WHERE id = ?").get(target.machineId) as any;
       db.prepare("UPDATE agents SET status = 'blocked', waiting_on = ? WHERE id = ?").run(

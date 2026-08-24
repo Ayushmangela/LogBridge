@@ -1,7 +1,7 @@
 # The Contract
 ### Single source of truth for everything exchanged between the office and the system.
 
-**Version 1.14** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
+**Version 1.15** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
 
 > **Rule: never change this file alone.** Both people present, both agree, bump the version, add a changelog line. A contract one person edited is not a contract.
 
@@ -254,6 +254,7 @@ Five tilesets are registered in the map, all 32 px:
 
 | Version | Change | Why |
 |---|---|---|
+| **1.15** | **`review.request`/`review.result`/`context.share` now carry `sealed` payloads**; results gain plaintext `note` for refusals; `context.share` gains `shareId` and drops plaintext `body` | Reviews and context sharing built (prompt 6), following D15: a review returns a judgement, not work. Findings, criteria and context bodies are CONTENT — sealed like delegation payloads; only routing metadata stays plaintext. Server-generated refusals carry their reason as plaintext `note` since nobody sealed them. Received context is stored on the receiving machine only — putting it in server-side team memory would hand the server what the sealing kept from it |
 | **1.14** | `delegate.request` gains optional **`summary`** (requester-authored plaintext); `answer` gains optional **`mode`** (`once\|always\|never`) | Per-request consent (prompt 5). The server holds a delegation until the target machine's owner approves it in the room — shown the requester's summary of intent, never the payload. `always`/`never` persist to `grants` and are honoured silently afterwards; a machine that hasn't opted into delegations at all refuses immediately without asking. Trade-off documented in SEALED.md |
 | **1.13** | `answer` gains optional **`spec`**; proposals now carry an `edit` option | Editing a proposal before approval (prompt 4). Only legal while the task is `submitted` — after acceptance the recourse is Stop, not silent rewrites. An edit sets title AND spec to the human's text, so what you typed is exactly what runs. Every edit is logged (`task.edit`) and re-proposed to the room |
 | **1.12** | **`agent.create` (server → node) and `agent.create.result` (node → server)**; `MachineView` gains `providers`, `allowAgentCreation`, `allowUnsandboxed` | Creating an agent from the browser. The machine reports what it can do (installed CLIs, its own gates) so the dialog offers only real options — and the runner, not the UI, is what refuses: creation is opt-in per machine (`--allow-agent-creation`), and a provider with no enforceable tool policy is refused unless the owner accepts unsandboxed runs. An agent that would refuse every task never gets born |

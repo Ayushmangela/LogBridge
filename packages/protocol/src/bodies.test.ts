@@ -69,6 +69,11 @@ describe("envelope schemas", () => {
     }
   });
 
+  const SEALED_FIXTURE = {
+    alg: "x25519-hkdf-sha256-aes256gcm" as const,
+    epk: "ZXBwaGVtZXJhbA==", nonce: "bm9uY2U=", ct: "Y2lwaGVydGV4dA==", tag: "dGFn",
+  };
+
   function validBody(type: string): unknown {
     const budget = { seconds: 600, usd: 1.5 };
     switch (type) {
@@ -88,11 +93,11 @@ describe("envelope schemas", () => {
       case "delegate.result":
         return { requestId: "r1", taskId: "t1", state: "completed", verified: true, sealed: null, artifact: null };
       case "review.request":
-        return { toAgentId: null, subject: { kind: "pr", ref: "a/b#1" }, criteria: ["correct"], depth: "quick", budget };
+        return { requestId: "r1", toAgentId: null, budget, sealed: SEALED_FIXTURE, summary: null };
       case "review.result":
-        return { requestId: "r1", verdict: "approved", findings: [], summary: "ok", confidence: "high" };
+        return { requestId: "r1", taskId: null, state: "completed", verified: false, sealed: SEALED_FIXTURE, artifact: null };
       case "context.share":
-        return { toAgentId: "a1", kind: "decision", title: "t", body: "b", refs: [], ttlDays: 7 };
+        return { shareId: "s1", toAgentId: "a1", kind: "decision", title: "t", refs: [], ttlDays: 7, sealed: SEALED_FIXTURE, summary: null };
       case "context.ack": return { shareId: "s1", accepted: true };
       case "human.ask": return { taskId: "t1", question: "push?", options: ["approve"] };
       case "human.answer": return { askId: "h1", choice: "answer", text: "yes" };
