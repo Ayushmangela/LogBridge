@@ -55,8 +55,10 @@ Every person and the server laptop joins one tailnet. No ports opened, no public
 
 On the **server laptop**, expose the app privately:
 ```bash
-sudo tailscale serve --bg 3000
+sudo tailscale serve --bg 8787
 ```
+*(8787 is the server's default — `PORT` overrides it. Earlier drafts of this
+file said 3000, which is not the port anything listens on.)*
 That gives an HTTPS URL like `https://spare-laptop.tail1234.ts.net` — real certs, no configuration. That URL is what everyone puts in their browser and what every runner connects to.
 
 > **Do not open router ports.** Do not set up dynamic DNS. If someone genuinely cannot install Tailscale, that's when you look at Cloudflare Tunnel — not before.
@@ -95,10 +97,14 @@ After=network-online.target
 Type=simple
 User=ayush
 WorkingDirectory=/home/ayush/workspace
-ExecStart=/usr/bin/node apps/server/dist/index.js
+ExecStart=/usr/bin/npx tsx apps/server/src/index.ts
 Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
+# Where the SQLite file lives. Default is ./data.db relative to the working
+# directory, which moves if WorkingDirectory ever changes — pin it.
+Environment=DB_PATH=/home/ayush/workspace/data.db
+Environment=PORT=8787
 
 [Install]
 WantedBy=multi-user.target
@@ -108,6 +114,13 @@ WantedBy=multi-user.target
 sudo systemctl enable --now workspace
 journalctl -u workspace -f      # live logs
 ```
+
+> **There is no build step.** The server runs straight from TypeScript via
+> `tsx`; there is no `dist/`. Earlier drafts of this file pointed systemd at
+> `apps/server/dist/index.js`, which does not exist. Run `npm ci` in the repo
+> on the server laptop so `tsx` and `better-sqlite3` are present — the latter
+> compiles a native binding, so the machine needs a toolchain
+> (`build-essential` on Ubuntu, Xcode CLT on macOS).
 
 ### Backups — not optional
 

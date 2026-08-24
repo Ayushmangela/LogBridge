@@ -343,7 +343,7 @@ Do not "fix" these by faking them; they are honest gaps.
 | Push grouping is inferred, not observed | polling sees commits, never pushes, so runs by one author inside 10 minutes are treated as one push. Two real pushes seconds apart merge — see `github.ts` and `githubPush.test.ts` |
 | `opencode` tool policy not enforced | it has no per-run mechanism this runner knows; the harness refuses rather than pretending — see `PROVIDERS.md` |
 | No enrolment, no accounts | trust-on-first-sight, `DECISIONS.md` D23 |
-| Orchestrator does not decide *what* work exists | routing only; decomposition needs an LLM — `ORCHESTRATOR.md` |
+| A plan is only as good as the model | `/plan` decomposition is approved by a human before anything is created, precisely because a bad plan is plausible-looking — see `plan.ts` |
 | Memory recall is BM25, not semantic | no embedding model available — `MEMORY.md` |
 | No forward secrecy for a sealed-message recipient | sealed box, not a ratchet — `SEALED.md` |
 | Seven providers unverified (`codex`…`kimi`) | plain-text readers; capture real output only for CLIs actually installed |

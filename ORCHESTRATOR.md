@@ -24,12 +24,16 @@ until someone can take it.
 
 ## What it deliberately is NOT
 
-**It does not decide what work should exist.** Turning "ship the billing
-feature" into a set of tasks is a reasoning job, and this project still has no
-LLM wired into it anywhere (the same gap `DECISIONS.md` D24 records for
-`ptyHarness` and D25 for semantic recall). This component routes; it does not
-reason. Calling rule-based routing an "AI orchestrator" would be the kind of
-overclaim the rest of this codebase avoids.
+**It does not decide what work should exist — but something else now does.**
+This component routes; it does not reason. Deciding *what tasks exist* is a
+separate feature living in `plan.ts`: `/plan <goal>` runs a real agent whose
+output is a task list, a human approves it, and the resulting tasks arrive
+here unassigned to be routed normally.
+
+That split is deliberate. Routing has an objectively checkable answer and
+should be deterministic; decomposition is a judgement call and should be
+approved by a person before anything runs. Calling this rule-based router an
+"AI orchestrator" would still be an overclaim.
 
 What is here is real: capability matching, real availability, real load
 balancing, real FIFO queueing. It just isn't intelligence.

@@ -63,6 +63,9 @@ CREATE TABLE IF NOT EXISTS tasks (
   budget_usd REAL DEFAULT 1.0,
   cost_usd REAL DEFAULT 0,
   required_capability TEXT,
+  -- 'plan' marks a task whose OUTPUT is a list of other tasks. Set by the
+  -- planning flow; null for ordinary work. See plan.ts.
+  kind TEXT,
   created_at TEXT,
   started_at TEXT,
   ended_at TEXT,
@@ -158,6 +161,7 @@ export function openDb(dbPath?: string): Db {
     "ALTER TABLE tasks ADD COLUMN created_at TEXT",
     "ALTER TABLE machines ADD COLUMN sealing_pubkey TEXT",
     "ALTER TABLE tasks ADD COLUMN required_capability TEXT",
+    "ALTER TABLE tasks ADD COLUMN kind TEXT",
     "ALTER TABLE machines ADD COLUMN providers TEXT",
     "ALTER TABLE machines ADD COLUMN accept_delegations INT DEFAULT 0",
     "ALTER TABLE machines ADD COLUMN allow_agent_creation INT DEFAULT 0",
@@ -320,17 +324,19 @@ export function createTask(
     creatorId: string;
     agentId?: string | null;        // null = let the orchestrator decide
     requiredCapability?: string | null;
+    kind?: string | null;           // 'plan' = its output is a task list
     budgetSeconds?: number;
     budgetUsd?: number;
   }
 ): string {
   const taskId = `tsk_${crypto.randomUUID()}`;
   db.prepare(
-    `INSERT INTO tasks (id, project_id, title, spec, creator_id, agent_id, state, budget_seconds, budget_usd, cost_usd, required_capability, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'submitted', ?, ?, 0, ?, ?)`
+    `INSERT INTO tasks (id, project_id, title, spec, creator_id, agent_id, state, budget_seconds, budget_usd, cost_usd, required_capability, created_at, kind)
+     VALUES (?, ?, ?, ?, ?, ?, 'submitted', ?, ?, 0, ?, ?, ?)`
   ).run(
     taskId, opts.projectId, opts.title, opts.spec ?? null, opts.creatorId, opts.agentId ?? null,
-    opts.budgetSeconds ?? 60, opts.budgetUsd ?? 1.0, opts.requiredCapability ?? null, new Date().toISOString()
+    opts.budgetSeconds ?? 60, opts.budgetUsd ?? 1.0, opts.requiredCapability ?? null, new Date().toISOString(),
+    opts.kind ?? null
   );
   return taskId;
 }

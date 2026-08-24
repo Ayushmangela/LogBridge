@@ -146,6 +146,7 @@ production dependencies (`npm audit --omit=dev`).
 | **M5** cross-machine | delegation **end-to-end sealed** (X25519/AES-256-GCM) — the server routes it and provably cannot read it. Per-request consent with `once`/`always`/`never`. Code review and context sharing |
 | **M6** GitHub mirror | repos → rooms, issues → tasks, PR/CI and **"pushed N commits"** on the feed. Read-only and polled (D9/D10) |
 | **Orchestrator** | routes unassigned work by capability, availability and load; queues rather than failing |
+| **Planning** | `/plan <goal>` — a real agent breaks a goal into tasks, you approve them, the orchestrator routes them. Nothing is created until you approve |
 | **Shared memory** | an agent starts a task already knowing what the team learned — including from agents on other machines |
 | **UI** | office + tasks + chat + agents + memory + projects + settings, light theme, sidebar rosters, activity feed from the real event log |
 
@@ -161,7 +162,6 @@ production dependencies (`npm audit --omit=dev`).
 | Gap | Blocked on |
 |---|---|
 | Semantic memory recall | an embedding model — today it's BM25, and says so |
-| An orchestrator that decides *what* work exists | an LLM — today it routes, and says so |
 | `opencode` tool policy | it has no per-run mechanism; the harness refuses rather than pretending |
 | Forward secrecy for a sealed-message recipient | a double ratchet — this is a sealed box, not a ratchet |
 | A real progress percentage | tasks report start and finish and nothing between, so the bar shows *elapsed* |

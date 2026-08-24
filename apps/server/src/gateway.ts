@@ -5,7 +5,8 @@ import {
   appendEvent, clearAgentWaiting, createTask, getTask, lastSeq,
   setAgentWaitingOnHuman, setTaskState, type Db,
 } from "./db.js";
-import { resolveDelegationConsent, sendTaskOffer, type NodeSockets } from "./nodeGateway.js";
+import { acceptPlan, orchestrate, resolveDelegationConsent, sendTaskOffer, type NodeSockets } from "./nodeGateway.js";
+import { planPrompt } from "./plan.js";
 import { buildView, Positions } from "./view.js";
 
 // `@agent-name the rest of the message` — see M4-KICKOFF.md. The "spec" this
@@ -16,6 +17,15 @@ import { buildView, Positions } from "./view.js";
 function parseMention(text: string): { agentName: string; body: string } | null {
   const m = text.match(/^@(\S+)\s+(.+)$/s);
   return m ? { agentName: m[1], body: m[2].trim() } : null;
+}
+
+/** A message from the room itself rather than a person or an agent. */
+export function systemChat(roomId: string, text: string): ChatMessageT {
+  return {
+    id: crypto.randomUUID(), roomId,
+    from: { kind: "agent", id: "system", name: "office" },
+    text, ts: new Date().toISOString(), ask: null,
+  };
 }
 
 export function registerGateway(
@@ -122,6 +132,36 @@ export function registerGateway(
         appendEvent(db, msg.data.roomId, null, "chat", chat);
         broadcastChat(chat);
 
+        // "/plan <goal>" turns a goal into tasks. It runs as an ordinary
+        // task (so budget, tool policy and leases all apply) whose OUTPUT
+        // happens to be a task list — see plan.ts.
+        const plan = msg.data.text.match(/^\/plan\s+(.+)$/s);
+        if (plan) {
+          const goal = plan[1].trim().slice(0, 300);
+          const agent = db.prepare(
+            "SELECT * FROM agents WHERE project_id = ? AND status = 'idle' ORDER BY id LIMIT 1"
+          ).get(msg.data.roomId) as any;
+          if (!agent) {
+            broadcastChat(systemChat(msg.data.roomId, "No agent is free to plan that right now."));
+            return;
+          }
+          const taskId = createTask(db, {
+            projectId: msg.data.roomId,
+            title: `Plan: ${goal}`,
+            spec: planPrompt(goal),
+            creatorId: "you",
+            agentId: agent.id,
+            kind: "plan",
+            budgetSeconds: 240,
+          });
+          appendEvent(db, msg.data.roomId, taskId, "plan.requested", { goal });
+          sendTaskOffer(db, nodeSockets, taskId);
+          broadcastChat(systemChat(msg.data.roomId,
+            `Planning “${goal}” — ${agent.name} is breaking it into tasks.`));
+          broadcastView();
+          return;
+        }
+
         const mention = parseMention(msg.data.text);
         if (mention) {
           const agent = db
@@ -152,6 +192,25 @@ export function registerGateway(
         }
       } else if (msg.data.type === "answer") {
         appendEvent(db, null, msg.data.taskId, "human.answer", msg.data);
+
+        // A plan id, not a task id. Nothing was created when the plan was
+        // proposed — approving is what creates the tasks, so a bad
+        // decomposition costs a click rather than six running agents.
+        if (msg.data.taskId.startsWith("pln_")) {
+          if (msg.data.choice === "approve") {
+            const n = acceptPlan(db, msg.data.taskId);
+            const room = roomOf.get(socket);
+            if (room) {
+              broadcastChat(systemChat(room,
+                n > 0 ? `Created ${n} task${n === 1 ? "" : "s"}. The orchestrator is routing them now.`
+                      : "That plan has already been used or expired."));
+            }
+            if (n > 0) orchestrate(db, nodeSockets, app);
+          }
+          broadcastView();
+          return;
+        }
+
         const task = getTask(db, msg.data.taskId);
 
         // Mid-task question: relay the human's words to the waiting agent.

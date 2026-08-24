@@ -10,6 +10,7 @@ import {
   appendEvent,
   expiredLeaseTasks,
   getTask,
+  createTask,
   getGrant,
   setGrant,
   recallMemories,
@@ -26,6 +27,7 @@ import {
   tasksForMachine,
 } from "./db.js";
 import { makeChallenge, verifySignature } from "./nodeAuth.js";
+import { parsePlan } from "./plan.js";
 import { assignPendingTasks } from "./orchestrator.js";
 
 /** Run the orchestrator and offer whatever it just assigned. The single entry
@@ -492,6 +494,91 @@ export function resolveDelegationConsent(
   return true;
 }
 
+/**
+ * Turn a finished planning task into a proposal in the room.
+ *
+ * The agent's words arrive as task.event rows, so the plan is reassembled
+ * from the log — no extra protocol, and it survives a reconnect because the
+ * log does. Nothing is created until a human approves: a bad decomposition
+ * silently spawning six tasks is worse than no planning at all.
+ */
+export function proposePlanFromOutput(db: Db, task: any, onChat?: (c: any) => void) {
+  const rows = db
+    .prepare("SELECT body FROM events WHERE task_id = ? AND type = 'task.event' ORDER BY seq")
+    .all(task.id) as any[];
+  const output = rows
+    .map((r) => { try { return JSON.parse(r.body)?.summary ?? ""; } catch { return ""; } })
+    .join("\n");
+
+  const tasks = parsePlan(output);
+  const planId = `pln_${crypto.randomUUID()}`;
+  appendEvent(db, task.project_id, task.id, "plan.proposed", { planId, tasks, goal: task.title });
+
+  const say = (text: string, ask: any = null) => {
+    const chat = {
+      id: crypto.randomUUID(), roomId: task.project_id,
+      from: { kind: "agent", id: "system", name: "office" },
+      text, ts: new Date().toISOString(), ask,
+    };
+    // Persist BEFORE broadcasting. Planning takes minutes against a real CLI,
+    // so nobody is necessarily watching when it lands — broadcast-only meant
+    // the proposal vanished for anyone who wasn't joined at that instant, and
+    // an unapprovable plan is a dead end.
+    appendEvent(db, task.project_id, task.id, "chat", chat);
+    onChat?.(chat);
+  };
+
+  if (tasks.length === 0) {
+    // Say so rather than leaving the room wondering. An empty plan is a
+    // failure of the model or the prompt, not an empty backlog.
+    say(`I couldn't turn “${task.title.replace(/^Plan: /, "")}” into tasks — the agent didn't return a usable list. Try rewording the goal.`);
+    return;
+  }
+
+  const list = tasks
+    .map((t, i) => `${i + 1}. ${t.title}${t.capability ? `  (${t.capability})` : ""}`)
+    .join("\n");
+  say(
+    `Plan for “${task.title.replace(/^Plan: /, "")}” — ${tasks.length} tasks:\n\n${list}\n\nCreate them?`,
+    { taskId: planId, options: ["approve", "reject"] }
+  );
+}
+
+/** Create the tasks a plan proposed. Returns how many were created. */
+export function acceptPlan(db: Db, planId: string): number {
+  const row = db
+    .prepare("SELECT project_id, body FROM events WHERE type = 'plan.proposed' ORDER BY seq DESC")
+    .all()
+    .map((r: any) => ({ projectId: r.project_id, body: JSON.parse(r.body) }))
+    .find((r: any) => r.body?.planId === planId);
+  if (!row) return 0;
+
+  // A plan can only be cashed in once. Without this, double-clicking approve
+  // (or a retried message) creates the whole plan again — and the second
+  // copy is indistinguishable from real work.
+  const already = db
+    .prepare("SELECT body FROM events WHERE type = 'plan.accepted'")
+    .all()
+    .some((r: any) => { try { return JSON.parse(r.body)?.planId === planId; } catch { return false; } });
+  if (already) return 0;
+
+  let created = 0;
+  for (const t of row.body.tasks ?? []) {
+    // Unassigned on purpose — the orchestrator routes each one by capability
+    // and load, which is exactly the job it already does.
+    createTask(db, {
+      projectId: row.projectId,
+      title: t.title,
+      creatorId: "plan",
+      agentId: null,
+      requiredCapability: t.capability ?? null,
+    });
+    created++;
+  }
+  appendEvent(db, row.projectId, null, "plan.accepted", { planId, created });
+  return created;
+}
+
 function reconcileOnConnect(db: Db, machineId: string, send: (m: unknown) => void, app: FastifyInstance) {
   for (const t of tasksForMachine(db, machineId, ["submitted"])) {
     send(taskOfferEnvelope(t));
@@ -865,6 +952,11 @@ function handleNodeEnvelope(
       return;
     }
     setTaskState(db, t.id, body.state, { ended_at: new Date().toISOString(), cost_usd: body.costUsd ?? t.cost_usd });
+    // A planning task's output IS a task list. Read it back from the events
+    // the runner already logged rather than inventing a new channel.
+    if (t.kind === "plan" && body.state === "completed") {
+      proposePlanFromOutput(db, t, extra.onChat);
+    }
     if (t.agent_id) setAgentStatus(db, t.agent_id, "idle", null);
     appendEvent(db, t.project_id, t.id, "task.result", body);
     orchestrate(db, nodeSockets, app); // that agent just freed up — drain the queue
