@@ -4,34 +4,39 @@
 // what makes "each agent's model API key comes from its own owner's node"
 // true without needing a second, separate credential.
 //
-// VERIFICATION STATUS (was a stated gap, now partly closed):
-//   ✓ flags `-p` and `--output-format stream-json` confirmed against a real
-//     claude 2.1.241 install
-//   ✓ output shape confirmed and the parser corrected to match — see
-//     emitLine's comment for what the earlier guess got wrong, and
-//     test-support/claude-stream-json.sample.jsonl for the real capture
-//   ✗ NOT yet run against an *authenticated* CLI: the sample was produced
-//     by an install with apiKeySource "none", so the only result line seen
-//     is the auth-failure one. tool_use blocks in particular are handled
-//     from the documented content-block shape, not from an observation.
-// Run `claude /login` and repeat the capture to close the rest.
+// Which CLI to run and how to read it lives in providers.ts; this file is
+// only the PTY mechanics — spawn, stream, interrupt, kill, and the tool
+// policy file written before each spawn.
+//
+// VERIFICATION STATUS per provider (see PROVIDERS.md):
+//   claude   — flags and event shape verified against a real 2.1.241 install.
+//              The capture was UNAUTHENTICATED, so the tool_use branch is
+//              written from the documented content-block shape, not observed.
+//   opencode — verified against a real authenticated run that returned an
+//              actual answer. Its `tool` event was not exercised by that run.
+//   others   — command and args only; they run through the plain-text reader
+//              until someone captures their real output.
 import * as pty from "node-pty";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentHarness, AgentHandle, SpawnOptions, AgentEvent } from "./types.js";
 import { AsyncEventQueue } from "./asyncQueue.js";
+import { providerById } from "./providers.js";
 
 export interface PtyHarnessConfig {
-  command?: string; // default "claude"
+  /** Provider id from the registry — see providers.ts. Default "claude". */
+  provider?: string;
+  /** Override the binary (a custom install path, or a test double). */
+  command?: string;
+  /** Model passed through to the provider's arg builder. */
+  model?: string | null;
+  /** Escape hatch for a CLI the registry doesn't know. */
   buildArgs?: (prompt: string) => string[];
 }
 
 const ANSI_ESCAPE = /\x1b\[[0-9;]*[a-zA-Z]/g;
 
-function defaultArgs(prompt: string): string[] {
-  // Claude Code headless/print mode: run once, no REPL, structured events.
-  return ["-p", prompt, "--output-format", "stream-json"];
-}
+
 
 // Enforcement for a PTY-wrapped CLI can't hook individual tool calls the
 // way the SDK's canUseTool callback can (see DECISIONS.md D24) — so policy
@@ -51,11 +56,21 @@ function writeScopedSettings(cwd: string, allowTools: string[], denyPaths: strin
 }
 
 export function makePtyHarness(config: PtyHarnessConfig = {}): AgentHarness {
-  const command = config.command ?? process.env.AGENT_CLI_COMMAND ?? "claude";
-  const buildArgs = config.buildArgs ?? defaultArgs;
+  const providerId = config.provider ?? process.env.AGENT_PROVIDER ?? "claude";
+  const provider = providerById(providerId);
+  if (!provider) throw new Error(`unknown provider "${providerId}" — see providers.ts`);
+
+  const command = config.command ?? process.env.AGENT_CLI_COMMAND ?? provider.command;
+  const model = config.model ?? process.env.AGENT_MODEL ?? null;
+  const buildArgs = config.buildArgs ?? ((prompt: string) => provider.buildArgs(prompt, model));
+  // Each provider reads its own format; a mismatch here is what made the
+  // harness silently useless against anything but Claude Code before.
+  const readLine = (queue: AsyncEventQueue<AgentEvent>, line: string) => {
+    for (const ev of provider.parseLine(line)) queue.push(ev);
+  };
 
   return {
-    name: `pty:${command}`,
+    name: `pty:${provider.id}`,
     spawn(opts: SpawnOptions): AgentHandle {
       writeScopedSettings(opts.cwd, opts.allowTools, opts.denyPaths);
 
@@ -85,8 +100,10 @@ export function makePtyHarness(config: PtyHarnessConfig = {}): AgentHarness {
       // without one. Without this flag both fire and a run reports twice.
       let sawResult = false;
       const scan = (line: string) => {
-        if (line.includes('"type":"result"')) sawResult = true;
-        emitLine(queue, line);
+        // A provider that reports its own outcome wins over the exit code —
+        // see the sawResult comment above.
+        if (line.includes('"type":"result"') || line.includes('"type":"step_finish"')) sawResult = true;
+        readLine(queue, line);
       };
 
       proc.onData((chunk: string) => {
@@ -144,67 +161,4 @@ export function makePtyHarness(config: PtyHarnessConfig = {}): AgentHarness {
       };
     },
   };
-}
-
-// Parses Claude Code's `--output-format stream-json`, verified against real
-// output from claude 2.1.241 (captured in test-support/claude-stream-json.
-// sample.jsonl). The earlier version of this function guessed the shape and
-// guessed wrong in two of three cases:
-//
-//   - text is at message.content[].text, NOT a top-level `text` field
-//   - tool calls are content blocks {type:"tool_use", name, input} inside
-//     that same array, NOT a top-level `tool_name`
-//   - total_cost_usd on the final `result` line was the one correct guess
-//
-// Line types actually observed: system/init, assistant, result.
-export function emitLine(queue: AsyncEventQueue<AgentEvent>, line: string) {
-  let parsed: any;
-  try {
-    parsed = JSON.parse(line);
-  } catch {
-    // Not JSON at all — a banner, a warning, an ANSI-stripped fragment.
-    // Surface it rather than dropping it; losing a CLI's error text is how
-    // "it just did nothing" bugs happen.
-    queue.push({ kind: "output", text: line });
-    return;
-  }
-
-  switch (parsed.type) {
-    case "system":
-      return; // init/metadata — nothing an operator needs to see
-
-    case "assistant":
-    case "user": {
-      const content = parsed.message?.content;
-      if (!Array.isArray(content)) return;
-      for (const block of content) {
-        if (block?.type === "text" && typeof block.text === "string") {
-          if (block.text.trim()) queue.push({ kind: "output", text: block.text });
-        } else if (block?.type === "tool_use") {
-          queue.push({ kind: "tool_call", name: block.name ?? "unknown", input: block.input ?? null });
-        }
-        // tool_result blocks are the CLI feeding itself; they'd double the
-        // log without adding anything an operator hasn't already seen.
-      }
-      return;
-    }
-
-    case "result": {
-      if (typeof parsed.total_cost_usd === "number") {
-        queue.push({ kind: "cost", usd: parsed.total_cost_usd });
-      }
-      // `is_error` covers auth failures and API errors, which exit 0 and
-      // would otherwise look like a successful empty run.
-      if (parsed.is_error) {
-        queue.push({ kind: "error", message: String(parsed.result ?? parsed.subtype ?? "the CLI reported an error") });
-      } else {
-        queue.push({ kind: "done", ok: true, summary: typeof parsed.result === "string" ? parsed.result : undefined });
-      }
-      return;
-    }
-
-    default:
-      // An unrecognised line is still information; don't silently swallow it.
-      queue.push({ kind: "output", text: line });
-  }
 }

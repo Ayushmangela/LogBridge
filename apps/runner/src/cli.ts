@@ -42,9 +42,15 @@ const agents: AgentDecl[] = [
 // Which harness actually does the work. Defaults to the fake worker —
 // spending real money is opt-in, never accidental. See DECISIONS.md D24.
 const harnessKind = arg("harness") ?? process.env.AGENT_HARNESS ?? "fake";
-const harness = harnessKind === "fake" ? fakeHarness : makePtyHarness({ command: arg("cli-command") });
+const harness = harnessKind === "fake"
+  ? fakeHarness
+  : makePtyHarness({
+      provider: arg("provider"),          // see PROVIDERS.md
+      command: arg("cli-command"),        // override the binary if it's not on PATH
+      model: arg("model") ?? null,
+    });
 if (harnessKind !== "fake") {
-  console.log(`[runner ${machineId}] ⚠ using REAL harness (${harness.name}) — unverified in this environment, see ptyHarness.ts header`);
+  console.log(`[runner ${machineId}] using REAL harness: ${harness.name} — see PROVIDERS.md for what's verified`);
 }
 
 const conn = new RunnerConnection({
