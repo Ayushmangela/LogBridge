@@ -346,7 +346,6 @@ Do not "fix" these by faking them; they are honest gaps.
 | Orchestrator does not decide *what* work exists | routing only; decomposition needs an LLM — `ORCHESTRATOR.md` |
 | Memory recall is BM25, not semantic | no embedding model available — `MEMORY.md` |
 | No forward secrecy for a sealed-message recipient | sealed box, not a ratchet — `SEALED.md` |
-| Claude `tool_use` parser verified against an UNAUTHENTICATED capture | needs the machine owner to run `claude /login`, then re-capture per prompt 8c |
 | Seven providers unverified (`codex`…`kimi`) | plain-text readers; capture real output only for CLIs actually installed |
 | Chat is broadcast/replayed for **all** rooms to every browser | the server has no notion of which room a browser is in — membership is only implied by `position`. The client filters to the active room, so nothing wrong is displayed, but the data is still sent. Real scoping needs browser room membership |
 

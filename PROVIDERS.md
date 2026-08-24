@@ -14,7 +14,7 @@ only the PTY mechanics.
 
 | Provider | Command | Invocation | Output format | Status |
 |---|---|---|---|---|
-| **Claude Code** | `claude` | `-p <prompt> --output-format stream-json --verbose` | verified | ✅ **verified** |
+| **Claude Code** | `claude` | `-p <prompt> --output-format stream-json --verbose` | verified **incl. tool_use** | ✅ **fully verified** |
 | **OpenCode** | `opencode` | `run <prompt> --format json [-m provider/model]` | verified | ✅ **verified** |
 | Codex · GPT | `codex` | `exec <prompt>` | — | ⚠️ plain text |
 | Gemini | `gemini` | `-p <prompt>` | — | ⚠️ plain text |
@@ -81,10 +81,33 @@ npx tsx src/cli.ts start --harness real --provider claude --model claude-opus-5
 `detectInstalled()` reports which commands are actually on `PATH`, so a UI can
 show what's available rather than offering a provider that isn't there.
 
-## What's still missing
+## Choosing a provider from the browser
 
-**There is no Add Agent UI.** Agents are declared statically in
-`apps/runner/src/cli.ts` and published when the machine connects. Choosing a
-provider from the browser needs a runner-side path to register an agent at
-runtime, which doesn't exist. That's Phase 6 in `UI-PHASES.md` and the
-registry here is its foundation.
+The Add Agent dialog uses this registry: `detectInstalled()` decides which
+providers a machine can offer, and anything not on that machine's `PATH` is
+shown disabled rather than offered. A provider whose `policy` is `"none"` is
+refused unless the owner started the runner with `--allow-unsandboxed`, since
+otherwise every task it received would be refused.
+
+Agents created that way are persisted to `<dataDir>/created-agents.json` and
+reloaded on restart — without that the server keeps the agent row while the
+runner forgets it, and work addressed to it misroutes.
+
+## Verification history
+
+Both verified providers were confirmed by capturing real output and running a
+real agent end to end through the runner, not by reading documentation.
+
+**Claude Code** — `claude-tools.sample.jsonl` is an authenticated run that
+genuinely called a tool. It confirmed the `tool_use` block shape
+(`{name, input:{file_path, content}}`) that had previously only been assumed,
+and surfaced a line type nobody knew about: `rate_limit_event`, which until
+then fell through to the default branch and dumped raw JSON into the activity
+feed. A real task then ran end to end and wrote its file — which also proves
+`writeScopedSettings` works, since the identical write is *refused* when
+`claude` runs without that file.
+
+**OpenCode** — `opencode-json.sample.jsonl` and `opencode-tools.sample.jsonl`.
+Three wrong assumptions died here: text is under `part`, `reason:"tool-calls"`
+is an intermediate step rather than a failure, and the tool envelope is
+`tool_use` with args at `part.state.input`.

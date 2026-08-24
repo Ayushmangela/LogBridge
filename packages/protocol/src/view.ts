@@ -193,6 +193,11 @@ export const ServerMessage = z.discriminatedUnion("type", [
 export type ServerMessageT = z.infer<typeof ServerMessage>;
 
 export const ClientMessage = z.discriminatedUnion("type", [
+  // Which room this browser is looking at. Until it arrives the server has
+  // no way to scope anything per-room — membership was previously only
+  // implied by `position`, which doesn't exist until the player moves.
+  // Sent on first view and whenever the viewer switches rooms.
+  z.object({ type: z.literal("join"), roomId: z.string() }),
   z.object({ type: z.literal("position"), roomId: z.string(), x: z.number(), y: z.number() }),
   z.object({ type: z.literal("chat"), roomId: z.string(), text: z.string() }),
   z.object({

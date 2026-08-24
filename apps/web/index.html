@@ -959,7 +959,8 @@
       ws = new WebSocket(`${proto}://${location.host}/ws`);
 
       ws.addEventListener('open', () => setConnLabel('● Connected', true));
-      ws.addEventListener('close', () => { setConnLabel('● Disconnected — retrying…', false); setTimeout(connect, 1500); });
+      ws.addEventListener('close', () => {
+        announcedRoom = null; // re-announce after reconnecting setConnLabel('● Disconnected — retrying…', false); setTimeout(connect, 1500); });
       ws.addEventListener('error', () => ws.close());
 
       ws.addEventListener('message', (ev) => {
@@ -967,6 +968,7 @@
         try { msg = JSON.parse(ev.data); } catch { return; }
         if (msg.type === 'view') {
           latestView = msg.view;
+          announceRoom();
           meId = msg.view.meId;
           renderView(latestView);
           renderAlways(latestView);
@@ -993,6 +995,18 @@
       if (lastSentPos && lastSentPos.x === tx && lastSentPos.y === ty) return;
       lastSentPos = { x: tx, y: ty };
       ws.send(JSON.stringify({ type: 'position', roomId: room.id, x: tx, y: ty }));
+    }
+
+    // Tell the server which room we're looking at. Until it knows, it can't
+    // scope chat — and it deliberately sends none rather than guessing.
+    let announcedRoom = null;
+    function announceRoom() {
+      const room = latestView?.rooms?.[0];
+      if (!room || !ws || ws.readyState !== WebSocket.OPEN) return;
+      if (announcedRoom === room.id) return;
+      announcedRoom = room.id;
+      chatLog.length = 0; // history for the new room is about to arrive
+      ws.send(JSON.stringify({ type: 'join', roomId: room.id }));
     }
 
     function activeRoom() {
@@ -1733,12 +1747,9 @@
     };
 
     function onChatMessage(msg) {
-      // The server broadcasts and replays chat for every room to every
-      // browser — it has no concept of which room a browser is "in", since
-      // membership is only implied by position. The GitHub mirror makes
-      // multi-room real (one room per repo), so filter here rather than
-      // showing another project's conversation. Proper server-side scoping
-      // needs browser room membership, which doesn't exist yet.
+      // The server scopes chat by room now (it tracks what we `join`ed), so
+      // this is a backstop for an in-flight message that crosses a room
+      // switch — not the mechanism.
       const room = activeRoom();
       if (room && msg.roomId && msg.roomId !== room.id) return;
       chatLog.push(msg);

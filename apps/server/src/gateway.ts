@@ -37,9 +37,38 @@ export function registerGateway(
     for (const ws of browserSockets) if (ws.readyState === ws.OPEN) ws.send(json);
   };
 
+  // Which room each browser is looking at, set by the `join` message. The
+  // server previously had no idea, so chat went to every socket regardless of
+  // room and the browser filtered it — fine while there was one room, wrong
+  // once the GitHub mirror started creating one per repo.
+  const roomOf = new Map<WebSocket, string>();
+
   const broadcastChat = (chat: ChatMessageT) => {
     const json = JSON.stringify({ type: "chat", roomId: chat.roomId, msg: chat });
-    for (const ws of browserSockets) if (ws.readyState === ws.OPEN) ws.send(json);
+    for (const ws of browserSockets) {
+      if (ws.readyState !== ws.OPEN) continue;
+      // A socket that hasn't joined yet gets nothing rather than everything:
+      // silence is recoverable, leaking another project's conversation isn't.
+      if (roomOf.get(ws) !== chat.roomId) continue;
+      ws.send(json);
+    }
+  };
+
+  /** The room's last messages, oldest first. Capped — invariant 1 applies to
+   *  history too. Replayed on join, not on connect, because until a browser
+   *  says which room it wants there is nothing correct to send. */
+  const replayChat = (socket: WebSocket, roomId: string, limit = 50) => {
+    const rows = db.prepare(
+      "SELECT body FROM events WHERE type = 'chat' AND project_id = ? ORDER BY seq DESC LIMIT ?"
+    ).all(roomId, limit) as any[];
+    for (const row of rows.reverse()) {
+      try {
+        const msg = JSON.parse(row.body);
+        if (msg?.roomId === roomId) socket.send(JSON.stringify({ type: "chat", roomId, msg }));
+      } catch {
+        /* skip a malformed row rather than dropping the rest */
+      }
+    }
   };
 
   app.get("/ws", { websocket: true }, (socket, req) => {
@@ -53,21 +82,6 @@ export function registerGateway(
       })
     );
 
-    // Chat history (prompt 8a): the room's last 50 messages replay as normal
-    // chat messages, so a late joiner sees the conversation that happened
-    // before them. Capped — invariant 1 applies to history too.
-    const recent = db.prepare(
-      "SELECT body FROM events WHERE type = 'chat' ORDER BY seq DESC LIMIT 50"
-    ).all() as any[];
-    for (const row of recent.reverse()) {
-      try {
-        const msg = JSON.parse(row.body);
-        if (msg?.roomId) socket.send(JSON.stringify({ type: "chat", roomId: msg.roomId, msg }));
-      } catch {
-        /* skip a malformed row rather than dropping the rest */
-      }
-    }
-
     socket.on("message", (raw: Buffer) => {
       let parsedJson: unknown;
       try {
@@ -78,6 +92,17 @@ export function registerGateway(
       const msg = ClientMessage.safeParse(parsedJson);
       if (!msg.success) {
         socket.send(JSON.stringify({ type: "error", error: msg.error.message }));
+        return;
+      }
+
+      if (msg.data.type === "join") {
+        const known = db.prepare("SELECT id FROM projects WHERE id = ?").get(msg.data.roomId);
+        if (!known) return; // don't hand out history for a room that isn't real
+        const previous = roomOf.get(socket);
+        roomOf.set(socket, msg.data.roomId);
+        // Only replay when the room actually changed, so a browser that
+        // re-announces the same room doesn't duplicate its own history.
+        if (previous !== msg.data.roomId) replayChat(socket, msg.data.roomId);
         return;
       }
 
@@ -231,7 +256,7 @@ export function registerGateway(
       }
     });
 
-    socket.on("close", () => browserSockets.delete(socket));
+    socket.on("close", () => { browserSockets.delete(socket); roomOf.delete(socket); });
   });
 
   app.get("/healthz", async () => ({

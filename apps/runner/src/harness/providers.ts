@@ -66,7 +66,11 @@ function parseClaude(line: string): AgentEvent[] {
 
   switch (p.type) {
     case "system":
-      return []; // init metadata
+    case "rate_limit_event":
+      // Metadata, not activity. rate_limit_event only showed up once a real
+      // authenticated run was captured — before that it fell through to the
+      // default branch and dumped a whole JSON line into the office feed.
+      return [];
 
     case "assistant":
     case "user": {
