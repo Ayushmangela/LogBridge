@@ -1121,6 +1121,69 @@
       return { x: spawnTile.x * TILE, y: spawnTile.y * TILE };
     }
 
+    // ---------------- Idle roaming (Phase 1): deterministic, confined ----------------
+    // No Math.random() — two browsers must see the same office. Position is a
+    // pure function of (agentId, sharedClockBucket). The shared clock is
+    // view.serverTime anchored to local elapsed, so motion is continuous
+    // between server pushes without diverging. Roaming never leaves the idle
+    // zone; that is the exact lie D11 forbids.
+    const ROAM_INTERVAL_MS = 3500;
+    const ROAM_MARGIN_PX = 24; // keeps a 32px sprite fully inside the 608x160 idle rect
+
+    function roamHash(s) {
+      let h = 0;
+      for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+      return Math.abs(h);
+    }
+
+    function idlePixelRect() {
+      const r = zones.idle;
+      if (!r) return null;
+      return { x: r.x * TILE, y: r.y * TILE, w: r.w * TILE, h: r.h * TILE };
+    }
+
+    function roamingPoint(agentId, bucket, rect, margin) {
+      margin = margin ?? ROAM_MARGIN_PX;
+      if (!rect || rect.w <= margin * 2 || rect.h <= margin * 2) {
+        return rect ? { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 }
+                     : { x: MAP_WIDTH / 2, y: MAP_HEIGHT / 2 };
+      }
+      const usableW = rect.w - margin * 2;
+      const usableH = rect.h - margin * 2;
+      const hx = roamHash(agentId + ':x:' + bucket);
+      const hy = roamHash(agentId + ':y:' + bucket);
+      return {
+        x: rect.x + margin + (hx % usableW),
+        y: rect.y + margin + (hy % usableH),
+      };
+    }
+
+    function roamingTarget(agentId, nowMs, rect) {
+      if (!rect) return roamingPoint(agentId, 0, { x: 0, y: 0, w: MAP_WIDTH, h: MAP_HEIGHT });
+      if (!Number.isFinite(nowMs)) return roamingPoint(agentId, 0, rect);
+      const bucket = Math.floor(nowMs / ROAM_INTERVAL_MS);
+      const t = Math.max(0, Math.min(0.999999, (nowMs % ROAM_INTERVAL_MS) / ROAM_INTERVAL_MS));
+      const p0 = roamingPoint(agentId, bucket, rect);
+      const p1 = roamingPoint(agentId, bucket + 1, rect);
+      return { x: p0.x + (p1.x - p0.x) * t, y: p0.y + (p1.y - p0.y) * t };
+    }
+
+    function sharedNowMs() {
+      if (!latestView || !latestView.serverTime) return Date.now();
+      const serverMs = Date.parse(latestView.serverTime);
+      if (!Number.isFinite(serverMs) || !viewReceiveAt) return Date.now();
+      return serverMs + (Date.now() - viewReceiveAt);
+    }
+
+    function positionForAgentWithRoaming(a, nowMs) {
+      // Non-idle agents are placed exactly on their slot — no roaming, no drift.
+      if (a.zone !== 'idle') return positionForAgent(a);
+      const rect = idlePixelRect();
+      if (!rect) return positionForAgent(a);
+      const t = nowMs ?? sharedNowMs();
+      return roamingTarget(a.id, t, rect);
+    }
+
     // ---------------- Global App State ----------------
     let app;
     let worldContainer;
@@ -1133,6 +1196,7 @@
     let ws = null;
     let latestView = null;
     let meId = null;
+    let viewReceiveAt = 0; // Date.now() when latestView arrived — anchors sharedNowMs()
     const renderedAgents = new Map(); // agentId -> { sprite, tag, badge }
     const renderedHumans = new Map(); // userId  -> { sprite, tag }
 
@@ -1172,6 +1236,7 @@
         try { msg = JSON.parse(ev.data); } catch { return; }
         if (msg.type === 'view') {
           latestView = msg.view;
+          viewReceiveAt = Date.now();
           announceRoom();
           meId = msg.view.meId;
           renderView(latestView);
@@ -2477,16 +2542,24 @@
     }
 
     function updateAgentSprite(entry, a) {
-      const pos = positionForAgent(a);
-      // real events move it; we just ease toward the last known target each frame
+      // Idle agents roam: deterministic waypoint inside the idle zone, derived
+      // from (agentId, sharedClock). Non-idle agents are placed exactly on
+      // their slot so work always wins over wandering.
+      const pos = positionForAgentWithRoaming(a);
       entry.target = pos;
       entry.tag.text = a.name;
       entry.color = STATUS_COLOR[a.status] ?? 0x8a99b5;
       entry.dot.clear();
       entry.dot.beginFill(entry.color).drawCircle(10, -34, 3).endFill();
       drawBubble(entry, a);
+      const wasIdle = entry.data?.zone === 'idle';
+      const nowWorking = a.zone !== 'idle';
       entry.data = a;
       if (entry.sprite.x === 0 && entry.sprite.y === 0) { entry.sprite.x = pos.x; entry.sprite.y = pos.y; }
+      // Spec: "an agent that stops being idle returns to its real placement
+      // immediately". Don't ease a working agent out of the cafeteria — snap it
+      // so the office never shows a working agent wandering in the idle zone.
+      if (wasIdle && nowWorking) { entry.sprite.x = pos.x; entry.sprite.y = pos.y; }
     }
 
     // The bubble is what the agent is DOING right now — its task title, the
@@ -2748,6 +2821,19 @@
       // throttled position push — only when the tile actually changed (CONTRACT.md: "at most 5/sec, only on change")
       posSendTimer += dt;
       if (posSendTimer >= 0.2) { posSendTimer = 0; sendPosition(); }
+
+      // Idle roaming: recompute the wandering waypoint each frame from the
+      // shared clock so every browser drifts the same way. Non-idle agents keep
+      // their server-assigned slot — work always wins. No Math.random() here.
+      if (latestView) {
+        const now = sharedNowMs();
+        for (const entry of renderedAgents.values()) {
+          if (!entry.data) continue;
+          if (entry.data.zone === 'idle') {
+            entry.target = positionForAgentWithRoaming(entry.data, now);
+          }
+        }
+      }
 
       // ease other sprites toward their server-assigned target (never invents motion, only smooths it)
       const ease = 1 - Math.pow(0.001, dt);

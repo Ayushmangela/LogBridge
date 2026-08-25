@@ -65,6 +65,18 @@ Agents are *placed*, never animated. Humans move freely.
 **Why:** it makes "the office shows real activity" structural rather than aspirational. There is no code path that produces motion without an event, so fake activity is impossible to render.
 **Would change it:** nothing. This is the second axiom.
 
+> **Phase 1 note (2026-08-25) — idle roaming reconciliation:** Idle agents now
+> drift inside the **idle zone only** (cafeteria). This is motion without a
+> server event, so it relaxes the strict "no motion without an event" wording,
+> but it does **not** relax what D11 guards: an idle agent wandering inside
+> the idle zone still reads as idle — it does not fake work. Roaming never
+> leaves the idle zone (enforced by tests), is deterministic from
+> `(agentId, serverTime)` so every browser draws the same office, and an
+> agent that receives work snaps back to its slot within one view update.
+> Summoning (Phase 4) is different: it *is* an event (a user action) and
+> travels through the server. If this reconciliation proves wrong, D11 must
+> be amended explicitly — quietly breaking it is not allowed.
+
 ### D12 — Hybrid: the four cabins belong to people, every other room is a work state
 Cabin 0 (boss, biggest, corner office) = the GitHub repo admin. Cabins 1–3 = the other three. Open office = working, atrium upper = blocked, atrium lower = reviewing, meeting room = collaborating, cafeteria = idle, chill room = done.
 **Why:** pure state-mapping loses *who*. Pure person-mapping loses the glance-read of the day. The hybrid keeps both — and routing `needs_human` to the specific person's cabin is strictly better than one generic room, because "three agents in Sam's office" says *Sam is the bottleneck*, which is actionable.
