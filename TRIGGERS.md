@@ -57,6 +57,32 @@ design: they measure elapsed time, not appointments.
 
 ---
 
+## What each mode costs
+
+**Wall-clock schedules** are evaluated through `Intl` in the trigger's stored
+zone on every check. That is a real cost per evaluation, and it is the price
+of being right across a DST transition — fixed offsets are cheaper and wrong
+twice a year.
+
+Two boundary behaviours worth knowing, both verified against 2026's US
+transitions:
+
+- **A wall-clock time that does not exist.** On spring-forward day `02:30`
+  never happens. The next firing lands on the same absolute instant, which
+  renders as `03:30` local. The day is 23 hours long and the trigger still
+  fires once.
+- **A wall-clock time that happens twice.** On fall-back day `01:30` occurs in
+  both the old and new offset. The **first** occurrence fires. The day is 25
+  hours long and the trigger still fires once.
+
+**Intervals** ignore the zone entirely — "every 30 minutes" is elapsed time,
+not an appointment, so it neither skips nor repeats across a transition.
+
+**An unknown zone is refused at write time.** Every zoned computation goes
+through `Intl`, which throws rather than degrading, so `createTrigger` checks
+the zone and returns `{ ok: false }` — keeping the throw out of the fire loop,
+where it would be an exception on a timer instead of an error someone reads.
+
 ## Storage
 
 Table `triggers`: identity, project, name, enabled flag, kind

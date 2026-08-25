@@ -58,7 +58,6 @@ function parseClock(raw: string): { hh: number; mm: number } | { error: string }
 export function parseSchedule(expr: string): ParseResult {
   const s = expr.trim().toLowerCase();
 
-  const clock = /^(every (?:day|weekday|(?:[a-z]+)) )?at (.+)$/;
   const m = s.match(/^every (day|weekday|([a-z]+)) at (\S+)$/);
   if (m) {
     const time = parseClock(m[3]);
@@ -173,6 +172,23 @@ export function defaultTimezone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
 }
 
+/**
+ * Whether the runtime knows this IANA zone.
+ *
+ * Every zoned computation below goes through Intl, which THROWS a RangeError
+ * on an unknown zone rather than falling back. Checking once at write time
+ * keeps that throw out of the fire loop, where it would be an exception on a
+ * timer rather than an error someone can read.
+ */
+export function isValidTimezone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export type CreateTriggerResult =
   | { ok: true; id: string }
   | { ok: false; error: string };
@@ -194,11 +210,20 @@ export function createTrigger(
     tz?: string;
   }
 ): CreateTriggerResult {
+  // Refuse an unknown zone for the same reason an unparseable rule is
+  // refused: this function promises {ok:false} on bad input, and Intl throws
+  // instead of degrading. Without this, "Mars/Phobos" escaped as a RangeError
+  // — past the return type, into whatever HTTP handler called it.
+  const tz = input.tz ?? defaultTimezone();
+  if (!isValidTimezone(tz)) {
+    return { ok: false, error: `"${tz}" is not a known IANA time zone (try "America/New_York").` };
+  }
+
   let nextFire: number | null = null;
   if (input.kind === "schedule") {
     const parsed = parseSchedule(input.rule);
     if (!parsed.ok) return { ok: false, error: parsed.error };
-    nextFire = nextFireAt(parsed.schedule, Date.now(), input.tz ?? defaultTimezone());
+    nextFire = nextFireAt(parsed.schedule, Date.now(), tz);
   }
   const id = `trg_${crypto.randomUUID()}`;
   db.prepare(
@@ -210,7 +235,7 @@ export function createTrigger(
     id, input.projectId, input.name, input.enabled === false ? 0 : 1, input.kind,
     input.rule, input.template.title, input.template.spec ?? null,
     input.template.requiredCapability ?? null, input.template.budgetSeconds ?? null,
-    input.template.budgetUsd ?? null, input.tz ?? defaultTimezone(),
+    input.template.budgetUsd ?? null, tz,
     new Date().toISOString(), nextFire ? new Date(nextFire).toISOString() : null
   );
   return { ok: true, id };

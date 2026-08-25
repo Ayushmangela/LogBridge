@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { openDb, type Db } from "./db.js";
 import {
-  createTrigger, getTrigger, listTriggers, markTriggerFired,
+  createTrigger, getTrigger, isValidTimezone, listTriggers, markTriggerFired,
   nextFireAt, parseSchedule, setTriggerEnabled,
 } from "./triggers.js";
 
@@ -216,6 +216,50 @@ describe("storage round-trip (real db)", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Added during Stream A's Phase 1 verification.
+describe("an unknown time zone is refused, not thrown", () => {
+  test("createTrigger returns {ok:false} instead of a RangeError", () => {
+    // Every zoned computation goes through Intl, which THROWS on an unknown
+    // zone. createTrigger's return type promises an error value, so letting
+    // that escape means whatever calls it — an HTTP handler in phase 4 — 500s
+    // on input a person can trivially mistype.
+    db.prepare("INSERT INTO projects (id,gh_repo,name,layout) VALUES ('p','a/a','a/a','office')").run();
+
+    const attempt = () => createTrigger(db, {
+      projectId: "p", name: "mars", kind: "schedule",
+      rule: "every day at 09:00", tz: "Mars/Phobos",
+      template: { title: "x" },
+    });
+    expect(attempt).not.toThrow();
+
+    const res = attempt();
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toMatch(/time zone/i);
+    // and nothing was written
+    expect(listTriggers(db, "p")).toHaveLength(0);
+  });
+
+  test("a real zone is still accepted", () => {
+    db.prepare("INSERT INTO projects (id,gh_repo,name,layout) VALUES ('p','a/a','a/a','office')").run();
+    const res = createTrigger(db, {
+      projectId: "p", name: "ok", kind: "schedule",
+      rule: "every day at 09:00", tz: "Asia/Tokyo",
+      template: { title: "x" },
+    });
+    expect(res.ok).toBe(true);
+    expect(listTriggers(db, "p")[0].tz).toBe("Asia/Tokyo");
+  });
+
+  test("isValidTimezone tells the two apart", () => {
+    expect(isValidTimezone("America/New_York")).toBe(true);
+    expect(isValidTimezone("UTC")).toBe(true);
+    expect(isValidTimezone("Mars/Phobos")).toBe(false);
+    expect(isValidTimezone("")).toBe(false);
+  });
+});
+
 
 // --- tiny local helpers (imports kept minimal above) ---
 import { tmpdir } from "node:os";
