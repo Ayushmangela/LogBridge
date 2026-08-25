@@ -1,7 +1,7 @@
 # The Contract
 ### Single source of truth for everything exchanged between the office and the system.
 
-**Version 1.22** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
+**Version 1.23** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
 
 > **Rule: never change this file alone.** Both people present, both agree, bump the version, add a changelog line. A contract one person edited is not a contract.
 
@@ -271,6 +271,7 @@ Five tilesets are registered in the map, all 32 px:
 
 | Version | Change | Why |
 |---|---|---|
+| **1.23** | Added **`AgentView.summonedBy` / `summonedAt` / `summonedPos`** — summon is a real event, not a tween | The agent walks to the caller's tile (player position) and stays until dismissed or it gets work — `setAgentStatus(working)` clears the summon so work always wins. `summon`/`summon.cancel` land in the activity feed. Optional for the same reason as `provider`: older agent rows have null and a required field would blank the office |
 | **1.22** | Added **`AgentView.provider`**; made **`ProviderInfo.command`** optional | The Command Center's command reference is keyed by the CLI an agent runs, and the view never carried it — the runner reported it on `agent.card` as `harness` and the server dropped it. `command` becoming optional is a **fix, not a refinement**: `providers` is JSON frozen at a machine's last handshake, the gateway validates the whole view and sends **nothing** when validation fails, so shipping it as required in 1.21 blanked every office until each runner happened to reconnect. Any field added to a view fed by stored producer data carries that same risk and must be optional |
 | **1.21** | Added **`ProviderInfo.command`** | The Add Agent dialog shows the command an agent will run. Composing that string in the browser would mean the browser guessing flags for CLIs it has never seen installed, and drifting silently the first time an arg changed. The machine now generates it from the **same `buildArgs` the harness spawns**, so the preview cannot be wrong without the run being wrong too. `bypassFlag` is carried separately and is null for every provider that has no such mode — the toggle shows the literal flag rather than implying one exists |
 | **1.20** | Added seven **`AgentView`** identity fields | An agent had a name, a role and a status, and nothing that said who it was. The Add Agent wizard asks for a sprite, a colour, a folder and a briefing, and the agents table had nowhere to put any of it. `folder` doubles as the roster's grouping key — "who is touching this repo right now" is the question the roster actually answers. **`note` is the one field never carried on `agent.card`**: a human types it in the browser, and reconnects are routine, so a runner declaring it would erase it at seemingly random moments |

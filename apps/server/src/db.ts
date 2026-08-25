@@ -50,7 +50,11 @@ CREATE TABLE IF NOT EXISTS agents (
   note TEXT,            -- a human's scratch note, shown in the roster
   description TEXT,     -- one line: what this agent is ("runs the floor")
   goal TEXT,            -- its standing objective, from the briefing step
-  provider TEXT         -- which agent CLI it runs (PROVIDERS.md); null = the machine's default harness
+  provider TEXT,         -- which agent CLI it runs (PROVIDERS.md); null = the machine's default harness
+  summoned_by TEXT,      -- who summoned it here (HANDOFF-PRESENCE Phase 4)
+  summoned_at TEXT,      -- when the summon happened (ISO)
+  summoned_x REAL,       -- tile coords where it was called (player position)
+  summoned_y REAL
 );
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
@@ -219,6 +223,10 @@ export function openDb(dbPath?: string): Db {
     "ALTER TABLE agents ADD COLUMN description TEXT",
     "ALTER TABLE agents ADD COLUMN goal TEXT",
     "ALTER TABLE agents ADD COLUMN provider TEXT",
+    "ALTER TABLE agents ADD COLUMN summoned_by TEXT",
+    "ALTER TABLE agents ADD COLUMN summoned_at TEXT",
+    "ALTER TABLE agents ADD COLUMN summoned_x REAL",
+    "ALTER TABLE agents ADD COLUMN summoned_y REAL",
   ]) {
     try {
       db.exec(alter);
@@ -368,11 +376,18 @@ export function expiredLeaseTasks(db: Db) {
 // is a real lifecycle transition away from waiting on anyone — clear
 // waiting_on here so it can't outlive the needs_input state that set it.
 // waiting_on's only other writer is setAgentWaitingOnHuman/clearAgentWaiting.
-export function setAgentStatus(db: Db, agentId: string, status: string, currentTask: string | null) {  db.prepare("UPDATE agents SET status = ?, current_task = ?, waiting_on = NULL WHERE id = ?").run(
-    status,
-    currentTask,
-    agentId
-  );
+export function setAgentStatus(db: Db, agentId: string, status: string, currentTask: string | null) {
+  // Work always wins over being summoned (Phase 4): the moment an agent
+  // gets a task it must leave the caller's position and return to its zone.
+  if (status === "working") {
+    db.prepare("UPDATE agents SET status = ?, current_task = ?, waiting_on = NULL, summoned_by = NULL, summoned_at = NULL, summoned_x = NULL, summoned_y = NULL WHERE id = ?").run(
+      status, currentTask, agentId
+    );
+  } else {
+    db.prepare("UPDATE agents SET status = ?, current_task = ?, waiting_on = NULL WHERE id = ?").run(
+      status, currentTask, agentId
+    );
+  }
 }
 
 // A task proposed via chat (D16: natural language in, typed contract out)
@@ -614,6 +629,28 @@ export function recentMemories(db: Db, projectId: string, limit = 50): MemoryRow
 
 export function clearAgentWaiting(db: Db, agentId: string) {
   db.prepare("UPDATE agents SET status = 'idle', waiting_on = NULL, current_task = NULL WHERE id = ?").run(agentId);
+}
+
+// ---------------- summon (HANDOFF-PRESENCE Phase 4) ----------------
+// A real event, not a local tween — stored on the agent row so every
+// browser sees it, cleared when the agent gets work (work always wins) or
+// when the caller dismisses.
+export function summonAgent(db: Db, agentId: string, by: string, x: number, y: number): void {
+  db.prepare(
+    "UPDATE agents SET summoned_by = ?, summoned_at = ?, summoned_x = ?, summoned_y = ? WHERE id = ?"
+  ).run(by, new Date().toISOString(), x, y, agentId);
+}
+
+export function clearSummon(db: Db, agentId: string): void {
+  db.prepare(
+    "UPDATE agents SET summoned_by = NULL, summoned_at = NULL, summoned_x = NULL, summoned_y = NULL WHERE id = ?"
+  ).run(agentId);
+}
+
+export function getSummon(db: Db, agentId: string): { by: string; at: string; x: number; y: number } | null {
+  const row = db.prepare("SELECT summoned_by AS by, summoned_at AS at, summoned_x AS x, summoned_y AS y FROM agents WHERE id = ?").get(agentId) as any;
+  if (!row?.by) return null;
+  return row;
 }
 
 // ---- delegation consent grants (SEALED.md, DECISIONS.md D13) ----

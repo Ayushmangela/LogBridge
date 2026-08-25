@@ -76,6 +76,12 @@ export function describeEvent(
     case "memory.write.duplicate":
       return null; // re-learning a known fact isn't news
 
+    case "summon":
+      return { ...base, actor: body.by ?? "you", summary: `called ${short(body.agentName ?? "an agent", 30)} here` };
+
+    case "summon.cancel":
+      return { ...base, actor: body.by ?? "you", summary: `dismissed ${short(body.agentName ?? "an agent", 30)}` };
+
     case "human.answer":
       return { ...base, actor: "You", summary: `${body.choice === "approve" ? "approved" : body.choice ?? "answered"} a proposed task` };
 

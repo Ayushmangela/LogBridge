@@ -136,6 +136,15 @@ export const AgentView = z.object({
    *  registered before this existed have no value, and a required field here
    *  would drop the whole view. */
   provider: z.string().nullable().optional(),
+
+  // ★ 1.23 — summon: "come here" is a real event (HANDOFF-PRESENCE Phase 4).
+  // The agent walks to the caller's position and stays until dismissed or it
+  // gets work (work always wins). Stored on the agent row; cleared on dismiss
+  // or on status → working. Optional for the same reason as provider: older
+  // rows have no value and a required field would blank the office.
+  summonedBy: z.string().nullable().optional(),
+  summonedAt: z.string().nullable().optional(),
+  summonedPos: Point.nullable().optional(),
 });
 
 // What a machine reports about the CLIs it actually has installed — computed

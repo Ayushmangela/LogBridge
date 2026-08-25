@@ -499,13 +499,19 @@
       position: absolute; z-index: 45; width: 176px; max-width: 186px;
       background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
       padding: 9px 11px; box-shadow: 0 6px 20px rgba(23,26,43,.14);
-      display: none; pointer-events: none;
+      display: none; pointer-events: auto;
     }
     .agent-popup.open { display: block; }
     .ap-name { font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ap-status { font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--text-faint); margin-top: 2px; }
     .ap-task { font-size: 11.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 5px; }
     .ap-note { font-size: 11px; color: var(--text-faint); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
+    .ap-summon-row { margin-top: 7px; display: flex; align-items: center; gap: 6px; }
+    .ap-summon-btn { font: inherit; font-size: 11.5px; font-weight: 650; padding: 5px 10px; border-radius: 7px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+    .ap-summon-btn:hover { filter: brightness(1.07); }
+    .ap-summon-btn.dismiss { background: var(--surface); color: var(--text-dim); border-color: var(--border); }
+    .ap-summon-btn.dismiss:hover { border-color: var(--red); color: var(--red); }
+    .ap-summon-err { font-size: 10.5px; color: var(--red); line-height: 1.3; }
   </style>
 <body>
 <div class="app">
@@ -626,6 +632,10 @@
             <div class="ap-status" id="ap-status">—</div>
             <div class="ap-task" id="ap-task" style="display:none"></div>
             <div class="ap-note" id="ap-note" style="display:none"></div>
+            <div class="ap-summon-row" id="ap-summon-row" style="display:none">
+              <button class="ap-summon-btn" id="ap-summon-btn">Call here</button>
+              <span class="ap-summon-err" id="ap-summon-err" style="display:none"></span>
+            </div>
           </div>
         </div>
 
@@ -710,7 +720,11 @@
                   <span id="cc-desc"></span></div>
               </div>
             </div>
-            <button class="card-link" onclick="setView('agents')">← All agents</button>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button id="cc-summon-btn" class="ap-summon-btn" style="display:none">Call here</button>
+              <span id="cc-summon-err" style="font-size:11px;color:var(--red);display:none;max-width:160px;line-height:1.3"></span>
+              <button class="card-link" onclick="setView('agents')">← All agents</button>
+            </div>
           </div>
 
           <div class="cc-tabs" id="cc-tabs"></div>
@@ -1194,6 +1208,14 @@
     }
 
     function positionForAgentWithRoaming(a, nowMs) {
+      // Summon wins over roaming but never over work (server clears summon on
+      // status → working, so a working agent never has a summonedPos here).
+      if (a.summonedPos && a.summonedPos.x != null && a.summonedPos.y != null) {
+        // Only honour it while the agent is still idle/waiting — work always wins
+        if (a.zone === 'idle' || a.status === 'idle' || a.status === 'waiting') {
+          return { x: a.summonedPos.x * TILE, y: a.summonedPos.y * TILE };
+        }
+      }
       // Non-idle agents are placed exactly on their slot — no roaming, no drift.
       if (a.zone !== 'idle') return positionForAgent(a);
       const rect = idlePixelRect();
@@ -1813,6 +1835,8 @@
         document.getElementById('cc-desc').textContent = '';
         document.getElementById('cc-tabs').innerHTML = '';
         body.innerHTML = '<div class="empty-note">That agent is no longer in this room.</div>';
+        const ccBtn2 = document.getElementById('cc-summon-btn');
+        if (ccBtn2) ccBtn2.style.display = 'none';
         return;
       }
 
@@ -1825,6 +1849,24 @@
         ? a.character
         : CHAR_NAMES[hashString(a.id) % CHAR_NAMES.length];
       portrait.style.backgroundImage = 'url(/assets/characters/' + sprite + '.png)';
+
+      // Phase 4: summon button in Command Center header — same real event as the popup
+      const ccBtn = document.getElementById('cc-summon-btn');
+      const ccErr = document.getElementById('cc-summon-err');
+      if (ccBtn) {
+        const isSummoned = !!(a.summonedPos && a.summonedPos.x != null);
+        ccBtn.style.display = 'inline-block';
+        if (isSummoned) {
+          ccBtn.textContent = 'Dismiss';
+          ccBtn.classList.add('dismiss');
+          ccBtn.onclick = () => doDismissSummon(a.id);
+        } else {
+          ccBtn.textContent = 'Call here';
+          ccBtn.classList.remove('dismiss');
+          ccBtn.onclick = () => doSummon(a.id);
+        }
+        if (ccErr) { ccErr.textContent = ''; ccErr.style.display = 'none'; }
+      }
 
       const tabs = document.getElementById('cc-tabs');
       tabs.innerHTML = '';
@@ -2696,6 +2738,9 @@
         const statusEl = document.getElementById('ap-status');
         const taskEl = document.getElementById('ap-task');
         const noteEl = document.getElementById('ap-note');
+        const row = document.getElementById('ap-summon-row');
+        const btn = document.getElementById('ap-summon-btn');
+        const err = document.getElementById('ap-summon-err');
         if (!nameEl || !statusEl) return;
         nameEl.textContent = a.name;
         const [label] = ZONE_BADGE[a.zone] ?? [a.status ?? 'unknown'];
@@ -2714,6 +2759,30 @@
         } else {
           noteEl.textContent = '';
           noteEl.style.display = 'none';
+        }
+        // Phase 4: summon row — "Call here" when idle and not summoned, "Dismiss" when summoned
+        if (row && btn) {
+          const isSummoned = !!(a.summonedPos && a.summonedPos.x != null);
+          if (a.status === 'idle' || isSummoned) {
+            row.style.display = 'flex';
+            if (isSummoned) {
+              btn.textContent = 'Dismiss';
+              btn.classList.add('dismiss');
+              btn.onclick = (e) => { e.stopPropagation(); doDismissSummon(a.id); };
+            } else {
+              btn.textContent = 'Call here';
+              btn.classList.remove('dismiss');
+              btn.onclick = (e) => { e.stopPropagation(); doSummon(a.id); };
+            }
+            if (err) { err.textContent = ''; err.style.display = 'none'; }
+          } else {
+            // Busy/offline agents still show row but disabled — error comes from server
+            row.style.display = 'flex';
+            btn.textContent = 'Call here';
+            btn.classList.remove('dismiss');
+            btn.onclick = (e) => { e.stopPropagation(); doSummon(a.id); };
+            if (err) { err.textContent = ''; err.style.display = 'none'; }
+          }
         }
       } catch (e) { console.warn('popup content failed', e); }
     }
@@ -2777,6 +2846,63 @@
       if (popup) popup.classList.remove('open');
     }
     window.closeAgentPopup = closeAgentPopup;
+
+    // Phase 4: summon — real event through the server
+    async function doSummon(agentId) {
+      const errEl = document.getElementById('ap-summon-err');
+      const ccErr = document.getElementById('cc-summon-err');
+      const x = Math.floor(player.x / TILE);
+      const y = Math.floor(player.y / TILE);
+      try {
+        const res = await fetch('/api/summon', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ agentId, x, y }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+          const msg = data.error || `summon failed (${res.status})`;
+          if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
+          if (ccErr) { ccErr.textContent = msg; ccErr.style.display = 'block'; }
+          // Keep popup open so the error is visible
+          return;
+        }
+        if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
+        if (ccErr) { ccErr.textContent = ''; ccErr.style.display = 'none'; }
+        // View will arrive via broadcast; no local tween
+      } catch (e) {
+        const msg = e.message || 'could not reach server';
+        if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
+        if (ccErr) { ccErr.textContent = msg; ccErr.style.display = 'block'; }
+      }
+    }
+
+    async function doDismissSummon(agentId) {
+      const errEl = document.getElementById('ap-summon-err');
+      const ccErr = document.getElementById('cc-summon-err');
+      try {
+        const res = await fetch('/api/summon/cancel', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ agentId }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+          const msg = data.error || `dismiss failed (${res.status})`;
+          if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
+          if (ccErr) { ccErr.textContent = msg; ccErr.style.display = 'block'; }
+          return;
+        }
+        if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
+        if (ccErr) { ccErr.textContent = ''; ccErr.style.display = 'none'; }
+      } catch (e) {
+        const msg = e.message || 'could not reach server';
+        if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
+        if (ccErr) { ccErr.textContent = msg; ccErr.style.display = 'block'; }
+      }
+    }
+    window.doSummon = doSummon;
+    window.doDismissSummon = doDismissSummon;
 
     // ---------------- Inspector: shows the real agent record ----------------
     function inspectAgent(a) {
