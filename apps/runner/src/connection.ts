@@ -9,6 +9,7 @@ import type { Identity } from "./identity.js";
 import type { AgentHarness } from "./harness/types.js";
 import { makePtyHarness } from "./harness/ptyHarness.js";
 import { detectInstalled, providerById, rememberInstruction } from "./harness/providers.js";
+import { resolveWorkspace, type Isolation } from "./workspace.js";
 import { Outbox } from "./outbox.js";
 import { loadCreatedAgents, saveCreatedAgents } from "./createdAgents.js";
 import { TaskRunner } from "./taskRunner.js";
@@ -81,6 +82,22 @@ export interface AgentDecl {
    *  runner's default harness, which is what a single-agent machine uses. */
   provider?: string;
   model?: string | null;
+
+  // Identity, chosen in the browser's Add Agent wizard and persisted here so
+  // it survives a restart. All optional — an agent declared in local config
+  // has none of it and works exactly as before.
+  /** Sprite the office draws for this agent. */
+  character?: string | null;
+  /** Accent colour, hex. */
+  color?: string | null;
+  /** The repo or folder this agent works in. Also how the roster groups. */
+  folder?: string | null;
+  /** How its workspace is isolated from other agents. See WORKSPACE.md. */
+  isolation?: "shared" | "worktree" | "copy" | null;
+  /** One line: what this agent is. */
+  description?: string | null;
+  /** Its standing objective. */
+  goal?: string | null;
 }
 
 export interface RunnerOptions {
@@ -294,7 +311,16 @@ export class RunnerConnection {
         return;
       }
       this.log(`accepting task ${body.taskId} for ${agent.name} on ${this.harnessForAgent(agent.id).name}: ${body.title}`);
-      const cwd = agent.cwd ?? join(this.opts.dataDir, "work", agent.id);
+      const workspace = resolveWorkspace({
+        agentId: agent.id,
+        folder: (agent as any).folder ?? null,
+        isolation: ((agent as any).isolation ?? "shared") as Isolation,
+        fallbackDir: join(this.opts.dataDir, "work", agent.id),
+      });
+      if (workspace.degradedReason) {
+        this.log(`workspace degraded for ${agent.name}: ${workspace.degradedReason}`);
+      }
+      const cwd = workspace.cwd;
       mkdirSync(cwd, { recursive: true });
       // The REMEMBER convention rides in the prompt: the parsers turn a
       // matching line into a memory.write. One line, skipped when nothing
@@ -555,7 +581,16 @@ export class RunnerConnection {
     }
 
     this.log(`accepted delegation ${body.requestId}: ${body.capability}`);
-    const cwd = agent.cwd ?? join(this.opts.dataDir, "work", agent.id);
+    const workspace = resolveWorkspace({
+      agentId: agent.id,
+      folder: (agent as any).folder ?? null,
+      isolation: ((agent as any).isolation ?? "shared") as Isolation,
+      fallbackDir: join(this.opts.dataDir, "work", agent.id),
+    });
+    if (workspace.degradedReason) {
+      this.log(`workspace degraded for ${agent.name}: ${workspace.degradedReason}`);
+    }
+    const cwd = workspace.cwd;
     mkdirSync(cwd, { recursive: true });
     const prompt = String(payload.inputs?.prompt ?? body.capability);
 
@@ -645,6 +680,15 @@ export class RunnerConnection {
       denyPaths: body.denyPaths?.length ? body.denyPaths : undefined,
       provider: body.provider ?? undefined,
       model: body.model ?? null,
+      character: body.character ?? null,
+      color: body.color ?? null,
+      // `folder` is what the agent works in; `cwd` above is where the harness
+      // is told to run. They differ once workspace isolation resolves a
+      // worktree from the folder — see WORKSPACE.md.
+      folder: body.folder ?? null,
+      isolation: body.isolation ?? null,
+      description: body.description ?? null,
+      goal: body.goal ?? null,
     };
     this.opts.agents.push(decl);
     // Survive a restart. Without this the server keeps the agent row while
@@ -1063,6 +1107,12 @@ export class RunnerConnection {
         machineId: this.opts.identity.machineId, role: a.role,
         capabilities: a.capabilities, harness: a.provider ?? "fake-worker",
         projects: a.projects, concurrency: a.concurrency ?? 1, status: "idle",
+        // The machine owner declares identity, so the card carries it and the
+        // server overwrites. `note` is not here — a human types that in the
+        // browser and a reconnect must not wipe it.
+        character: a.character ?? null, color: a.color ?? null,
+        folder: a.folder ?? null, isolation: a.isolation ?? null,
+        description: a.description ?? null, goal: a.goal ?? null,
       },
     };
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(env));
