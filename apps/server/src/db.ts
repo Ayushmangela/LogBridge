@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { blendByRecency, migrateMemoryDedupe, normalizeMemoryKey } from "./memory.js";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -125,13 +126,22 @@ CREATE TABLE IF NOT EXISTS memories (
   source_task_id TEXT,
   agent_id TEXT,
   agent_name TEXT,
-  created_at TEXT
+  created_at TEXT,
+  -- Normalised form of text: the dedup KEY. Lowercased, clause punctuation
+  -- and whitespace collapsed. The display text stays exactly what the
+  -- agent wrote; only the key is normalised. See memory.ts for the rule and
+  -- why it stops at formatting ("never deploy on Friday" is still a
+  -- different FACT, not a differently formatted one).
+  dedupe_key TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_memories_project ON memories (project_id, created_at DESC);
--- Same text, same scope, written twice is one memory, not two. This is what
--- stops an agent that repeats itself every task from burying everything else.
+-- Same fact, same scope, written twice is one memory, not two — regardless of
+-- capitalisation or a trailing period. Agents volunteering memories via the
+-- REMEMBER convention phrase the same fact slightly differently every time;
+-- raw-text dedup let each phrasing become its own row until recall's 100-row
+-- cap was mostly echoes.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_dedupe
-  ON memories (project_id, scope, IFNULL(scope_id, ''), text);
+  ON memories (project_id, scope, IFNULL(scope_id, ''), dedupe_key);
 
 -- FTS5 external-content index over memories.text. Retrieval is lexical
 -- (BM25), NOT semantic embeddings — see MEMORY.md's "what this is not".
@@ -198,6 +208,11 @@ export function openDb(dbPath?: string): Db {
       if (!/duplicate column name/i.test(msg)) throw e;
     }
   }
+  // Memory dedup migration + backfill — explicit and idempotent (see
+  // memory.ts). A backfill cannot live in this ALTER list, which only knows
+  // how to add columns.
+  migrateMemoryDedupe(db);
+
   return db;
 }
 
@@ -479,14 +494,17 @@ export function writeMemory(
   const id = `mem_${crypto.randomUUID()}`;
   // ON CONFLICT DO NOTHING against the dedupe index — re-learning a fact is
   // a no-op, not an error and not a duplicate row.
+  // The KEY is normalised so re-phrasings of one fact collide into the
+  // no-op branch; `text` stored verbatim for display.
   const res = db
     .prepare(
-      `INSERT INTO memories (id, project_id, scope, scope_id, kind, text, source_task_id, agent_id, agent_name, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO memories (id, project_id, scope, scope_id, kind, text, dedupe_key, source_task_id, agent_id, agent_name, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT DO NOTHING`
     )
     .run(
       id, m.projectId, m.scope, m.scopeId, m.kind, m.text.trim(),
+      normalizeMemoryKey(m.text),
       m.sourceTaskId, m.agentId, m.agentName, new Date().toISOString()
     );
   return res.changes > 0 ? id : null;
@@ -514,28 +532,48 @@ export function recallMemories(
   const visible = "m.project_id = ? AND (m.scope = 'project' OR (m.scope = 'agent' AND m.scope_id = ?))";
   const fts = toFtsQuery(opts.query);
 
+  // Candidates are fetched OVER the limit (3x) because ranking happens after
+  // the query: a recency boost must be able to lift a slightly-less-lexical
+  // row into the final page, which it can't do if that row was cut before
+  // scoring. Nothing is deleted by any of this — age reorders, never evicts.
   const rows = fts
     ? (db
         .prepare(
-          `SELECT m.id, m.scope, m.kind, m.text, m.agent_name, m.created_at
+          `SELECT m.id, m.scope, m.kind, m.text, m.agent_name, m.created_at,
+                  bm25(memories_fts) AS bm25
            FROM memories_fts f
            JOIN memories m ON m.rowid = f.rowid
            WHERE f.text MATCH ? AND ${visible}
            ORDER BY bm25(memories_fts) LIMIT ?`
         )
-        .all(fts, opts.projectId, opts.agentId, opts.limit) as any[])
+        .all(fts, opts.projectId, opts.agentId, opts.limit * 3) as any[])
     : (db
         .prepare(
-          `SELECT m.id, m.scope, m.kind, m.text, m.agent_name, m.created_at
+          // Ordered and capped in SQL, not in JS. Without the LIMIT this
+          // materialised every visible memory on every recall and then threw
+          // most of them away — correct, but a full scan per task, on the one
+          // path that has no relevance ranking to justify over-fetching.
+          `SELECT m.id, m.scope, m.kind, m.text, m.agent_name, m.created_at, 0 AS bm25
            FROM memories m WHERE ${visible}
            ORDER BY m.created_at DESC LIMIT ?`
         )
         .all(opts.projectId, opts.agentId, opts.limit) as any[]);
 
-  return rows.map((r) => ({
-    id: r.id, scope: r.scope, kind: r.kind, text: r.text,
-    agentName: r.agent_name ?? "unknown", createdAt: r.created_at,
-  }));
+  // No query (or an unmatchable one): most-recent first is already the right
+  // order, and blending would just re-sort recency against itself.
+  if (!fts) {
+    return rows.slice(0, opts.limit).map((r) => ({
+      id: r.id, scope: r.scope, kind: r.kind, text: r.text,
+      agentName: r.agent_name ?? "unknown", createdAt: r.created_at,
+    }));
+  }
+
+  return blendByRecency(rows, Date.now())
+    .slice(0, opts.limit)
+    .map((r) => ({
+      id: r.id, scope: r.scope, kind: r.kind, text: r.text,
+      agentName: r.agent_name ?? "unknown", createdAt: r.created_at,
+    }));
 }
 
 export function recentMemories(db: Db, projectId: string, limit = 50): MemoryRow[] {

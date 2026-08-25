@@ -72,11 +72,21 @@ exactly that. The interface is shaped so they can slot in later:
 `recallMemories()` takes a query string and returns ranked rows, and nothing
 above it assumes how the ranking happened.
 
-**No forgetting, no summarisation, no conflict resolution.** Memories are
-deduped on (project, scope, text) and capped at 100 rows in a recall / 30 in
-the view, but nothing ages them out, merges near-duplicates, or notices that
-two memories contradict each other. At the scale this runs at (a few people,
-one room) that's fine. It would not be fine at a thousand memories.
+**Near-duplicates collapse; nothing is forgotten or reconciled.** Memories are
+deduped on (project, scope, `dedupe_key`) — a *normalised* form of the text, so
+"use pnpm, not npm" and "Use pnpm not npm." are one fact rather than two. The
+normalisation is strictly about formatting: case, whitespace, clause
+punctuation and a trailing full stop. Punctuation inside a word is left alone,
+because "3:1" and "31" are not the same fact.
+
+Recall blends lexical relevance (BM25) with recency on a 21-day half-life,
+weighted 80/20 so an old exact match still beats a recent vague one. **Age
+affects ranking only — nothing is ever deleted for being old.**
+
+Still missing: summarisation, and any notion that two memories contradict each
+other. Recall is still capped at 100 rows (30 in the view). At the scale this
+runs at — a few people, one room — that's fine. It would not be fine at a
+thousand memories.
 
 **Agents choose what to remember (as of the `remember` event).** Two things now
 form a memory: a task's outcome, written by the runner, and anything the agent
