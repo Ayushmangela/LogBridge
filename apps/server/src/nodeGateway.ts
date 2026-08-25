@@ -80,6 +80,13 @@ export interface AgentCreateRequest {
   cwd?: string | null;
   allowTools?: string[];
   denyPaths?: string[];
+  /** Identity from the Add Agent wizard — all optional. */
+  character?: string | null;
+  color?: string | null;
+  folder?: string | null;
+  isolation?: "shared" | "worktree" | "copy" | null;
+  description?: string | null;
+  goal?: string | null;
 }
 
 /**
@@ -111,6 +118,9 @@ export async function requestAgentCreate(
       provider: opts.provider ?? null, model: opts.model ?? null,
       capabilities: opts.capabilities ?? [], projectId: opts.projectId,
       cwd: opts.cwd ?? null, allowTools: opts.allowTools ?? [], denyPaths: opts.denyPaths ?? [],
+      character: opts.character ?? null, color: opts.color ?? null,
+      folder: opts.folder ?? null, isolation: opts.isolation ?? null,
+      description: opts.description ?? null, goal: opts.goal ?? null,
     },
   };
 
@@ -908,15 +918,24 @@ function handleNodeEnvelope(
     // the card. Simplification: one project per agent for now (the schema
     // and buildView both assume this already) — take the first of `projects`.
     const owner = db.prepare("SELECT owner_id FROM machines WHERE id = ?").get(body.machineId) as any;
+    // Identity travels with the card because the machine owner declares it
+    // (SYSTEM.md §7) — the same reason name and role do. `note` is absent on
+    // purpose: a human types it in the browser, so overwriting it here would
+    // erase it every time the runner reconnected.
     db.prepare(
-      `INSERT INTO agents (id, machine_id, owner_id, project_id, name, role, capabilities, concurrency, status, current_task)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL)
+      `INSERT INTO agents (id, machine_id, owner_id, project_id, name, role, capabilities, concurrency, status, current_task,
+                           character, color, folder, isolation, description, goal)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          machine_id=excluded.machine_id, owner_id=excluded.owner_id, project_id=excluded.project_id,
-         name=excluded.name, role=excluded.role, capabilities=excluded.capabilities, concurrency=excluded.concurrency`
+         name=excluded.name, role=excluded.role, capabilities=excluded.capabilities, concurrency=excluded.concurrency,
+         character=excluded.character, color=excluded.color, folder=excluded.folder,
+         isolation=excluded.isolation, description=excluded.description, goal=excluded.goal`
     ).run(
       body.id, body.machineId, owner?.owner_id ?? "usr_dev", body.projects[0] ?? null,
-      body.name, body.role, JSON.stringify(body.capabilities ?? []), body.concurrency ?? 1
+      body.name, body.role, JSON.stringify(body.capabilities ?? []), body.concurrency ?? 1,
+      body.character ?? null, body.color ?? null, body.folder ?? null,
+      body.isolation ?? null, body.description ?? null, body.goal ?? null
     );
     broadcastPeerDirectory(db, nodeSockets); // a new agent is a new possible peer
     orchestrate(db, nodeSockets, app);

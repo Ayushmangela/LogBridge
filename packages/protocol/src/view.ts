@@ -110,6 +110,27 @@ export const AgentView = z.object({
   githubRef: z
     .object({ kind: z.enum(["pr", "issue"]), ref: z.string() })
     .nullable(),
+
+  // ★ 1.20 — who this agent IS, as opposed to what it is doing.
+  //
+  // All nullable: every agent that existed before this shipped has none of
+  // it, and an agent is perfectly usable without any. The office falls back
+  // to a deterministic sprite rather than refusing to draw one, so a null
+  // here is a missing preference and never a missing agent.
+  /** Sprite the office draws. One of the renderer's CHAR_NAMES. */
+  character: z.string().nullable(),
+  /** Accent colour as a hex string, e.g. "#c05d5d". */
+  color: z.string().nullable(),
+  /** The repo or folder this agent works in — also how the roster groups. */
+  folder: z.string().nullable(),
+  /** How its workspace is isolated. See WORKSPACE.md. */
+  isolation: z.enum(["shared", "worktree", "copy"]).nullable(),
+  /** A human's scratch note, shown under the agent in the roster. */
+  note: z.string().nullable(),
+  /** One line: what this agent is. Shown as the header tagline. */
+  description: z.string().nullable(),
+  /** Its standing objective, from the briefing step. */
+  goal: z.string().nullable(),
 });
 
 // What a machine reports about the CLIs it actually has installed — computed

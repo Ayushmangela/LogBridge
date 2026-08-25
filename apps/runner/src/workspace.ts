@@ -114,12 +114,18 @@ function resolveCopy(req: WorkspaceRequest, folder: string): Workspace {
     // destroy exactly the in-progress state isolation exists to protect.
     return { cwd: target, branch: null, ephemeral: false, degradedReason: null };
   } catch (err) {
-    return SHARED(req.fallbackDir, `copy failed: ${(err as Error).message}`);
+    return SHARED(req.folder ?? req.fallbackDir, `copy failed: ${(err as Error).message}`);
   }
 }
 
 function resolveWorktree(req: WorkspaceRequest, repoDir: string, execGit: ExecGit): Workspace {
-  const degrade = (why: string): Workspace => SHARED(req.fallbackDir, why);
+  // Degrading means falling back to SHARED, and shared resolves
+  // `folder ?? fallbackDir` — so an agent that named a folder must still land
+  // in it. Using fallbackDir here instead sent the agent to an empty scratch
+  // directory: it would run, report success, and touch nothing the person
+  // cared about. Silent and wrong beats loud and wrong only in the other
+  // direction. `folder` is known to exist by this point (checked above).
+  const degrade = (why: string): Workspace => SHARED(req.folder ?? req.fallbackDir, why);
   const branch = `logbridge/${safeRefPart(req.agentId)}`;
 
   try {

@@ -232,6 +232,14 @@ export const BodySchemas = {
     cwd: z.string().nullable().default(null),
     allowTools: z.array(z.string()).default([]),
     denyPaths: z.array(z.string()).default([]),
+    // ★ 1.20 identity, chosen in the Add Agent wizard. All optional: a
+    // caller that sends none of it still creates a working agent.
+    character: z.string().nullable().default(null),
+    color: z.string().nullable().default(null),
+    folder: z.string().nullable().default(null),
+    isolation: z.enum(["shared", "worktree", "copy"]).nullable().default(null),
+    description: z.string().nullable().default(null),
+    goal: z.string().nullable().default(null),
   }),
 
   "agent.create.result": z.object({
@@ -255,6 +263,17 @@ export const BodySchemas = {
       "idle", "working", "waiting", "blocked",
       "needs_input", "reviewing", "completed", "failed",
     ]),
+    // ★ 1.20 — the machine owner declares these, so the runner is the source
+    // of truth and the server overwrites on every card (as it already does
+    // for name/role/capabilities). `note` is deliberately NOT here: it is a
+    // human annotation made in the browser, and a runner reconnecting must
+    // not wipe it.
+    character: z.string().nullish().default(null),
+    color: z.string().nullish().default(null),
+    folder: z.string().nullish().default(null),
+    isolation: z.enum(["shared", "worktree", "copy"]).nullish().default(null),
+    description: z.string().nullish().default(null),
+    goal: z.string().nullish().default(null),
   }),
 
   "node.status": z.object({

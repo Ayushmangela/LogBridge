@@ -16,7 +16,8 @@ import { buildServer, type BuiltServer } from "../../server/src/index.js";
 import { loadOrCreateIdentity } from "./identity.js";
 import { RunnerConnection } from "./connection.js";
 import { fakeHarness } from "./harness/fakeHarness.js";
-import type { AgentHarness } from "./harness/types.js";
+import { AsyncEventQueue } from "./harness/asyncQueue.js";
+import type { AgentEvent, AgentHarness } from "./harness/types.js";
 import {
   releaseWorkspace,
   resolveWorkspace,
@@ -142,7 +143,12 @@ describe("worktree mode — real git", () => {
     writeFileSync(join(plain, "notes.txt"), "no repo here\n");
     const fb = join(scratch, "fallback");
     const ws = resolveWorkspace(req({ isolation: "worktree", folder: plain, fallbackDir: fb }));
-    expect(ws.cwd).toBe(fb);
+    // "Shared" means `folder ?? fallbackDir`, so with a folder configured the
+    // degraded workspace IS that folder. Landing on `fb` would leave the agent
+    // in an empty directory, doing nothing the person asked for while
+    // reporting success — a gate on work happening, which this module exists
+    // not to be.
+    expect(ws.cwd).toBe(plain);
     expect(ws.ephemeral).toBe(false);
     expect(ws.degradedReason).toMatch(/not a git repository/i);
   });
@@ -152,7 +158,7 @@ describe("worktree mode — real git", () => {
     execSync(`git init --bare ${JSON.stringify(bare)}`);
     const fb = join(scratch, "fallback");
     const ws = resolveWorkspace(req({ isolation: "worktree", folder: bare, fallbackDir: fb }));
-    expect(ws.cwd).toBe(fb);
+    expect(ws.cwd).toBe(bare);
     expect(ws.degradedReason).toMatch(/bare/i);
   });
 
@@ -173,7 +179,7 @@ describe("worktree mode — real git", () => {
       req({ isolation: "worktree", folder: repo, fallbackDir: fb }),
       noGit
     );
-    expect(ws.cwd).toBe(fb);
+    expect(ws.cwd).toBe(repo);
     expect(ws.degradedReason).toMatch(/git is not available/i);
   });
 });
@@ -250,8 +256,7 @@ function captureHarness(): AgentHarness & { cwds: string[]; prompts: string[] } 
     spawn(opts) {
       cwds.push(opts.cwd);
       prompts.push(opts.prompt);
-      const { AsyncEventQueue } = require("./harness/asyncQueue.js") as typeof import("./harness/asyncQueue.js");
-      const q = new AsyncEventQueue<import("./harness/types.js").AgentEvent>();
+      const q = new AsyncEventQueue<AgentEvent>();
       q.push({ kind: "done", ok: true });
       q.close();
       return { events: q, interrupt: () => {}, kill: () => q.close(), answer: () => {} };
@@ -315,3 +320,52 @@ describe("end-to-end: an isolated agent runs inside its worktree", () => {
     rmSync(dataDir, { recursive: true, force: true });
   }, 20_000);
 });
+
+// ---------------------------------------------------------------------------
+// Added during Stream A's verification pass.
+//
+// WORKSPACE.md promises that a failed isolation "returns the shared
+// directory". Shared mode resolves `folder ?? fallbackDir` — so for an agent
+// WITH a folder configured, degrading has to land on that folder. Landing on
+// the scratch fallback instead is the silent-failure case: the person picked
+// /Users/them/notes, ticked Worktree without knowing it isn't a git repo, and
+// the agent works in an empty directory, reports success, and touches nothing
+// they care about.
+describe("degrading keeps the folder the person actually chose", () => {
+  test("a non-git folder degrades to that folder, not to a scratch directory", () => {
+    const plain = mkdtempSync(join(tmpdir(), "lb-plain-"));
+    writeFileSync(join(plain, "their-work.txt"), "the reason they picked this folder");
+    const fallback = join(mkdtempSync(join(tmpdir(), "lb-fb-")), "agt_x");
+
+    const ws = resolveWorkspace({
+      agentId: "agt_x", folder: plain, isolation: "worktree", fallbackDir: fallback,
+    });
+
+    expect(ws.degradedReason).toMatch(/not a git repository/i);
+    expect(ws.cwd, "must be the configured folder — that is what shared means").toBe(plain);
+    expect(existsSync(join(ws.cwd, "their-work.txt"))).toBe(true);
+  });
+
+  test("a bare repository degrades to the folder too", () => {
+    const bare = mkdtempSync(join(tmpdir(), "lb-bare-"));
+    execSync(`git init -q --bare ${bare}`);
+    const fallback = join(mkdtempSync(join(tmpdir(), "lb-fb2-")), "agt_y");
+
+    const ws = resolveWorkspace({
+      agentId: "agt_y", folder: bare, isolation: "worktree", fallbackDir: fallback,
+    });
+    expect(ws.degradedReason).toBeTruthy();
+    expect(ws.cwd).toBe(bare);
+  });
+
+  test("with NO folder configured the fallback is still the only option", () => {
+    // The one case where the scratch directory is genuinely correct.
+    const fallback = join(mkdtempSync(join(tmpdir(), "lb-fb3-")), "agt_z");
+    const ws = resolveWorkspace({
+      agentId: "agt_z", folder: null, isolation: "worktree", fallbackDir: fallback,
+    });
+    expect(ws.cwd).toBe(fallback);
+    expect(ws.degradedReason).toBeTruthy();
+  });
+});
+

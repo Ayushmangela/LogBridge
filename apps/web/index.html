@@ -224,10 +224,42 @@
     .card-link:hover { text-decoration: underline; }
 
     .task-id { font-size: 12px; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', monospace; }
+    /* ---- Add Agent wizard ---- */
+    .wiz { display: grid; grid-template-columns: 190px 1fr; gap: 18px; align-items: start; }
+    .wiz-rail { display: flex; flex-direction: column; gap: 6px; }
+    .wiz-step { text-align: left; border: 1px solid var(--border); background: var(--surface);
+                border-radius: 8px; padding: 9px 11px; cursor: pointer; font: inherit; }
+    .wiz-step b { display: block; font-size: 11.5px; letter-spacing: .6px; text-transform: uppercase; }
+    .wiz-step i { display: block; font-style: normal; font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+    .wiz-step.active { border-color: var(--accent); background: var(--accent-soft); }
+    /* Only one pane is in the DOM flow at a time — the dialog must not resize
+       as you move between steps, so panes share a min-height. */
+    .wiz-panes { min-height: 268px; }
+    .wiz-pane { display: none; }
+    .wiz-pane.active { display: block; }
+
+    .char-grid { display: flex; gap: 10px; flex-wrap: wrap; }
+    /* Each sprite sheet is a horizontal strip of 32x48 frames; frame 0 is the
+       idle pose, so a fixed 0 0 background position gives a portrait for any
+       sheet without needing to read its atlas. */
+    .char-opt { width: 48px; height: 72px; border: 2px solid var(--border); border-radius: 8px;
+                background-repeat: no-repeat; background-position: 0 0; image-rendering: pixelated;
+                cursor: pointer; padding: 0; background-color: var(--surface); }
+    .char-opt.sel { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+    .swatches { display: flex; gap: 9px; }
+    .swatch { width: 30px; height: 30px; border-radius: 7px; border: 2px solid var(--border); cursor: pointer; padding: 0; }
+    .swatch.sel { border-color: var(--text); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+    /* Roster folder headings — agents group by the folder they work in. */
+    .roster-folder { display: flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 700;
+                     letter-spacing: .6px; text-transform: uppercase; color: var(--text-faint);
+                     padding: 9px 4px 3px; }
+    .roster-note { font-size: 11px; color: var(--text-faint); font-style: italic; }
     .task-name { font-size: 13.5px; font-weight: 600; margin-left: 8px; }
     /* The agent's most recent line. One line only — it updates as the agent
        works, and a growing block would shove the rest of the card around. */
-    .ct-note { font-size: 12px; color: var(--text-muted); margin: 5px 0 2px;
+    .ct-note { font-size: 12px; color: var(--text-dim); margin: 5px 0 2px;
                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .pill {
       display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px;
@@ -658,60 +690,128 @@
     <h2>Add an agent</h2>
     <div class="sub">The agent is registered on the machine you pick, runs that machine's CLI, and works in
       the project's folder there. The machine has the final say — it refuses anything its owner hasn't allowed.</div>
-    <div class="form-grid">
-      <div class="field">
-        <label for="aa-machine">Machine</label>
-        <select id="aa-machine"></select>
-      </div>
-      <div class="field">
-        <label for="aa-project">Project</label>
-        <select id="aa-project"></select>
-      </div>
-      <div class="field">
-        <label for="aa-name">Name</label>
-        <input id="aa-name" placeholder="dev-api" maxlength="64" autocomplete="off">
-      </div>
-      <div class="field">
-        <label for="aa-role">Role</label>
-        <select id="aa-role">
-          <option value="developer" selected>Developer</option>
-          <option value="research">Research</option>
-          <option value="qa">QA</option>
-          <option value="review">Review</option>
-          <option value="docs">Docs</option>
-          <option value="planner">Planner</option>
-        </select>
-      </div>
-      <div class="field wide">
-        <label for="aa-provider">Provider (the CLI this agent runs)</label>
-        <select id="aa-provider"></select>
-        <div class="provider-note" id="aa-provider-note"></div>
-      </div>
-      <div class="field wide">
-        <label for="aa-model">Model</label>
-        <select id="aa-model"></select>
-      </div>
-      <div class="field wide">
-        <label for="aa-caps">Capabilities <span style="text-transform:none;font-weight:500">(comma-separated, e.g. implement_feature, fix_test)</span></label>
-        <input id="aa-caps" placeholder="optional" autocomplete="off">
-      </div>
-      <details class="adv">
-        <summary>Advanced — working folder and tool policy</summary>
-        <div class="form-grid">
-          <div class="field wide">
-            <label for="aa-cwd">Working folder on that machine</label>
-            <input id="aa-cwd" placeholder="default: ~/.logbridge/work/&lt;agent-id&gt;">
+    <div class="wiz">
+      <!-- Step rail. Mirrors the mockup: the four things you decide about an
+           agent, in the order you decide them. -->
+      <nav class="wiz-rail" id="aa-rail">
+        <button class="wiz-step active" data-step="identity">
+          <b>1 IDENTITY</b><i>name · character · color</i>
+        </button>
+        <button class="wiz-step" data-step="workspace">
+          <b>2 WORKSPACE</b><i>folder · isolation</i>
+        </button>
+        <button class="wiz-step" data-step="engine">
+          <b>3 ENGINE</b><i>provider · model · command</i>
+        </button>
+        <button class="wiz-step" data-step="briefing">
+          <b>4 BRIEFING</b><i>description · goal</i>
+        </button>
+      </nav>
+
+      <div class="wiz-panes">
+        <section class="wiz-pane active" data-pane="identity">
+          <div class="form-grid">
+            <div class="field">
+              <label for="aa-machine">Machine</label>
+              <select id="aa-machine"></select>
+            </div>
+            <div class="field">
+              <label for="aa-project">Project</label>
+              <select id="aa-project"></select>
+            </div>
+            <div class="field">
+              <label for="aa-name">Name</label>
+              <input id="aa-name" placeholder="dev-api" maxlength="64" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="aa-role">Role</label>
+              <select id="aa-role">
+                <option value="developer" selected>Developer</option>
+                <option value="research">Research</option>
+                <option value="qa">QA</option>
+                <option value="review">Review</option>
+                <option value="docs">Docs</option>
+                <option value="planner">Planner</option>
+              </select>
+            </div>
+            <div class="field wide">
+              <label>Character</label>
+              <div class="char-grid" id="aa-char"></div>
+            </div>
+            <div class="field wide">
+              <label>Colour</label>
+              <div class="swatches" id="aa-color"></div>
+            </div>
           </div>
-          <div class="field">
-            <label for="aa-allow">Allowed tools</label>
-            <input id="aa-allow" placeholder="Read, Write, Bash">
+        </section>
+
+        <section class="wiz-pane" data-pane="workspace">
+          <div class="form-grid">
+            <div class="field wide">
+              <label for="aa-folder">Folder this agent works in</label>
+              <input id="aa-folder" placeholder="/Users/you/code/your-repo" autocomplete="off">
+              <div class="provider-note">Leave empty and the agent gets its own scratch directory.</div>
+            </div>
+            <div class="field wide">
+              <label for="aa-isolation">Isolation</label>
+              <select id="aa-isolation">
+                <option value="shared" selected>Shared — work directly in that folder</option>
+                <option value="worktree">Worktree — its own git branch and checkout</option>
+                <option value="copy">Copy — a separate copy of the folder</option>
+              </select>
+              <div class="provider-note" id="aa-isolation-note"></div>
+            </div>
           </div>
-          <div class="field">
-            <label for="aa-deny">Denied paths</label>
-            <input id="aa-deny" placeholder=".env*, **/secrets/**">
+        </section>
+
+        <section class="wiz-pane" data-pane="engine">
+          <div class="form-grid">
+            <div class="field wide">
+              <label for="aa-provider">Provider (the CLI this agent runs)</label>
+              <select id="aa-provider"></select>
+              <div class="provider-note" id="aa-provider-note"></div>
+            </div>
+            <div class="field wide">
+              <label for="aa-model">Model</label>
+              <select id="aa-model"></select>
+            </div>
+            <div class="field wide">
+              <label for="aa-caps">Capabilities <span style="text-transform:none;font-weight:500">(comma-separated, e.g. implement_feature, fix_test)</span></label>
+              <input id="aa-caps" placeholder="optional" autocomplete="off">
+            </div>
+            <details class="adv">
+              <summary>Advanced — working folder and tool policy</summary>
+              <div class="form-grid">
+                <div class="field wide">
+                  <label for="aa-cwd">Working folder on that machine</label>
+                  <input id="aa-cwd" placeholder="default: ~/.logbridge/work/&lt;agent-id&gt;">
+                </div>
+                <div class="field">
+                  <label for="aa-allow">Allowed tools</label>
+                  <input id="aa-allow" placeholder="Read, Write, Bash">
+                </div>
+                <div class="field">
+                  <label for="aa-deny">Denied paths</label>
+                  <input id="aa-deny" placeholder=".env*, **/secrets/**">
+                </div>
+              </div>
+            </details>
           </div>
-        </div>
-      </details>
+        </section>
+
+        <section class="wiz-pane" data-pane="briefing">
+          <div class="form-grid">
+            <div class="field wide">
+              <label for="aa-description">Description <span style="text-transform:none;font-weight:500">(one line, shown under its name)</span></label>
+              <input id="aa-description" placeholder="runs the floor" maxlength="120" autocomplete="off">
+            </div>
+            <div class="field wide">
+              <label for="aa-goal">Goal <span style="text-transform:none;font-weight:500">(what it is here to achieve)</span></label>
+              <textarea id="aa-goal" rows="4" maxlength="2000" placeholder="Keep the payments service green — triage failures, fix flaky tests, and open PRs for anything larger."></textarea>
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
     <div id="agent-create-error"></div>
     <div class="dialog-actions">
@@ -1341,6 +1441,13 @@
       }
     }
 
+    /** Just the last path segment — a roster 190px wide cannot show
+     *  "/Users/you/code/payments-api" and still show the agent. */
+    function folderLabel(path) {
+      const parts = String(path).split('/').filter(Boolean);
+      return parts.length ? parts[parts.length - 1] : path;
+    }
+
     function renderAgentRoster(room) {
       const el = document.getElementById('agent-list');
       el.innerHTML = '';
@@ -1348,12 +1455,35 @@
         el.innerHTML = '<div class="r-sub" style="padding:6px 9px;">No agents connected</div>';
         return;
       }
+
+      // Grouped by the folder each agent works in, which is what the roster
+      // is actually for: "who is touching this repo right now". Agents with
+      // no folder are not forced under a fake heading — they list first,
+      // exactly as they did before folders existed.
+      const groups = new Map();
+      const loose = [];
       for (const a of room.agents) {
-        el.appendChild(rosterRow({
-          name: a.name, bot: true, status: a.status,
-          sub: a.task ? a.task.title : a.status,
-          onClick: () => { setView('office'); inspectAgent(a); },
-        }));
+        if (!a.folder) { loose.push(a); continue; }
+        if (!groups.has(a.folder)) groups.set(a.folder, []);
+        groups.get(a.folder).push(a);
+      }
+
+      const addRow = (a) => el.appendChild(rosterRow({
+        name: a.name, bot: true, status: a.status,
+        // The note is a human's annotation and wins over machine chatter:
+        // if someone wrote "flaky on staging", that is the thing to show.
+        sub: a.note || (a.task ? a.task.title : (a.description || a.status)),
+        onClick: () => { setView('office'); inspectAgent(a); },
+      }));
+
+      loose.forEach(addRow);
+      for (const [folder, agents] of groups) {
+        const h = document.createElement('div');
+        h.className = 'roster-folder';
+        h.textContent = folderLabel(folder);
+        h.title = folder;                      // the full path on hover
+        el.appendChild(h);
+        agents.forEach(addRow);
       }
     }
 
@@ -1501,6 +1631,67 @@
       }
     }
 
+    // ---- Add Agent wizard: steps, character, colour ----
+
+    // The palette offered in the dialog. Stored as hex on the agent, so the
+    // server carries a value rather than an index into a list only the
+    // browser knows — a palette change must not silently recolour agents.
+    const AGENT_COLORS = ['#c05d5d', '#5d9c6b', '#4f7ec9', '#c9a227', '#8a63c9', '#c07a4a'];
+
+    let aaCharacter = null;   // null until the person picks; see aaDefaultChar
+    let aaColor = null;
+
+    function aaShowStep(step) {
+      for (const b of document.querySelectorAll('.wiz-step'))
+        b.classList.toggle('active', b.dataset.step === step);
+      for (const p of document.querySelectorAll('.wiz-pane'))
+        p.classList.toggle('active', p.dataset.pane === step);
+    }
+
+    /** A stable default so two people opening the dialog see the same thing,
+     *  and so an agent always has *a* sprite even if nobody chooses one. */
+    function aaDefaultChar() { return CHAR_NAMES[0]; }
+
+    function aaBuildIdentityPickers() {
+      const grid = document.getElementById('aa-char');
+      grid.innerHTML = '';
+      // Built from CHAR_NAMES, so dropping a new sprite sheet into
+      // assets/characters and adding it there is the whole job.
+      for (const name of CHAR_NAMES) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'char-opt' + (name === aaCharacter ? ' sel' : '');
+        b.title = name;
+        // 32x48 frames drawn at 1.5x; frame 0 of every sheet is the idle pose.
+        b.style.backgroundImage = `url(/assets/characters/${name}.png)`;
+        b.style.backgroundSize = 'auto 72px';
+        b.onclick = () => { aaCharacter = name; aaBuildIdentityPickers(); };
+        grid.appendChild(b);
+      }
+      const sw = document.getElementById('aa-color');
+      sw.innerHTML = '';
+      for (const c of AGENT_COLORS) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'swatch' + (c === aaColor ? ' sel' : '');
+        b.style.background = c;
+        b.title = c;
+        b.onclick = () => { aaColor = c; aaBuildIdentityPickers(); };
+        sw.appendChild(b);
+      }
+    }
+
+    function aaIsolationChanged() {
+      const v = document.getElementById('aa-isolation').value;
+      const note = document.getElementById('aa-isolation-note');
+      // Say what each mode costs, not just what it does. "Worktree" sounds
+      // free until it silently needs the folder to be a git repo.
+      note.textContent =
+        v === 'worktree' ? 'Needs the folder to be a git repository. Falls back to shared if it is not.'
+        : v === 'copy'   ? 'Copies the folder once. Changes do not flow back on their own.'
+        : 'Several agents in one folder share a git branch and index.';
+    }
+
     function aaOpen() {
       const room = activeRoom();
       const machines = room?.machines ?? [];
@@ -1532,6 +1723,15 @@
       document.getElementById('aa-cwd').value = '';
       document.getElementById('aa-allow').value = '';
       document.getElementById('aa-deny').value = '';
+      document.getElementById('aa-folder').value = '';
+      document.getElementById('aa-isolation').value = 'shared';
+      document.getElementById('aa-description').value = '';
+      document.getElementById('aa-goal').value = '';
+      aaCharacter = aaDefaultChar();
+      aaColor = AGENT_COLORS[0];
+      aaBuildIdentityPickers();
+      aaIsolationChanged();
+      aaShowStep('identity');   // always reopen at step 1
       aaPopulateProviders();
       aaModal.classList.add('open');
       setTimeout(() => document.getElementById('aa-name').focus(), 50);
@@ -1556,10 +1756,18 @@
         cwd: document.getElementById('aa-cwd').value.trim() || null,
         allowTools: splitList(document.getElementById('aa-allow').value),
         denyPaths: splitList(document.getElementById('aa-deny').value),
+        character: aaCharacter,
+        color: aaColor,
+        folder: document.getElementById('aa-folder').value.trim() || null,
+        isolation: document.getElementById('aa-isolation').value,
+        description: document.getElementById('aa-description').value.trim() || null,
+        goal: document.getElementById('aa-goal').value.trim() || null,
       };
       if (!body.name) {
+        aaShowStep('identity');   // the empty field is on step 1, so go there
         errEl.textContent = 'Give the agent a name.';
         errEl.style.display = 'block';
+        document.getElementById('aa-name').focus();
         return;
       }
       btn.disabled = true;
@@ -1592,6 +1800,9 @@
     document.getElementById('aa-machine').addEventListener('change', aaPopulateProviders);
     document.getElementById('aa-provider').addEventListener('change', aaProviderChanged);
     document.getElementById('aa-submit').addEventListener('click', aaSubmit);
+    for (const b of document.querySelectorAll('.wiz-step'))
+      b.addEventListener('click', () => aaShowStep(b.dataset.step));
+    document.getElementById('aa-isolation').addEventListener('change', aaIsolationChanged);
     aaModal.addEventListener('click', (e) => { if (e.target === aaModal) aaModal.classList.remove('open'); });
 
     // ---------------- bottom strip ----------------
@@ -1873,7 +2084,12 @@
     }
 
     function createAgentSprite(a) {
-      const charName = CHAR_NAMES[hashString(a.id) % CHAR_NAMES.length];
+      // The agent's chosen sprite, when it has one. The hash stays as the
+      // fallback rather than a fixed default, so agents created before the
+      // picker existed still look different from each other — and a name
+      // whose sheet is missing falls back too, instead of rendering nothing.
+      const chosen = a.character && charTextures[a.character] ? a.character : null;
+      const charName = chosen ?? CHAR_NAMES[hashString(a.id) % CHAR_NAMES.length];
       const frames = charTextures[charName] || charTextures.nancy;
       const sprite = new PIXI.Sprite(frames[DIR_FRAMES.idle.down[0]]);
       sprite.anchor.set(0.5, 0.75);

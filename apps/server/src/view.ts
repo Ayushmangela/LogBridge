@@ -139,6 +139,17 @@ export function buildView(db: Db, positions: Positions, meId: string): Workspace
         ownerName: owner?.name ?? owner?.gh_login ?? a.owner_id,
         machineId: a.machine_id,
         machineName: machine?.name ?? a.machine_id,
+        // Straight passthrough — the browser must not invent an identity for
+        // an agent (invariant 2). A null is a real "not set", and the office
+        // falls back deterministically rather than picking at random, so two
+        // people watching the same room see the same sprite.
+        character: a.character ?? null,
+        color: a.color ?? null,
+        folder: a.folder ?? null,
+        isolation: a.isolation ?? null,
+        note: a.note ?? null,
+        description: a.description ?? null,
+        goal: a.goal ?? null,
         role: a.role,
         status: a.status,
         zone: "idle",

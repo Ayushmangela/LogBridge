@@ -103,6 +103,9 @@ export async function buildServer(
       machineId: string; projectId: string; name: string; role?: string;
       provider?: string | null; model?: string | null; capabilities?: string[];
       cwd?: string | null; allowTools?: string[]; denyPaths?: string[];
+      character?: string | null; color?: string | null; folder?: string | null;
+      isolation?: "shared" | "worktree" | "copy" | null;
+      description?: string | null; goal?: string | null;
     };
   }>("/api/agents", async (req, reply) => {
     const b = req.body;
@@ -127,6 +130,14 @@ export async function buildServer(
       model: b.model ?? null,
       capabilities: Array.isArray(b.capabilities) ? b.capabilities : [],
       cwd: b.cwd ?? null,
+      character: b.character ?? null,
+      color: b.color ?? null,
+      folder: b.folder ?? null,
+      isolation: b.isolation ?? null,
+      // Trimmed and capped here rather than in the browser — a request can
+      // arrive from anything, not just our own dialog.
+      description: b.description ? String(b.description).trim().slice(0, 120) : null,
+      goal: b.goal ? String(b.goal).trim().slice(0, 2000) : null,
       allowTools: Array.isArray(b.allowTools) ? b.allowTools : [],
       denyPaths: Array.isArray(b.denyPaths) ? b.denyPaths : [],
     });

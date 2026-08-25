@@ -313,8 +313,8 @@ export class RunnerConnection {
       this.log(`accepting task ${body.taskId} for ${agent.name} on ${this.harnessForAgent(agent.id).name}: ${body.title}`);
       const workspace = resolveWorkspace({
         agentId: agent.id,
-        folder: (agent as any).folder ?? null,
-        isolation: ((agent as any).isolation ?? "shared") as Isolation,
+        folder: agent.folder ?? null,
+        isolation: (agent.isolation ?? "shared") as Isolation,
         fallbackDir: join(this.opts.dataDir, "work", agent.id),
       });
       if (workspace.degradedReason) {

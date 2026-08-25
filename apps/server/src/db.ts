@@ -41,7 +41,14 @@ CREATE TABLE IF NOT EXISTS agents (
   current_task TEXT,
   zone_anchor INT,
   waiting_on TEXT,
-  github_ref TEXT
+  github_ref TEXT,
+  character TEXT,       -- which sprite the office draws (see CHAR_NAMES)
+  color TEXT,           -- accent hex, chosen when the agent was created
+  folder TEXT,          -- the repo/folder this agent works in
+  isolation TEXT,       -- shared | worktree | copy (see WORKSPACE.md)
+  note TEXT,            -- a human's scratch note, shown in the roster
+  description TEXT,     -- one line: what this agent is ("runs the floor")
+  goal TEXT             -- its standing objective, from the briefing step
 );
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
@@ -155,8 +162,14 @@ export function openDb(dbPath?: string): Db {
   db.exec(SCHEMA);
   // No migration framework (D7: SQLite, deliberately minimal) — `CREATE
   // TABLE IF NOT EXISTS` is a no-op against a db file from before a column
-  // existed. This is the one column added after the fact so far; if more
-  // pile up, that's the signal to actually build migrations.
+  // existed, so every column added after the fact is replayed here.
+  //
+  // This list has outgrown the "one column" it was written for. It still
+  // works, and it is still idempotent, but the honest reading is that D7's
+  // "deliberately minimal" has reached its limit: the next schema change
+  // that needs to REWRITE or BACKFILL data, rather than append a nullable
+  // column, cannot be expressed here and is the point where migrations stop
+  // being optional.
   for (const alter of [
     "ALTER TABLE tasks ADD COLUMN created_at TEXT",
     "ALTER TABLE machines ADD COLUMN sealing_pubkey TEXT",
@@ -166,11 +179,23 @@ export function openDb(dbPath?: string): Db {
     "ALTER TABLE machines ADD COLUMN accept_delegations INT DEFAULT 0",
     "ALTER TABLE machines ADD COLUMN allow_agent_creation INT DEFAULT 0",
     "ALTER TABLE machines ADD COLUMN allow_unsandboxed INT DEFAULT 0",
+    "ALTER TABLE agents ADD COLUMN character TEXT",
+    "ALTER TABLE agents ADD COLUMN color TEXT",
+    "ALTER TABLE agents ADD COLUMN folder TEXT",
+    "ALTER TABLE agents ADD COLUMN isolation TEXT",
+    "ALTER TABLE agents ADD COLUMN note TEXT",
+    "ALTER TABLE agents ADD COLUMN description TEXT",
+    "ALTER TABLE agents ADD COLUMN goal TEXT",
   ]) {
     try {
       db.exec(alter);
-    } catch {
-      // already there, either from SCHEMA on a fresh db or a prior run of this
+    } catch (e) {
+      // "duplicate column name" is the expected case — the column is already
+      // there from SCHEMA on a fresh db, or from a prior run. Anything else
+      // is a real error (a typo in the DDL above would otherwise vanish here
+      // and surface much later as a mystifying "no such column" at runtime).
+      const msg = String((e as Error)?.message ?? "");
+      if (!/duplicate column name/i.test(msg)) throw e;
     }
   }
   return db;
