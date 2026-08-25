@@ -104,3 +104,38 @@ export function animFor(dist: number, dx: number, dy: number, fallbackDir: Direc
   if (shouldRun(dist)) return { action: "run", direction: directionFor(dx, dy) };
   return { action: "idle", direction: fallbackDir };
 }
+
+// ---------------- Phase 3: selection popup ----------------
+// Small head-anchored card, ~4 lines max, pointer-events none, clamped to viewport.
+// These are pure helpers so they are testable without a DOM.
+
+export function clampPopupPosition(
+  anchorX: number,
+  anchorY: number,
+  popupW: number,
+  popupH: number,
+  vpW: number,
+  vpH: number,
+  margin: number = 8,
+): { x: number; y: number } {
+  let x = anchorX - popupW / 2;
+  let y = anchorY - popupH - 12;
+  x = Math.max(margin, Math.min(x, vpW - popupW - margin));
+  y = Math.max(margin, Math.min(y, vpH - popupH - margin));
+  return { x, y };
+}
+
+export function popupLines(a: {
+  name: string;
+  status: string;
+  zone?: string;
+  task?: { title: string } | null;
+  note?: string | null;
+}): string[] {
+  const lines: string[] = [];
+  lines.push(`${a.name} — ${a.status}`);
+  if (a.task?.title) lines.push(a.task.title);
+  if (a.note) lines.push(a.note);
+  // Guard: if it grows past ~4 lines you have built the wrong thing
+  return lines.slice(0, 4);
+}

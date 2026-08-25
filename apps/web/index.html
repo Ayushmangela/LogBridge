@@ -494,6 +494,18 @@
     .badge-idle    { background: #f1f3f8; color: var(--text-faint); }
     .badge-blocked { background: #f3eeff; color: #6d28d9; }
     .badge-needs   { background: #fef4e2; color: #b45309; }
+    /* agent head popup (phase 3): glanceable card anchored above sprite */
+    .agent-popup {
+      position: absolute; z-index: 45; width: 176px; max-width: 186px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      padding: 9px 11px; box-shadow: 0 6px 20px rgba(23,26,43,.14);
+      display: none; pointer-events: none;
+    }
+    .agent-popup.open { display: block; }
+    .ap-name { font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ap-status { font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--text-faint); margin-top: 2px; }
+    .ap-task { font-size: 11.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 5px; }
+    .ap-note { font-size: 11px; color: var(--text-faint); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
   </style>
 <body>
 <div class="app">
@@ -608,6 +620,12 @@
             </div>
             <button class="card-link" id="insp-more" style="margin-bottom:10px;">Command Center →</button>
             <div style="font-size:12px;color:var(--text-faint);line-height:1.45;" id="insp-desc"></div>
+          </div>
+          <div id="agent-popup" class="agent-popup" role="dialog" aria-label="Agent details">
+            <div class="ap-name" id="ap-name">—</div>
+            <div class="ap-status" id="ap-status">—</div>
+            <div class="ap-task" id="ap-task" style="display:none"></div>
+            <div class="ap-note" id="ap-note" style="display:none"></div>
           </div>
         </div>
 
@@ -1243,6 +1261,7 @@
     let latestView = null;
     let meId = null;
     let viewReceiveAt = 0; // Date.now() when latestView arrived — anchors sharedNowMs()
+    let selectedAgentId = null; // which agent's head card is open (phase 3)
     const renderedAgents = new Map(); // agentId -> { sprite, tag, badge }
     const renderedHumans = new Map(); // userId  -> { sprite, tag }
 
@@ -1403,6 +1422,13 @@
       applyOfficeFilters();
       for (const [id, entry] of renderedAgents) {
         if (!seenAgents.has(id)) { worldContainer.removeChild(entry.sprite); renderedAgents.delete(id); }
+      }
+      // Phase 3: head card follows the agent; close if it left, refresh if it stayed
+      if (selectedAgentId && !seenAgents.has(selectedAgentId)) {
+        closeAgentPopup();
+      } else if (selectedAgentId) {
+        const cur = room.agents.find((x) => x.id === selectedAgentId);
+        if (cur) updateAgentPopupContent(cur);
       }
 
       const seenHumans = new Set();
@@ -2651,32 +2677,118 @@
       return Math.abs(h);
     }
 
+    // ---------------- Agent head popup (Phase 3): small card anchored above sprite ----------------
+    // Glanceable, ~4 lines max, follows the sprite as it moves, never off-screen,
+    // pointer-events none so it never blocks clicking the agent underneath.
+    function clampPopupPosition(anchorX, anchorY, popupW, popupH, vpW, vpH, margin) {
+      margin = margin ?? 8;
+      // Center horizontally on anchor, clamp to viewport
+      let x = anchorX - popupW / 2;
+      let y = anchorY - popupH - 12; // 12px above head
+      x = Math.max(margin, Math.min(x, vpW - popupW - margin));
+      y = Math.max(margin, Math.min(y, vpH - popupH - margin));
+      return { x, y };
+    }
+
+    function updateAgentPopupContent(a) {
+      try {
+        const nameEl = document.getElementById('ap-name');
+        const statusEl = document.getElementById('ap-status');
+        const taskEl = document.getElementById('ap-task');
+        const noteEl = document.getElementById('ap-note');
+        if (!nameEl || !statusEl) return;
+        nameEl.textContent = a.name;
+        const [label] = ZONE_BADGE[a.zone] ?? [a.status ?? 'unknown'];
+        statusEl.textContent = (label || a.status || 'unknown').toLowerCase();
+        // Task title when present, otherwise hidden — keeps the card to 2-3 lines
+        if (a.task && a.task.title) {
+          taskEl.textContent = a.task.title;
+          taskEl.style.display = 'block';
+        } else {
+          taskEl.textContent = '';
+          taskEl.style.display = 'none';
+        }
+        if (a.note) {
+          noteEl.textContent = a.note;
+          noteEl.style.display = 'block';
+        } else {
+          noteEl.textContent = '';
+          noteEl.style.display = 'none';
+        }
+      } catch (e) { console.warn('popup content failed', e); }
+    }
+
+    function updateAgentPopupPosition() {
+      try {
+        const popup = document.getElementById('agent-popup');
+        if (!popup || !popup.classList.contains('open') || !selectedAgentId) return;
+        const entry = renderedAgents.get(selectedAgentId);
+        if (!entry) { closeAgentPopup(); return; }
+        // Use PIXI global position for correct screen mapping (accounts for zoom and camera)
+        let globalPos;
+        try {
+          globalPos = entry.sprite.getGlobalPosition();
+        } catch { return; }
+        const officeCard = document.querySelector('.office-card');
+        const canvas = document.getElementById('canvas');
+        if (!officeCard || !canvas || !globalPos) return;
+        const cardRect = officeCard.getBoundingClientRect();
+        const canvasRect = canvas.getBoundingClientRect();
+        // globalPos is in renderer pixels (with resolution); convert to CSS pixels
+        const res = app?.renderer?.resolution || window.devicePixelRatio || 1;
+        // In PIXI 7, getGlobalPosition returns in world coords scaled by resolution? Clamp by using canvasRect
+        // Fallback: compute via worldContainer transform if globalPos looks off
+        let cssX, cssY;
+        if (Number.isFinite(globalPos.x) && Number.isFinite(globalPos.y) && globalPos.x !== 0) {
+          cssX = (globalPos.x / res) + (canvasRect.left - cardRect.left);
+          cssY = (globalPos.y / res) + (canvasRect.top - cardRect.top);
+        } else {
+          // Fallback via manual transform
+          cssX = (entry.sprite.x * zoomLevel + worldContainer.x) / res + (canvasRect.left - cardRect.left);
+          cssY = (entry.sprite.y * zoomLevel + worldContainer.y) / res + (canvasRect.top - cardRect.top);
+        }
+        // Head is ~36px above anchor (sprite height 48, anchor 0.75)
+        const headY = cssY - 36 * zoomLevel;
+        const popupW = popup.offsetWidth || 176;
+        const popupH = popup.offsetHeight || 60;
+        const pos = clampPopupPosition(cssX, headY, popupW, popupH, cardRect.width, cardRect.height);
+        popup.style.left = pos.x + 'px';
+        popup.style.top = pos.y + 'px';
+      } catch (e) { console.warn('popup position failed', e); }
+    }
+
+    function openAgentPopup(a) {
+      selectedAgentId = a.id;
+      updateAgentPopupContent(a);
+      const popup = document.getElementById('agent-popup');
+      if (popup) {
+        popup.classList.add('open');
+        // Position immediately so it doesn't flash at old coords
+        updateAgentPopupPosition();
+      }
+      // Keep inspector closed when the head card is open — they are separate
+      // glimpses, not stacked panels.
+      document.getElementById('inspector')?.classList.remove('open');
+    }
+
+    function closeAgentPopup() {
+      selectedAgentId = null;
+      const popup = document.getElementById('agent-popup');
+      if (popup) popup.classList.remove('open');
+    }
+    window.closeAgentPopup = closeAgentPopup;
+
     // ---------------- Inspector: shows the real agent record ----------------
     function inspectAgent(a) {
-      document.getElementById('insp-name').textContent = a.name;
-      document.getElementById('insp-sub').textContent = `${a.machineName} • Owner: ${a.ownerName}`;
-
-      const [label, cls] = ZONE_BADGE[a.zone] ?? ['UNKNOWN', 'badge-idle'];
-      const badgeEl = document.getElementById('insp-badge');
-      badgeEl.textContent = label;
-      badgeEl.className = 'inspector-badge ' + cls;
-
-      document.getElementById('insp-task-title').textContent = a.task ? a.task.title : '(no active task)';
-      document.getElementById('insp-elapsed').textContent = a.task ? `Elapsed: ${formatElapsed(a.task.elapsedSec)}` : '';
-      document.getElementById('insp-cost').textContent = a.task ? `$${a.task.costUsd.toFixed(2)} USD` : '';
-      document.getElementById('insp-desc').textContent = a.waitingOn
-        ? `Waiting on: ${a.waitingOn}`
-        : (a.task?.note ?? `Role: ${a.role} · Capabilities: ${(a.capabilities ?? []).join(', ')}`);
-
-      // A way through to the full Command Center, without hijacking the
-      // click: poking someone at their desk should not eject you from the
-      // floor, but you should be able to go deeper.
-      const more = document.getElementById('insp-more');
-      if (more) more.onclick = () => { closeInspector(); openCommandCenter(a.id); };
-
-      document.getElementById('inspector').classList.add('open');
+      // Phase 3: the head card is the primary glance; keep the old inspector
+      // available but not as the click target (spec: this is a third thing).
+      // For now clicking an agent opens the head card, not the large panel.
+      openAgentPopup(a);
     }
-    window.closeInspector = function () { document.getElementById('inspector').classList.remove('open'); };
+    window.closeInspector = function () {
+      document.getElementById('inspector').classList.remove('open');
+      closeAgentPopup();
+    };
 
     function formatElapsed(sec) {
       const m = Math.floor(sec / 60), s = sec % 60;
@@ -2768,6 +2880,7 @@
           if (e.key === 'Escape') e.target.blur();
           return;
         }
+        if (e.key === 'Escape' && selectedAgentId) { closeAgentPopup(); return; }
         if (e.key === 'Escape' && currentView !== 'office') { window.setView('office'); return; }
         if (e.key === 'c' || e.key === 'C') { window.setView('chat'); return; }
         if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') keys.w = keys.up = true;
@@ -2788,6 +2901,18 @@
         e.preventDefault();
         adjustZoom(e.deltaY < 0 ? 0.08 : -0.08);
       }, { passive: false });
+
+      // Clicking anywhere outside an agent closes the head card.
+      // Agent sprites call e.stopPropagation() so they don't reach here.
+      window.addEventListener('pointerdown', (e) => {
+        if (!selectedAgentId) return;
+        const popup = document.getElementById('agent-popup');
+        if (popup && popup.contains(e.target)) return;
+        // Inspector's close button is inside #inspector, not the popup
+        const insp = document.getElementById('inspector');
+        if (insp && insp.contains(e.target)) return;
+        closeAgentPopup();
+      });
     }
 
     function setupResize() {
@@ -2900,6 +3025,9 @@
       for (const entry of renderedAgents.values()) {
         updateAgentFrame(entry, dt);
       }
+
+      // Head popup tracks its agent every frame, clamped so it never leaves the card
+      if (selectedAgentId) updateAgentPopupPosition();
 
       // Follow the player, but never past the edge of the building — an
       // unclamped camera shows empty void beside the map, which got obvious
