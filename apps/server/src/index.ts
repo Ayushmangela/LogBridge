@@ -106,6 +106,7 @@ export async function buildServer(
       character?: string | null; color?: string | null; folder?: string | null;
       isolation?: "shared" | "worktree" | "copy" | null;
       description?: string | null; goal?: string | null;
+      bypassPermissions?: boolean;
     };
   }>("/api/agents", async (req, reply) => {
     const b = req.body;
@@ -134,6 +135,7 @@ export async function buildServer(
       color: b.color ?? null,
       folder: b.folder ?? null,
       isolation: b.isolation ?? null,
+      bypassPermissions: Boolean(b.bypassPermissions),
       // Trimmed and capped here rather than in the browser — a request can
       // arrive from anything, not just our own dialog.
       description: b.description ? String(b.description).trim().slice(0, 120) : null,

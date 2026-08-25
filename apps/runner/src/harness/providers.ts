@@ -31,6 +31,13 @@ import type { AgentEvent } from "./types.js";
  */
 export type PolicyMode = "claude-settings" | "none";
 
+/** Options that change the command line without changing the prompt. */
+export interface BuildOpts {
+  /** Disable the CLI's own permission prompts. Gated on the machine's
+   *  --allow-unsandboxed; see connection.ts and ptyHarness.ts. */
+  bypassPermissions?: boolean;
+}
+
 export interface ProviderSpec {
   id: string;
   label: string;
@@ -40,7 +47,11 @@ export interface ProviderSpec {
   verified: boolean;
   /** Model ids offered in the UI. Empty = the CLI picks, or it's configured elsewhere. */
   models: string[];
-  buildArgs(prompt: string, model?: string | null): string[];
+  buildArgs(prompt: string, model?: string | null, opts?: BuildOpts): string[];
+  /** Flag pair that turns off this CLI's permission prompts, or null when it
+   *  has no such mode. Shown in the UI so the person can see exactly what the
+   *  toggle adds — never assumed. */
+  bypassFlag?: string | null;
   /** Pure: one line in, zero or more events out. */
   parseLine(line: string): AgentEvent[];
 }
@@ -213,6 +224,11 @@ const UNVERIFIED: Array<{ id: string; label: string; command: string; models: st
   { id: "copilot",  label: "Copilot",             command: "copilot", models: [], args: (p) => ["-p", p] },
   { id: "grok",     label: "Grok · xAI",          command: "grok",    models: [], args: (p) => ["-p", p] },
   { id: "kimi",     label: "Kimi Code",           command: "kimi",    models: [], args: (p) => ["-p", p] },
+  // Google's agentic CLI. Kept separate from `gemini` rather than relabelling
+  // it — they are different binaries, and merging them would mean one entry
+  // silently spawning the other.
+  { id: "antigravity", label: "Antigravity · Gemini", command: "antigravity", models: [], args: (p) => ["-p", p] },
+  { id: "pi",       label: "Pi",                  command: "pi",      models: [], args: (p) => ["-p", p] },
 ];
 
 export const PROVIDERS: ProviderSpec[] = [
@@ -222,12 +238,23 @@ export const PROVIDERS: ProviderSpec[] = [
     command: "claude",
     policy: "claude-settings",
     verified: true,
-    models: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"],
-    buildArgs: (prompt, model) => [
+    bypassFlag: "--permission-mode bypassPermissions",
+    // Confirmed against `claude --help` on a real install, which documents
+    // the aliases (fable/opus/sonnet) and full names ("claude-fable-5").
+    // Model ids are NOT transcribed from a design mockup — a wrong id fails
+    // at spawn time, long after the person chose it.
+    models: ["claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"],
+    buildArgs: (prompt, model, opts) => [
       "-p", prompt,
       "--output-format", "stream-json",
       "--verbose",                       // stream-json needs it for the event stream
       ...(model ? ["--model", model] : []),
+      // Only when explicitly asked for. The default path passes no
+      // --permission-mode at all, leaving the per-run settings file (the
+      // `claude-settings` policy) in charge — which is the ONE tool policy
+      // this project actually enforces. Modes confirmed from `claude --help`:
+      // acceptEdits | auto | bypassPermissions | manual | dontAsk | plan.
+      ...(opts?.bypassPermissions ? ["--permission-mode", "bypassPermissions"] : []),
     ],
     parseLine: parseClaude,
   },
@@ -257,6 +284,35 @@ export const PROVIDERS: ProviderSpec[] = [
 
 export function providerById(id: string): ProviderSpec | undefined {
   return PROVIDERS.find((p) => p.id === id);
+}
+
+/** Stand-ins the browser substitutes. Deliberately angle-bracketed so an
+ *  un-substituted placeholder is obvious rather than looking like a real
+ *  argument. */
+export const TASK_PLACEHOLDER = "<your task>";
+export const MODEL_PLACEHOLDER = "<model>";
+
+/** Shell-ish quoting for display only. This string is never executed — the
+ *  harness spawns an argv array, which is why the prompt can contain anything
+ *  without an escaping bug becoming a command injection. */
+function quoteArg(a: string): string {
+  return /[\s"']/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a;
+}
+
+/**
+ * The command a provider will actually run, as a display string.
+ *
+ * Built from the SAME `buildArgs` the harness spawns, so the preview cannot
+ * drift from reality — the failure mode of writing the preview by hand is
+ * that it stays convincing while becoming wrong.
+ */
+export function commandPreview(
+  spec: ProviderSpec,
+  model: string | null = MODEL_PLACEHOLDER,
+  opts?: BuildOpts
+): string {
+  const argv = [spec.command, ...spec.buildArgs(TASK_PLACEHOLDER, model, opts)];
+  return argv.map(quoteArg).join(" ");
 }
 
 /** Which providers are actually on this machine's PATH. */

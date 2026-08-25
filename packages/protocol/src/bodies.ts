@@ -240,6 +240,9 @@ export const BodySchemas = {
     isolation: z.enum(["shared", "worktree", "copy"]).nullable().default(null),
     description: z.string().nullable().default(null),
     goal: z.string().nullable().default(null),
+    // ★ 1.21 — a request, not a grant. The machine re-checks its own
+    // allowUnsandboxed and silently runs under policy if it never opted in.
+    bypassPermissions: z.boolean().default(false),
   }),
 
   "agent.create.result": z.object({

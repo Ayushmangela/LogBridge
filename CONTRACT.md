@@ -1,7 +1,7 @@
 # The Contract
 ### Single source of truth for everything exchanged between the office and the system.
 
-**Version 1.19** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
+**Version 1.21** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
 
 > **Rule: never change this file alone.** Both people present, both agree, bump the version, add a changelog line. A contract one person edited is not a contract.
 
@@ -98,6 +98,13 @@ type AgentView = {
                                //   i.e. whose office the agent is standing in
   task: TaskBrief | null
   waitingOn: string | null     // "qa-api@sams-mbp" | "human: ayush" | "CI"
+  character: string | null     // ★ 1.20 sprite the office draws
+  color: string | null         // ★ 1.20 accent hex, e.g. "#c05d5d"
+  folder: string | null        // ★ 1.20 the repo it works in; also how the roster groups
+  isolation: "shared" | "worktree" | "copy" | null   // ★ 1.20 see WORKSPACE.md
+  note: string | null          // ★ 1.20 a HUMAN's note. never sent on agent.card
+  description: string | null   // ★ 1.20 one line: what this agent is
+  goal: string | null          // ★ 1.20 its standing objective
   githubRef: { kind: "pr" | "issue"; ref: string } | null   // "acme/api#212"
 }
 
@@ -129,6 +136,11 @@ type ProviderInfo = {
   policy: "claude-settings" | "none"   // none = cannot enforce allowTools/denyPaths
   verified: boolean            // output format observed here, or assumed?
   models: string[]
+  command: {                   // ★ 1.21 what this CLI will actually run
+    withModel: string          //   contains the literal "<model>" to substitute
+    noModel: string            //   NOT the same as substituting "" — the flag is dropped
+    bypassFlag: string | null  //   null when the CLI has no such mode
+  }
 }
 
 type ChatMessage = {
@@ -258,6 +270,8 @@ Five tilesets are registered in the map, all 32 px:
 
 | Version | Change | Why |
 |---|---|---|
+| **1.21** | Added **`ProviderInfo.command`** | The Add Agent dialog shows the command an agent will run. Composing that string in the browser would mean the browser guessing flags for CLIs it has never seen installed, and drifting silently the first time an arg changed. The machine now generates it from the **same `buildArgs` the harness spawns**, so the preview cannot be wrong without the run being wrong too. `bypassFlag` is carried separately and is null for every provider that has no such mode — the toggle shows the literal flag rather than implying one exists |
+| **1.20** | Added seven **`AgentView`** identity fields | An agent had a name, a role and a status, and nothing that said who it was. The Add Agent wizard asks for a sprite, a colour, a folder and a briefing, and the agents table had nowhere to put any of it. `folder` doubles as the roster's grouping key — "who is touching this repo right now" is the question the roster actually answers. **`note` is the one field never carried on `agent.card`**: a human types it in the browser, and reconnects are routine, so a runner declaring it would erase it at seemingly random moments |
 | **1.19** | Added **`TaskBrief.steps`**, and started populating **`TaskBrief.note`** | A running task was a black box between "started" and "done" — a 40-minute run and a 4-second run rendered identically, and `note` had been in the contract since 1.0 while the server always sent `null`. Providers emit real step boundaries (opencode `step_start`, claude assistant turns), so the count is observed rather than estimated. It is deliberately **not** a percentage: no CLI reports how many steps remain, so a progress bar here would be inventing its denominator |
 | **1.18** | Added **`Room.collaborationAvailable`** | Delegation, review, context sharing and consent are all inert unless a second *person* has a machine online, so the office was advertising a meeting room nobody could enter. Counts **distinct owners**, not machines — one person's laptop and desktop is not collaboration, and a soak rig must not flip it on |
 | **1.17** | Added **`ClientMessage.join`** | The server had no idea which room a browser was looking at — membership was only implied by `position`, which doesn't exist until the player moves. So chat was broadcast and replayed to every socket and the browser filtered it for display. Survivable with one room; wrong once the GitHub mirror started creating one per repo. A socket that hasn't joined now receives no chat at all: silence is recoverable, another project's conversation arriving is not |

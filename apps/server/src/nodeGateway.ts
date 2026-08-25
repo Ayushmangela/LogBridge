@@ -87,6 +87,8 @@ export interface AgentCreateRequest {
   isolation?: "shared" | "worktree" | "copy" | null;
   description?: string | null;
   goal?: string | null;
+  /** Requested only — the machine decides. See ptyHarness. */
+  bypassPermissions?: boolean;
 }
 
 /**
@@ -121,6 +123,7 @@ export async function requestAgentCreate(
       character: opts.character ?? null, color: opts.color ?? null,
       folder: opts.folder ?? null, isolation: opts.isolation ?? null,
       description: opts.description ?? null, goal: opts.goal ?? null,
+      bypassPermissions: Boolean(opts.bypassPermissions),
     },
   };
 

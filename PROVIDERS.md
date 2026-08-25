@@ -23,6 +23,32 @@ only the PTY mechanics.
 | Copilot | `copilot` | `-p <prompt>` | — | ⚠️ plain text |
 | Grok · xAI | `grok` | `-p <prompt>` | — | ⚠️ plain text |
 | Kimi Code | `kimi` | `-p <prompt>` | — | ⚠️ plain text |
+| Antigravity · Gemini | `antigravity` | `-p <prompt>` | — | ⚠️ plain text |
+| Pi | `pi` | `-p <prompt>` | — | ⚠️ plain text |
+
+
+## Permission modes
+
+`claude` is the only provider with a tool policy this runner can enforce: a
+per-run settings file (`policy: "claude-settings"`). Its real modes, from
+`claude --help` on an installed copy:
+
+```
+acceptEdits | auto | bypassPermissions | manual | dontAsk | plan
+```
+
+The Add Agent dialog's command preview passes **no `--permission-mode` at
+all** by default, leaving that settings file in charge. `bypassPermissions`
+is offered as an explicit toggle, and is gated twice:
+
+1. the browser only enables it when the machine reports `allowUnsandboxed`
+2. `ptyHarness` re-checks and drops the flag if that opt-in is absent
+
+The second gate is the one that matters — a UI is a suggestion, and the
+machine is the enforcement (SYSTEM.md §7). When it drops the flag it
+**downgrades rather than refusing**: the person asked for fewer restrictions,
+so quietly giving them more is the safe direction to fail, and the task still
+runs.
 
 **Verified** means a parser was written against real captured output from a
 real run, stored in `apps/runner/test-support/`. Not from documentation.

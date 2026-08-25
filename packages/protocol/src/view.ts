@@ -142,6 +142,22 @@ export const ProviderInfo = z.object({
   policy: z.enum(["claude-settings", "none"]),
   verified: z.boolean(),
   models: z.array(z.string()),
+
+  // ★ 1.21 — what this provider will actually run.
+  //
+  // Generated on the machine from the SAME buildArgs the harness spawns, so
+  // the preview cannot drift from reality. A preview written by hand in the
+  // browser would stay convincing while quietly becoming wrong, and it would
+  // also have to guess flags for CLIs the browser has never seen.
+  command: z.object({
+    /** Contains the literal "<model>" for the browser to substitute. */
+    withModel: z.string(),
+    /** Used when no model is selected — not the same as substituting "". */
+    noModel: z.string(),
+    /** Flags that disable this CLI's permission prompts, or null when it has
+     *  no such mode. Shown verbatim so the toggle is never a mystery. */
+    bypassFlag: z.string().nullable(),
+  }),
 });
 
 export type ProviderInfoT = z.infer<typeof ProviderInfo>;

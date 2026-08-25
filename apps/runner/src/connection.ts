@@ -8,7 +8,13 @@ import { open as openSealed, seal, sealAad, type EnvelopeT } from "@logbridge/pr
 import type { Identity } from "./identity.js";
 import type { AgentHarness } from "./harness/types.js";
 import { makePtyHarness } from "./harness/ptyHarness.js";
-import { detectInstalled, providerById, rememberInstruction } from "./harness/providers.js";
+import {
+  commandPreview,
+  detectInstalled,
+  MODEL_PLACEHOLDER,
+  providerById,
+  rememberInstruction,
+} from "./harness/providers.js";
 import { resolveWorkspace, type Isolation } from "./workspace.js";
 import { Outbox } from "./outbox.js";
 import { loadCreatedAgents, saveCreatedAgents } from "./createdAgents.js";
@@ -23,7 +29,17 @@ const DEFAULT_DENY_PATHS = [".env*", "**/secrets/**", "~/.ssh/**"];
 function installedProviderSpecs() {
   return detectInstalled()
     .filter((p) => p.installed)
-    .map((p) => ({ id: p.id, label: p.label, policy: p.policy, verified: p.verified, models: p.models }));
+    .map((p) => ({
+      id: p.id, label: p.label, policy: p.policy, verified: p.verified, models: p.models,
+      // Built here, on the machine that owns the CLI — the browser has no
+      // business knowing any provider's flags, and could not know them for a
+      // CLI it has never seen installed.
+      command: {
+        withModel: commandPreview(p, MODEL_PLACEHOLDER),
+        noModel: commandPreview(p, null),
+        bypassFlag: p.bypassFlag ?? null,
+      },
+    }));
 }
 
 // How long to wait for the server's memory.result before starting anyway.
@@ -98,6 +114,9 @@ export interface AgentDecl {
   description?: string | null;
   /** Its standing objective. */
   goal?: string | null;
+  /** Skip the CLI's permission prompts. Honoured only if this machine was
+   *  started with --allow-unsandboxed; the harness re-checks. */
+  bypassPermissions?: boolean;
 }
 
 export interface RunnerOptions {
@@ -482,13 +501,18 @@ export class RunnerConnection {
   private harnessForAgent(agentId: string | null): AgentHarness {
     const agent = this.agentById(agentId);
     if (!agent?.provider) return this.opts.harness;
-    const key = `${agent.provider}:${agent.model ?? ""}`;
+    // The key has to cover every input to makePtyHarness. Keying on
+    // provider+model alone would let two agents that differ ONLY in whether
+    // they bypass permissions share one harness — and which behaviour they
+    // got would depend on which agent ran first.
+    const key = `${agent.provider}:${agent.model ?? ""}:${agent.bypassPermissions ? "bypass" : "policy"}`;
     let h = this.harnessCache.get(key);
     if (!h) {
       h = makePtyHarness({
         provider: agent.provider,
         model: agent.model ?? null,
         allowUnsandboxed: this.opts.allowUnsandboxed,
+        bypassPermissions: agent.bypassPermissions,
       });
       this.harnessCache.set(key, h);
     }
@@ -689,6 +713,7 @@ export class RunnerConnection {
       isolation: body.isolation ?? null,
       description: body.description ?? null,
       goal: body.goal ?? null,
+      bypassPermissions: Boolean(body.bypassPermissions),
     };
     this.opts.agents.push(decl);
     // Survive a restart. Without this the server keeps the agent row while

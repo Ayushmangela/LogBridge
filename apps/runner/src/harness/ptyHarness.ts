@@ -39,6 +39,17 @@ export interface PtyHarnessConfig {
    * precisely so it isn't. Opting in is a deliberate act by the operator.
    */
   allowUnsandboxed?: boolean;
+  /**
+   * Pass the provider's "skip permission prompts" flag, when it has one.
+   *
+   * Gated twice on purpose: the browser only offers it when the machine
+   * reports allowUnsandboxed, and the check below refuses it if that opt-in
+   * is absent — a UI is a suggestion, the runner is the enforcement. Turning
+   * this on disables the ONE tool policy this project actually enforces
+   * (claude's per-run settings file), so it must never be reachable by
+   * default or by accident.
+   */
+  bypassPermissions?: boolean;
 }
 
 const ANSI_ESCAPE = /\x1b\[[0-9;]*[a-zA-Z]/g;
@@ -69,7 +80,6 @@ export function makePtyHarness(config: PtyHarnessConfig = {}): AgentHarness {
 
   const command = config.command ?? process.env.AGENT_CLI_COMMAND ?? provider.command;
   const model = config.model ?? process.env.AGENT_MODEL ?? null;
-  const buildArgs = config.buildArgs ?? ((prompt: string) => provider.buildArgs(prompt, model));
   // Each provider reads its own format; a mismatch here is what made the
   // harness silently useless against anything but Claude Code before.
   // Returns true when the provider reported a terminal outcome of its own.
@@ -83,6 +93,15 @@ export function makePtyHarness(config: PtyHarnessConfig = {}): AgentHarness {
   };
 
   const allowUnsandboxed = config.allowUnsandboxed ?? process.env.AGENT_ALLOW_UNSANDBOXED === "1";
+
+  // The machine has the final say (SYSTEM.md §7): bypassing permissions needs
+  // this machine's own unsandboxed opt-in, whatever the browser asked for. A
+  // UI is a suggestion; the runner is the enforcement. Downgrading rather than
+  // refusing is deliberate — the task still runs, just under policy, which is
+  // the safe direction to fail.
+  const bypassPermissions = Boolean(config.bypassPermissions) && allowUnsandboxed;
+  const buildArgs =
+    config.buildArgs ?? ((prompt: string) => provider.buildArgs(prompt, model, { bypassPermissions }));
 
   return {
     name: `pty:${provider.id}`,
