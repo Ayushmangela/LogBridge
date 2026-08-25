@@ -223,6 +223,10 @@ export function openDb(dbPath?: string): Db {
     "ALTER TABLE agents ADD COLUMN description TEXT",
     "ALTER TABLE agents ADD COLUMN goal TEXT",
     "ALTER TABLE agents ADD COLUMN provider TEXT",
+    // Event-trigger bookkeeping. See triggers.ts fireEventTriggers.
+    "ALTER TABLE triggers ADD COLUMN last_evt_seq INTEGER DEFAULT 0",
+    "ALTER TABLE triggers ADD COLUMN last_evt_fire_ms INTEGER DEFAULT 0",
+    "ALTER TABLE triggers ADD COLUMN last_consumed_task_id TEXT",
     "ALTER TABLE agents ADD COLUMN summoned_by TEXT",
     "ALTER TABLE agents ADD COLUMN summoned_at TEXT",
     "ALTER TABLE agents ADD COLUMN summoned_x REAL",
@@ -405,16 +409,33 @@ export function createTask(
     kind?: string | null;           // 'plan' = its output is a task list
     budgetSeconds?: number;
     budgetUsd?: number;
+    /** Idempotency key. A second call with the same key returns the FIRST
+     *  task's id instead of creating another — which is what makes a firing
+     *  loop safe across a restart that lands between "task created" and
+     *  "bookkeeping written". */
+    idem?: string | null;
   }
 ): string {
+  if (opts.idem) {
+    const existing = db.prepare("SELECT id FROM tasks WHERE idem = ?").get(opts.idem) as any;
+    if (existing) return existing.id;
+  }
+  // A task against a project that does not exist is orphaned: it is in no
+  // room, no view renders it, and the orchestrator will never route it — it
+  // simply sits in the table looking like work. The same reasoning already
+  // guards agent creation (see the 404 in /api/agents); SQLite will not
+  // enforce it for us here because tasks carries no foreign key.
+  if (!db.prepare("SELECT 1 FROM projects WHERE id = ?").get(opts.projectId)) {
+    throw new Error(`no such project "${opts.projectId}"`);
+  }
   const taskId = `tsk_${crypto.randomUUID()}`;
   db.prepare(
-    `INSERT INTO tasks (id, project_id, title, spec, creator_id, agent_id, state, budget_seconds, budget_usd, cost_usd, required_capability, created_at, kind)
-     VALUES (?, ?, ?, ?, ?, ?, 'submitted', ?, ?, 0, ?, ?, ?)`
+    `INSERT INTO tasks (id, project_id, title, spec, creator_id, agent_id, state, budget_seconds, budget_usd, cost_usd, required_capability, created_at, kind, idem)
+     VALUES (?, ?, ?, ?, ?, ?, 'submitted', ?, ?, 0, ?, ?, ?, ?)`
   ).run(
     taskId, opts.projectId, opts.title, opts.spec ?? null, opts.creatorId, opts.agentId ?? null,
     opts.budgetSeconds ?? 60, opts.budgetUsd ?? 1.0, opts.requiredCapability ?? null, new Date().toISOString(),
-    opts.kind ?? null
+    opts.kind ?? null, opts.idem ?? null
   );
   return taskId;
 }

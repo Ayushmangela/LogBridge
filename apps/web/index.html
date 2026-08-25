@@ -1190,6 +1190,13 @@
       };
     }
 
+    // ⚠️ These roaming/animation helpers are a HAND COPY of
+    // packages/protocol/src/roaming.ts, which is where their tests live. There
+    // is no bundler here, so the duplication is deliberate — but it means the
+    // tested copy and the running copy can drift apart silently, and the tests
+    // would still pass. Verified identical at the time of writing (same
+    // constants, same roamingPoint/roamingTarget output for a fixed input).
+    // If you change one, change both, and re-check with a fixed-input compare.
     function roamingTarget(agentId, nowMs, rect) {
       if (!rect) return roamingPoint(agentId, 0, { x: 0, y: 0, w: MAP_WIDTH, h: MAP_HEIGHT });
       if (!Number.isFinite(nowMs)) return roamingPoint(agentId, 0, rect);

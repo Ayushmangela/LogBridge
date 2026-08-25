@@ -294,3 +294,208 @@ export function markTriggerFired(db: Db, id: string, firedAtMs: number, nextFire
     id
   );
 }
+
+// ===========================================================================
+// Firing — turning due triggers and matching events into real tasks.
+//
+// Modelled on github.ts's poll: an interval that unrefs, an immediate first
+// run, and a stop(). The clock is injectable so tests never sleep.
+// ===========================================================================
+
+import { appendEvent, createTask } from "./db.js";
+
+export interface TriggerLoopOptions {
+  now?: () => number;
+  log?: (msg: string) => void;
+  intervalMs?: number;
+  onChange?: () => void;
+}
+export type EventLoopOptions = TriggerLoopOptions;
+
+/** Disable a trigger that cannot work, with a reason a person can act on.
+ *  Failing loudly forever is the alternative, and it is worse: one bad row
+ *  would keep throwing on every tick and drown the log. */
+function disableBroken(db: Db, id: string, name: string, why: string, log: (m: string) => void): void {
+  db.prepare("UPDATE triggers SET enabled = 0 WHERE id = ?").run(id);
+  log(`trigger "${name}" (${id}) disabled: ${why}`);
+}
+
+/**
+ * Fire every schedule trigger whose slot has passed.
+ *
+ * Catch-up policy: a trigger reschedules from NOW, never from the slot it
+ * missed. A server dark for three days fires once and moves on — replaying
+ * three days of "morning triage" would bury the person under work whose
+ * moment has passed. Elapsed time is not a queue.
+ */
+export function fireDueTriggers(db: Db, opts: TriggerLoopOptions = {}): number {
+  const now = opts.now?.() ?? Date.now();
+  const log = opts.log ?? (() => {});
+  const rows = db
+    .prepare("SELECT * FROM triggers WHERE enabled = 1 AND kind = 'schedule' AND next_fire_at IS NOT NULL")
+    .all() as any[];
+
+  let fired = 0;
+  for (const t of rows) {
+    const due = Date.parse(t.next_fire_at);
+    if (!Number.isFinite(due) || due > now) continue;
+
+    const parsed = parseSchedule(t.rule);
+    if (!parsed.ok) {
+      // A rule that no longer parses cannot be rescheduled, so it would stay
+      // due forever and throw on every tick.
+      disableBroken(db, t.id, t.name, parsed.error, log);
+      continue;
+    }
+
+    try {
+      // The idem key is the trigger plus the SLOT it is firing for — not the
+      // wall clock. That is what survives a restart between "task created"
+      // and "bookkeeping written": the retry computes the same key, finds the
+      // existing task, and advances the bookkeeping instead of duplicating.
+      const taskId = createTask(db, {
+        projectId: t.project_id,
+        title: t.task_title || t.name,
+        spec: t.task_spec ?? null,
+        creatorId: t.id,
+        agentId: null,
+        requiredCapability: t.task_capability ?? null,
+        budgetSeconds: t.budget_seconds ?? undefined,
+        budgetUsd: t.budget_usd ?? undefined,
+        idem: `trigger:${t.id}:${t.next_fire_at}`,
+      });
+
+      appendEvent(db, t.project_id, taskId, "trigger.fired", {
+        triggerId: t.id, name: t.name, rule: t.rule, title: t.task_title, taskId,
+      });
+
+      const next = nextFireAt(parsed.schedule, now, t.tz || "UTC");
+      markTriggerFired(db, t.id, now, next);
+      fired++;
+    } catch (err) {
+      disableBroken(db, t.id, t.name, (err as Error).message, log);
+    }
+  }
+
+  if (fired > 0) opts.onChange?.();
+  return fired;
+}
+
+export function startTriggerLoop(db: Db, opts: TriggerLoopOptions = {}): { stop(): void } {
+  const intervalMs = opts.intervalMs ?? 30_000;
+  fireDueTriggers(db, opts); // first run immediately, like github.ts
+  const timer = setInterval(() => fireDueTriggers(db, opts), intervalMs);
+  if (timer.unref) timer.unref();
+  return { stop: () => clearInterval(timer) };
+}
+
+// Debounce note. An earlier attempt added a wall-clock quiet period on top
+// of the per-tick limit, and it was wrong twice over: it blocked two GENUINELY
+// different subjects failing in the same minute (two distinct tasks each
+// deserve triage), and it was unnecessary — with the scan window always
+// advancing, a burst of forty events is consumed in one tick and the
+// thirty-nine unfired ones are never revisited. The bound is structural, not
+// temporal, which is why it cannot leak one task per tick.
+
+/**
+ * Fire event triggers against newly appended events.
+ *
+ * Three properties this has to hold, each of which was got wrong once:
+ *
+ *  1. **The scan window always advances.** `last_evt_seq` moves to the newest
+ *     event seen on EVERY path — fired, debounced, skipped or no match. Left
+ *     un-advanced, the same events are re-scanned next tick and the debounce
+ *     leaks one task per tick forever, while an office that appends a
+ *     `position` event per step makes the rescan unbounded.
+ *
+ *  2. **Loop safety is by provenance, not by event type.** Any task created
+ *     by ANY trigger is marked (creator_id = trigger id), and events about
+ *     such tasks never fire a trigger. Special-casing `task.result` left
+ *     `trigger.fired` — which this function itself appends — free to feed
+ *     itself forever.
+ *
+ *  3. **Debounce is wall-clock.** See EVENT_DEBOUNCE_MS.
+ */
+export function fireEventTriggers(db: Db, opts: EventLoopOptions = {}): number {
+  const now = opts.now?.() ?? Date.now();
+  const log = opts.log ?? (() => {});
+
+  const triggers = db
+    .prepare("SELECT * FROM triggers WHERE enabled = 1 AND kind = 'event'")
+    .all() as any[];
+  if (triggers.length === 0) return 0;
+
+  const maxSeq = (db.prepare("SELECT COALESCE(MAX(seq), 0) AS m FROM events").get() as any).m as number;
+  const advance = db.prepare("UPDATE triggers SET last_evt_seq = ? WHERE id = ?");
+
+  // Every trigger id, so an event about a trigger-born task is recognisable
+  // no matter which trigger created it.
+  const triggerIds = new Set(
+    (db.prepare("SELECT id FROM triggers").all() as any[]).map((r) => r.id)
+  );
+
+  let fired = 0;
+  for (const t of triggers) {
+    const lastSeq: number = t.last_evt_seq ?? 0;
+    if (maxSeq <= lastSeq) continue;
+
+    const candidates = db
+      .prepare("SELECT seq, task_id, type FROM events WHERE seq > ? AND type = ? ORDER BY seq")
+      .all(lastSeq, t.rule) as any[];
+
+    // Whatever happens below, this trigger has now SEEN everything up to
+    // maxSeq. Property 1.
+    let handled = false;
+    for (const ev of candidates) {
+      // Property 2 — provenance. A task this or any other trigger created
+      // cannot cause another firing.
+      if (ev.task_id) {
+        const owner = db.prepare("SELECT creator_id FROM tasks WHERE id = ?").get(ev.task_id) as any;
+        if (owner && triggerIds.has(owner.creator_id)) continue;
+        if (ev.task_id === t.last_consumed_task_id) continue; // already acted on
+      }
+
+      try {
+        const taskId = createTask(db, {
+          projectId: t.project_id,
+          title: t.task_title || t.name,
+          spec: t.task_spec ?? null,
+          creatorId: t.id,
+          agentId: null,
+          requiredCapability: t.task_capability ?? null,
+          budgetSeconds: t.budget_seconds ?? undefined,
+          budgetUsd: t.budget_usd ?? undefined,
+          // Keyed on the EVENT, not the clock: re-processing the same event
+          // must not be able to produce a second task.
+          idem: `event:${t.id}:${ev.seq}`,
+        });
+        appendEvent(db, t.project_id, taskId, "trigger.fired", {
+          triggerId: t.id, name: t.name, rule: t.rule, title: t.task_title,
+          taskId, eventSeq: ev.seq,
+        });
+        db.prepare("UPDATE triggers SET last_evt_fire_ms = ?, last_consumed_task_id = ? WHERE id = ?")
+          .run(now, ev.task_id ?? null, t.id);
+        fired++;
+        handled = true;
+        break; // one task per trigger per tick; the rest are debounced
+      } catch (err) {
+        disableBroken(db, t.id, t.name, (err as Error).message, log);
+        handled = true;
+        break;
+      }
+    }
+    void handled;
+    advance.run(maxSeq, t.id);
+  }
+
+  if (fired > 0) opts.onChange?.();
+  return fired;
+}
+
+export function startEventLoop(db: Db, opts: EventLoopOptions = {}): { stop(): void } {
+  const intervalMs = opts.intervalMs ?? 15_000;
+  fireEventTriggers(db, opts);
+  const timer = setInterval(() => fireEventTriggers(db, opts), intervalMs);
+  if (timer.unref) timer.unref();
+  return { stop: () => clearInterval(timer) };
+}
