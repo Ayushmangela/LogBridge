@@ -77,3 +77,30 @@ export function roamingTarget(
 export function shouldRoam(zone: string): boolean {
   return zone === "idle";
 }
+
+// ---------------- Phase 2: running animation & facing ----------------
+// The run animation only describes motion the ease loop already performs;
+// it never creates motion on its own. While distance to target exceeds a
+// small threshold the sprite shows `run` frames facing the travel direction,
+// otherwise it shows `idle` frames. Direction is the larger of |dx|,|dy|.
+
+export const RUN_THRESHOLD_PX = 1.5;
+
+export type Direction = "right" | "left" | "up" | "down";
+export type AnimAction = "idle" | "run";
+
+export function directionFor(dx: number, dy: number): Direction {
+  // Larger absolute delta picks the axis; ties go vertical (down/up) to match
+  // the Map's north-south corridor as the default when dx==dy.
+  if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? "right" : "left";
+  return dy > 0 ? "down" : "up";
+}
+
+export function shouldRun(dist: number, threshold: number = RUN_THRESHOLD_PX): boolean {
+  return dist > threshold;
+}
+
+export function animFor(dist: number, dx: number, dy: number, fallbackDir: Direction = "down"): { action: AnimAction; direction: Direction } {
+  if (shouldRun(dist)) return { action: "run", direction: directionFor(dx, dy) };
+  return { action: "idle", direction: fallbackDir };
+}

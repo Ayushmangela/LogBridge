@@ -1184,6 +1184,52 @@
       return roamingTarget(a.id, t, rect);
     }
 
+    // ---------------- Running animation & facing (Phase 2) ----------------
+    // While distance to target exceeds a small threshold the sprite shows
+    // `run` frames facing the travel direction; otherwise `idle`. Direction
+    // is the larger of |dx|,|dy|, so a diagonal walk reads clearly. This only
+    // describes motion the ease loop already performs — it never invents it.
+    const RUN_THRESHOLD_PX = 1.5;
+
+    function directionForAnim(dx, dy) {
+      if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? 'right' : 'left';
+      return dy > 0 ? 'down' : 'up';
+    }
+
+    function updateAgentFrame(entry, dt) {
+      // Degrade, don't refuse: missing sheet or frames falls back rather than
+      // throwing into the render loop (a thrown frame kills the whole office).
+      try {
+        const frames = charTextures[entry.char] || charTextures.nancy;
+        if (!frames) return;
+        const dx = (entry.target?.x ?? entry.sprite.x) - entry.sprite.x;
+        const dy = (entry.target?.y ?? entry.sprite.y) - entry.sprite.y;
+        const dist = Math.hypot(dx, dy);
+        const moving = dist > RUN_THRESHOLD_PX;
+        if (moving) {
+          entry.direction = directionForAnim(dx, dy);
+        }
+        // Keep last facing when stationary — a running-on-the-spot agent is
+        // a worse bug than no animation, so idle keeps its direction.
+        const action = moving ? 'run' : 'idle';
+        const dir = entry.direction || 'down';
+
+        entry.animTimer = (entry.animTimer || 0) + dt;
+        const step = moving ? 0.08 : 0.20;
+        if (entry.animTimer >= step) {
+          entry.animTimer = 0;
+          entry.frameIdx = ((entry.frameIdx || 0) + 1) % 6;
+        }
+        const list = DIR_FRAMES[action][dir];
+        if (!list) return;
+        const idx = list[entry.frameIdx % list.length];
+        const tex = frames[idx];
+        if (tex) entry.sprite.texture = tex;
+      } catch (e) {
+        console.warn('agent frame update failed', e);
+      }
+    }
+
     // ---------------- Global App State ----------------
     let app;
     let worldContainer;
@@ -2523,7 +2569,7 @@
       const bubble = makeBubble();
       sprite.addChild(bubble.container);
       worldContainer.addChild(sprite);
-      const entry = { sprite, tag, dot, bubble, char: charName };
+      const entry = { sprite, tag, dot, bubble, char: charName, direction: 'down', animTimer: 0, frameIdx: 0 };
       renderedAgents.set(a.id, entry);
       return entry;
     }
@@ -2846,6 +2892,13 @@
         if (!entry.target) continue;
         entry.sprite.x += (entry.target.x - entry.sprite.x) * ease;
         entry.sprite.y += (entry.target.y - entry.sprite.y) * ease;
+      }
+
+      // Running animation & facing: describes motion the ease loop already
+      // performs. Applies to all movement (roaming, zone changes, summoning).
+      // Stationary agents hold a still idle frame — no running-on-the-spot.
+      for (const entry of renderedAgents.values()) {
+        updateAgentFrame(entry, dt);
       }
 
       // Follow the player, but never past the edge of the building — an
