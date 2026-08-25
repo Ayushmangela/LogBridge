@@ -150,6 +150,7 @@ export function buildView(db: Db, positions: Positions, meId: string): Workspace
         note: a.note ?? null,
         description: a.description ?? null,
         goal: a.goal ?? null,
+        provider: a.provider ?? null,
         role: a.role,
         status: a.status,
         zone: "idle",

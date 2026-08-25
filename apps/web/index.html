@@ -224,6 +224,45 @@
     .card-link:hover { text-decoration: underline; }
 
     .task-id { font-size: 12px; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', monospace; }
+    /* ---- Command Center (one agent) ---- */
+    .cc-head { display: flex; align-items: center; justify-content: space-between;
+               gap: 14px; padding: 16px 18px 12px; border-bottom: 1px solid var(--border-soft); }
+    .cc-id { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    /* Same 32x48-frame-0 trick the character picker uses, so an agent looks
+       the same here as it does in the office. */
+    .cc-portrait { width: 40px; height: 60px; flex: none; border-radius: 8px;
+                   border: 1px solid var(--border); background-color: var(--surface-2);
+                   background-repeat: no-repeat; background-position: 0 0;
+                   background-size: auto 60px; image-rendering: pixelated; }
+    .cc-name { font-size: 15px; font-weight: 700; }
+    .cc-sub { font-size: 12px; color: var(--text-faint); display: flex; align-items: center; gap: 7px; margin-top: 3px; }
+    .cc-status { text-transform: uppercase; font-size: 10px; font-weight: 700; letter-spacing: .5px;
+                 padding: 2px 6px; border-radius: 5px; background: var(--surface-2); border: 1px solid var(--border); }
+
+    .cc-tabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 11px 18px; border-bottom: 1px solid var(--border-soft); }
+    .cc-tab { font: inherit; font-size: 12px; padding: 6px 11px; border-radius: 7px; cursor: pointer;
+              border: 1px solid var(--border); background: var(--surface); color: var(--text-dim); }
+    .cc-tab.active { background: var(--accent-soft); border-color: var(--accent); color: var(--text); font-weight: 600; }
+
+    /* ---- commands tab ---- */
+    .cmd-note { font-size: 12px; color: var(--text-faint); margin-bottom: 14px; }
+    .cmd-group-title { font-size: 10px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase;
+                       color: var(--text-faint); margin: 16px 0 7px; }
+    .cmd-row { display: flex; align-items: flex-start; gap: 11px; border: 1px solid var(--border-soft);
+               border-radius: 9px; padding: 10px 12px; margin-bottom: 7px; background: var(--surface); }
+    .cmd-row:hover { border-color: var(--border); }
+    .cmd-badge { font-size: 9px; font-weight: 700; letter-spacing: .5px; padding: 3px 6px; border-radius: 5px;
+                 flex: none; margin-top: 2px; text-transform: uppercase; }
+    .cmd-badge.slash { background: var(--accent-soft); color: var(--accent); }
+    .cmd-badge.cli { background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--border); }
+    .cmd-main { flex: 1; min-width: 0; }
+    .cmd-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; font-weight: 600; }
+    .cmd-desc { font-size: 12px; color: var(--text-dim); margin-top: 3px; line-height: 1.45; }
+    .cmd-eg { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+              color: var(--text-faint); margin-top: 4px; }
+    .cmd-copy { font: inherit; font-size: 11px; padding: 5px 9px; border-radius: 6px; cursor: pointer;
+                border: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim); flex: none; }
+    .cmd-copy:hover { color: var(--text); }
     /* ---- Add Agent wizard ---- */
     .wiz { display: grid; grid-template-columns: 190px 1fr; gap: 18px; align-items: start; }
     .wiz > * { min-width: 0; }
@@ -567,6 +606,7 @@
               <div style="display:flex;justify-content:space-between;margin-top:7px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-faint);">
                 <span id="insp-elapsed"></span><span id="insp-cost"></span></div>
             </div>
+            <button class="card-link" id="insp-more" style="margin-bottom:10px;">Command Center →</button>
             <div style="font-size:12px;color:var(--text-faint);line-height:1.45;" id="insp-desc"></div>
           </div>
         </div>
@@ -637,6 +677,26 @@
               <div class="chat-tip">Mention an idle agent — <b>@dev-fake fix the login bug</b> — and it proposes a task you approve here.</div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <!-- ===== command center (one agent) ===== -->
+      <section class="view" id="view-agent">
+        <div class="panel-card">
+          <div class="cc-head">
+            <div class="cc-id">
+              <div class="cc-portrait" id="cc-portrait"></div>
+              <div>
+                <div class="cc-name" id="cc-name">—</div>
+                <div class="cc-sub"><span class="cc-status" id="cc-status">idle</span>
+                  <span id="cc-desc"></span></div>
+              </div>
+            </div>
+            <button class="card-link" onclick="setView('agents')">← All agents</button>
+          </div>
+
+          <div class="cc-tabs" id="cc-tabs"></div>
+          <div class="panel-body" id="cc-body"></div>
         </div>
       </section>
 
@@ -1362,7 +1422,9 @@
     // One view at a time in the main column. The sidebar owns navigation AND
     // both rosters; status cards sit along the bottom of the office view.
     // Nothing is docked to the right.
-    const VIEWS = ['office', 'tasks', 'chat', 'projects', 'agents', 'memory', 'settings'];
+    // 'agent' is the Command Center for ONE agent. It has no nav item —
+    // you reach it by clicking an agent, and leave via 'All agents'.
+    const VIEWS = ['office', 'tasks', 'chat', 'projects', 'agents', 'memory', 'settings', 'agent'];
     let currentView = 'office';
     function stageEl() { return document.getElementById('canvas-container'); }
 
@@ -1401,6 +1463,7 @@
       if (currentView === 'agents')  renderAgentsFull(room);
       if (currentView === 'projects') renderProjects();
       if (currentView === 'settings') renderMachines(room);
+      if (currentView === 'agent')   renderCommandCenter();
     }
 
     // Everything the sidebar and bottom strip show, refreshed on every
@@ -1507,7 +1570,7 @@
         // The note is a human's annotation and wins over machine chatter:
         // if someone wrote "flaky on staging", that is the thing to show.
         sub: a.note || (a.task ? a.task.title : (a.description || a.status)),
-        onClick: () => { setView('office'); inspectAgent(a); },
+        onClick: () => openCommandCenter(a.id),
       }));
 
       loose.forEach(addRow);
@@ -1532,7 +1595,7 @@
         el.appendChild(rosterRow({
           name: a.name, bot: true, status: a.status,
           sub: `${a.role} · ${a.machineName} · ${a.task ? a.task.title : a.status}`,
-          onClick: () => { setView('office'); inspectAgent(a); },
+          onClick: () => openCommandCenter(a.id),
         }));
       }
     }
@@ -1555,6 +1618,206 @@
         el.appendChild(rosterRow({
           name: r.name, sub: `${r.agents.length} agents · ${r.tasks.length} tasks`, status: 'online',
         }));
+      }
+    }
+
+    // ---------------- Command Center (one agent) ----------------
+    //
+    // A full view rather than a docked panel: the office keeps its right side
+    // empty, and this is a place you go, not something crowding the floor.
+
+    let ccAgentId = null;
+    let ccTab = 'commands';
+    // Fetched once. The catalog is static reference data served over HTTP
+    // (apps/server/src/commands.ts) precisely so it does NOT ride the view
+    // broadcast, which re-sends on every position message.
+    let ccCatalogs = null;
+    let ccCatalogsPending = null;
+
+    function ccLoadCatalogs() {
+      if (ccCatalogs) return Promise.resolve(ccCatalogs);
+      if (!ccCatalogsPending) {
+        ccCatalogsPending = fetch('/api/commands')
+          .then((r) => r.json())
+          .then((d) => { ccCatalogs = d.catalogs ?? []; return ccCatalogs; })
+          .catch(() => { ccCatalogsPending = null; return null; });
+      }
+      return ccCatalogsPending;
+    }
+
+    /** Re-read from the latest view on every render, so status and task stay
+     *  live rather than frozen at the moment the view was opened. */
+    function ccAgent() {
+      for (const r of latestView?.rooms ?? [])
+        for (const a of r.agents ?? []) if (a.id === ccAgentId) return a;
+      return null;
+    }
+
+    window.openCommandCenter = function (agentId, tab) {
+      ccAgentId = agentId;
+      if (tab) ccTab = tab;
+      setView('agent');
+      ccLoadCatalogs().then(() => { if (currentView === 'agent') renderCommandCenter(); });
+    };
+
+    // The design shows ten tabs. Only the ones that do something are listed:
+    // a tab opening an empty panel reads as a bug, not as "not built yet".
+    const CC_TABS = [
+      { id: 'commands', label: 'Commands' },
+      { id: 'activity', label: 'Activity' },
+    ];
+
+    function renderCommandCenter() {
+      const a = ccAgent();
+      const body = document.getElementById('cc-body');
+      if (!a) {
+        document.getElementById('cc-name').textContent = 'Agent not found';
+        document.getElementById('cc-status').textContent = '—';
+        document.getElementById('cc-desc').textContent = '';
+        document.getElementById('cc-tabs').innerHTML = '';
+        body.innerHTML = '<div class="empty-note">That agent is no longer in this room.</div>';
+        return;
+      }
+
+      document.getElementById('cc-name').textContent = a.name;
+      document.getElementById('cc-status').textContent = a.status;
+      document.getElementById('cc-desc').textContent = a.description || (a.role + ' \u00b7 ' + a.machineName);
+
+      const portrait = document.getElementById('cc-portrait');
+      const sprite = (a.character && CHAR_NAMES.includes(a.character))
+        ? a.character
+        : CHAR_NAMES[hashString(a.id) % CHAR_NAMES.length];
+      portrait.style.backgroundImage = 'url(/assets/characters/' + sprite + '.png)';
+
+      const tabs = document.getElementById('cc-tabs');
+      tabs.innerHTML = '';
+      for (const t of CC_TABS) {
+        const b = document.createElement('button');
+        b.className = 'cc-tab' + (t.id === ccTab ? ' active' : '');
+        b.textContent = t.label;
+        b.onclick = () => { ccTab = t.id; renderCommandCenter(); };
+        tabs.appendChild(b);
+      }
+
+      body.innerHTML = '';
+      if (ccTab === 'commands') ccRenderCommands(body, a);
+      else ccRenderActivity(body, a);
+    }
+
+    function ccRenderCommands(body, a) {
+      if (ccCatalogs === null) {
+        body.innerHTML = '<div class="empty-note">Loading commands\u2026</div>';
+        ccLoadCatalogs().then(() => { if (currentView === 'agent') renderCommandCenter(); });
+        return;
+      }
+      // Keyed by the agent's own provider: showing Claude's commands under an
+      // agent running something else would be confidently wrong.
+      const cat = ccCatalogs.find((c) => c.providerId === a.provider);
+      if (!cat) {
+        const note = document.createElement('div');
+        note.className = 'empty-note';
+        note.textContent = a.provider
+          ? 'No command reference has been written for ' + a.provider + ' yet.'
+          : "This agent runs the machine's default harness, which has no command reference.";
+        body.appendChild(note);
+        return;
+      }
+
+      const note = document.createElement('div');
+      note.className = 'cmd-note';
+      note.textContent = cat.note;
+      body.appendChild(note);
+
+      for (const g of cat.groups) {
+        const h = document.createElement('div');
+        h.className = 'cmd-group-title';
+        h.textContent = g.title;
+        body.appendChild(h);
+
+        for (const c of g.commands) {
+          const row = document.createElement('div');
+          row.className = 'cmd-row';
+
+          const badge = document.createElement('span');
+          badge.className = 'cmd-badge ' + c.kind;
+          badge.textContent = c.kind;
+
+          const main = document.createElement('div');
+          main.className = 'cmd-main';
+          const name = document.createElement('div');
+          name.className = 'cmd-name';
+          name.textContent = c.name;      // server-authored, still never innerHTML
+          const desc = document.createElement('div');
+          desc.className = 'cmd-desc';
+          desc.textContent = c.description;
+          main.append(name, desc);
+          if (c.example) {
+            const eg = document.createElement('div');
+            eg.className = 'cmd-eg';
+            eg.textContent = 'e.g. ' + c.example;
+            main.appendChild(eg);
+          }
+
+          const copy = document.createElement('button');
+          copy.className = 'cmd-copy';
+          copy.textContent = 'copy';
+          copy.onclick = () => {
+            // The example is the runnable form where one exists.
+            const text = c.example || c.name;
+            const done = () => {
+              copy.textContent = 'copied';
+              setTimeout(() => { copy.textContent = 'copy'; }, 1200);
+            };
+            // navigator.clipboard needs a secure context and a permission the
+            // page may not have (plain http on a LAN address, for one — which
+            // is exactly how this office gets used). Falling back to a
+            // selection means the button always does something useful rather
+            // than reporting "blocked" and leaving you stuck.
+            const fallback = () => {
+              const ta = document.createElement('textarea');
+              ta.value = text;
+              ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+              document.body.appendChild(ta);
+              ta.select();
+              let ok = false;
+              try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+              ta.remove();
+              if (ok) done();
+              else { copy.textContent = 'select & ⌘C'; setTimeout(() => { copy.textContent = 'copy'; }, 2000); }
+            };
+            if (navigator.clipboard?.writeText) {
+              navigator.clipboard.writeText(text).then(done, fallback);
+            } else {
+              fallback();
+            }
+          };
+
+          row.append(badge, main, copy);
+          body.appendChild(row);
+        }
+      }
+    }
+
+    function ccRenderActivity(body, a) {
+      // The room feed narrowed to this agent — same server-projected wording
+      // as the main feed, so the browser still invents no story of its own.
+      const room = activeRoom();
+      const mine = (room?.activity ?? []).filter((it) => it.actor === a.name);
+      if (!mine.length) {
+        body.innerHTML = '<div class="empty-note">Nothing recorded for this agent yet.</div>';
+        return;
+      }
+      for (const it of mine) {
+        const row = document.createElement('div');
+        row.className = 'cmd-row';
+        const main = document.createElement('div');
+        main.className = 'cmd-main';
+        const t = document.createElement('div');
+        t.className = 'cmd-desc';
+        t.textContent = it.summary;
+        main.appendChild(t);
+        row.appendChild(main);
+        body.appendChild(row);
       }
     }
 
@@ -2285,6 +2548,12 @@
       document.getElementById('insp-desc').textContent = a.waitingOn
         ? `Waiting on: ${a.waitingOn}`
         : (a.task?.note ?? `Role: ${a.role} · Capabilities: ${(a.capabilities ?? []).join(', ')}`);
+
+      // A way through to the full Command Center, without hijacking the
+      // click: poking someone at their desk should not eject you from the
+      // floor, but you should be able to go deeper.
+      const more = document.getElementById('insp-more');
+      if (more) more.onclick = () => { closeInspector(); openCommandCenter(a.id); };
 
       document.getElementById('inspector').classList.add('open');
     }

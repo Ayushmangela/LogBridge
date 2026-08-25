@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS agents (
   isolation TEXT,       -- shared | worktree | copy (see WORKSPACE.md)
   note TEXT,            -- a human's scratch note, shown in the roster
   description TEXT,     -- one line: what this agent is ("runs the floor")
-  goal TEXT             -- its standing objective, from the briefing step
+  goal TEXT,            -- its standing objective, from the briefing step
+  provider TEXT         -- which agent CLI it runs (PROVIDERS.md); null = the machine's default harness
 );
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
@@ -107,6 +108,27 @@ CREATE TABLE IF NOT EXISTS github_cursors (
   last_sha TEXT,
   last_commit_at TEXT
 );
+-- Standing rules that create tasks when a condition is met (HANDOFF-TRIGGERS.md).
+-- kind 'schedule' fires by the clock; kind 'event' (Phase 3) fires on log
+-- events. tz holds an IANA zone so wall-clock schedules survive DST.
+CREATE TABLE IF NOT EXISTS triggers (
+  id TEXT PRIMARY KEY,
+  project_id TEXT,
+  name TEXT,
+  enabled INT DEFAULT 1,
+  kind TEXT,
+  rule TEXT,
+  task_title TEXT,
+  task_spec TEXT,
+  task_capability TEXT,
+  budget_seconds INTEGER,
+  budget_usd REAL,
+  tz TEXT,
+  created_at TEXT,
+  last_fired_at TEXT,
+  next_fire_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_triggers_due ON triggers (enabled, next_fire_at);
 CREATE TABLE IF NOT EXISTS grants (
   id TEXT PRIMARY KEY,
   grantor_id TEXT,
@@ -196,6 +218,7 @@ export function openDb(dbPath?: string): Db {
     "ALTER TABLE agents ADD COLUMN note TEXT",
     "ALTER TABLE agents ADD COLUMN description TEXT",
     "ALTER TABLE agents ADD COLUMN goal TEXT",
+    "ALTER TABLE agents ADD COLUMN provider TEXT",
   ]) {
     try {
       db.exec(alter);

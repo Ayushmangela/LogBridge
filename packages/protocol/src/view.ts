@@ -131,6 +131,11 @@ export const AgentView = z.object({
   description: z.string().nullable(),
   /** Its standing objective, from the briefing step. */
   goal: z.string().nullable(),
+  /** Which agent CLI this runs (PROVIDERS.md). Null = the machine's default
+   *  harness. Optional for the same reason ProviderInfo.command is: agents
+   *  registered before this existed have no value, and a required field here
+   *  would drop the whole view. */
+  provider: z.string().nullable().optional(),
 });
 
 // What a machine reports about the CLIs it actually has installed — computed
@@ -149,6 +154,14 @@ export const ProviderInfo = z.object({
   // the preview cannot drift from reality. A preview written by hand in the
   // browser would stay convincing while quietly becoming wrong, and it would
   // also have to guess flags for CLIs the browser has never seen.
+  //
+  // OPTIONAL, and that is load-bearing. `providers` is JSON stored at a
+  // machine's last handshake, so every machine that connected before this
+  // field existed has rows without it. The gateway validates the whole view
+  // before sending and drops it entirely on failure — so making this
+  // required blanked the office for EVERY room until each runner happened to
+  // reconnect. Any field added here has the same shape of risk: stored
+  // producer data cannot be made required retroactively.
   command: z.object({
     /** Contains the literal "<model>" for the browser to substitute. */
     withModel: z.string(),
@@ -157,7 +170,7 @@ export const ProviderInfo = z.object({
     /** Flags that disable this CLI's permission prompts, or null when it has
      *  no such mode. Shown verbatim so the toggle is never a mystery. */
     bypassFlag: z.string().nullable(),
-  }),
+  }).optional(),
 });
 
 export type ProviderInfoT = z.infer<typeof ProviderInfo>;

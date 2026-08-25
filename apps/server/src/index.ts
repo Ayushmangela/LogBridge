@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import type { WebSocket } from "ws";
 import { createTask, openDb, type Db } from "./db.js";
 import { Positions } from "./view.js";
+import { registerCommandRoutes } from "./commands.js";
 import { registerGateway } from "./gateway.js";
 import { orchestrate, registerNodeGateway, requestAgentCreate, sendTaskOffer, taskCancelEnvelope, type NodeSockets } from "./nodeGateway.js";
 
@@ -58,6 +59,11 @@ export async function buildServer(
   // yet (SYSTEM.md §5, Phase 2). Not part of the product surface — no auth,
   // do not expose this off localhost/tailnet.
   // ---------------------------------------------------------------------
+
+  // Static reference data, deliberately not in the workspace view — see
+  // commands.ts for why.
+  registerCommandRoutes(app);
+
   app.post<{ Body: { agentId: string; title: string; spec?: string; budgetSeconds?: number; budgetUsd?: number } }>(
     "/debug/offer-task",
     async (req, reply) => {

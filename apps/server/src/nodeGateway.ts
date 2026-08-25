@@ -927,18 +927,24 @@ function handleNodeEnvelope(
     // erase it every time the runner reconnected.
     db.prepare(
       `INSERT INTO agents (id, machine_id, owner_id, project_id, name, role, capabilities, concurrency, status, current_task,
-                           character, color, folder, isolation, description, goal)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, ?, ?, ?, ?, ?, ?)
+                           character, color, folder, isolation, description, goal, provider)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          machine_id=excluded.machine_id, owner_id=excluded.owner_id, project_id=excluded.project_id,
          name=excluded.name, role=excluded.role, capabilities=excluded.capabilities, concurrency=excluded.concurrency,
          character=excluded.character, color=excluded.color, folder=excluded.folder,
-         isolation=excluded.isolation, description=excluded.description, goal=excluded.goal`
+         isolation=excluded.isolation, description=excluded.description, goal=excluded.goal,
+         provider=excluded.provider`
     ).run(
       body.id, body.machineId, owner?.owner_id ?? "usr_dev", body.projects[0] ?? null,
       body.name, body.role, JSON.stringify(body.capabilities ?? []), body.concurrency ?? 1,
       body.character ?? null, body.color ?? null, body.folder ?? null,
-      body.isolation ?? null, body.description ?? null, body.goal ?? null
+      body.isolation ?? null, body.description ?? null, body.goal ?? null,
+      // The card reports `harness`, which is the provider id or the literal
+      // "fake-worker" when the agent uses the runner's default. Normalising
+      // that placeholder to null here keeps "has no provider" a single idea
+      // rather than a magic string every reader has to know.
+      body.harness && body.harness !== "fake-worker" ? body.harness : null
     );
     broadcastPeerDirectory(db, nodeSockets); // a new agent is a new possible peer
     orchestrate(db, nodeSockets, app);
