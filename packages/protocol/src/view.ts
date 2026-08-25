@@ -34,7 +34,12 @@ export const TaskBrief = z.object({
   title: z.string(),
   elapsedSec: z.number().int().nonnegative(),
   costUsd: z.number(),
+  /** The agent's most recent line of work — what it is doing right now. */
   note: z.string().nullable(),
+  /** Step boundaries the CLI has reported so far. A COUNT, deliberately not
+   *  a fraction: providers expose when a step happens, never how many are
+   *  left, so any percentage would be invented. 0 = none reported yet. */
+  steps: z.number().int().nonnegative(),
 });
 
 // The Kanban board's row shape — every task in the room, not just an

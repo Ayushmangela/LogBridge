@@ -23,7 +23,16 @@ export type AgentEvent =
    *  pauses the wall-clock budget, marks the task input-required, and routes
    *  the question to a human inbox; the answer comes back via
    *  AgentHandle.answer(). A one-shot CLI simply never emits this. */
-  | { kind: "question"; id: string; question: string };
+  | { kind: "question"; id: string; question: string }
+  // The Nth step boundary the CLI reported — opencode's step_start, claude's
+  // assistant turns. Both are real and observable, which is the whole point:
+  // the TOTAL number of steps is unknowable, so this is a count and never a
+  // percentage. Anything rendering it with a % would be inventing the
+  // denominator.
+  | { kind: "progress"; step: number; note?: string }
+  // Something the agent judged worth keeping beyond this task. Produced by
+  // the REMEMBER convention in the prompt — see rememberInstruction().
+  | { kind: "remember"; memoryKind: "fact" | "preference" | "decision"; text: string };
 
 export interface AgentHandle {
   events: AsyncIterable<AgentEvent>;

@@ -32,12 +32,30 @@ function askAfterFromPrompt(prompt: string): number | null {
 // which silently reverted duration to the default and made `askAfter` never
 // fire. Parse the task section, not the envelope around it.
 function promptJson(prompt: string): any | null {
+  // The prompt gets decorated from BOTH ends: withMemories() prepends recalled
+  // context under a "Task:" heading, and the REMEMBER convention is appended
+  // after it. Neither is JSON, so anything that requires the whole string (or
+  // a whole suffix) to parse breaks the moment either is present — which has
+  // now happened twice. Find the embedded object instead.
   const direct = tryParse(prompt);
   if (direct) return direct;
-  // Everything after the LAST "Task:" line is the task itself.
+
   const idx = prompt.lastIndexOf("\nTask:\n");
-  if (idx === -1) return null;
-  return tryParse(prompt.slice(idx + "\nTask:\n".length));
+  const region = idx === -1 ? prompt : prompt.slice(idx + "\nTask:\n".length);
+
+  const start = region.indexOf("{");
+  if (start === -1) return null;
+  // Scan outward for the matching brace rather than regexing, so a nested
+  // object in the control payload doesn't truncate it.
+  let depth = 0;
+  for (let i = start; i < region.length; i++) {
+    if (region[i] === "{") depth++;
+    else if (region[i] === "}") {
+      depth--;
+      if (depth === 0) return tryParse(region.slice(start, i + 1));
+    }
+  }
+  return null;
 }
 
 function tryParse(s: string): any | null {

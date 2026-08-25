@@ -78,12 +78,19 @@ the view, but nothing ages them out, merges near-duplicates, or notices that
 two memories contradict each other. At the scale this runs at (a few people,
 one room) that's fine. It would not be fine at a thousand memories.
 
-**Agents don't choose what to remember.** Right now exactly one thing forms a
-memory: a task's outcome, written by the runner. A real agent deciding *"this
-is worth remembering"* mid-task needs a harness event for it — the
-`AgentEvent` union has no such kind yet. `memory.write` already accepts
-`fact` / `preference` / `decision`, so the protocol is ready and the producer
-isn't.
+**Agents choose what to remember (as of the `remember` event).** Two things now
+form a memory: a task's outcome, written by the runner, and anything the agent
+itself marks. Each task prompt carries one line of convention —
+`REMEMBER: <the fact>` — and the provider parsers turn a matching line into
+`{ kind: "remember", memoryKind, text }`, which the runner sends as the
+`memory.write` the protocol already accepted.
+
+Two limits worth stating plainly. The `memoryKind` defaults to `fact` because
+a CLI has no reliable way to declare `preference` vs `decision` in one line —
+so that distinction exists in the schema and is barely used in practice. And
+the convention is *advisory*: a model that ignores the instruction produces no
+memories, and nothing detects that. What is guaranteed is the channel, not the
+agent's judgement.
 
 ## Files
 

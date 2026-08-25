@@ -49,6 +49,33 @@ function json(line: string): any | null {
   try { return JSON.parse(line); } catch { return null; }
 }
 
+/**
+ * A CLI has no way to volunteer "this is worth remembering", so the prompt
+ * teaches it one. Kept to a single line: every extra instruction competes
+ * with the actual task for the model's attention, and a task done badly
+ * because we asked for bookkeeping is a bad trade.
+ */
+export function rememberInstruction(): string {
+  return (
+    "If you learn something durably useful about this project (a convention, " +
+    "a gotcha, a decision), output one line: REMEMBER: <the fact>. Skip it if " +
+    "nothing qualifies — most tasks don't."
+  );
+}
+
+// "REMEMBER: the deploy script needs sudo" anywhere in a line of output.
+const REMEMBER_RE = /(?:^|\s)REMEMBER:\s*(.+)$/i;
+
+/** Pull a remember event out of a line of agent text, if it declared one. */
+export function rememberFrom(text: string): AgentEvent | null {
+  const m = String(text ?? "").match(REMEMBER_RE);
+  if (!m) return null;
+  const fact = m[1].trim().replace(/\s+/g, " ").slice(0, 500);
+  // A bare "REMEMBER:" with nothing after it is not a memory.
+  if (fact.length < 4) return null;
+  return { kind: "remember", memoryKind: "fact", text: fact };
+}
+
 function trim(s: unknown, n = 2000): string {
   const t = String(s ?? "");
   return t.length > n ? t.slice(0, n) + "…" : t;
@@ -76,9 +103,16 @@ function parseClaude(line: string): AgentEvent[] {
     case "user": {
       const content = p.message?.content;
       if (!Array.isArray(content)) return [];
+      // Each assistant turn is one observable step. The total is unknown, so
+      // this is a count and nothing more.
+      if (p.type === "assistant") out.push({ kind: "progress", step: 1 });
       for (const b of content) {
         if (b?.type === "text" && typeof b.text === "string") {
-          if (b.text.trim()) out.push({ kind: "output", text: trim(b.text) });
+          if (b.text.trim()) {
+            const remembered = rememberFrom(b.text);
+            if (remembered) out.push(remembered);
+            out.push({ kind: "output", text: trim(b.text) });
+          }
         } else if (b?.type === "tool_use") {
           out.push({ kind: "tool_call", name: b.name ?? "unknown", input: b.input ?? null });
         }
@@ -117,12 +151,16 @@ function parseOpencode(line: string): AgentEvent[] {
 
   switch (p.type) {
     case "step_start":
-      return [];
+      return [{ kind: "progress", step: 1 }];
 
-    case "text":
-      return part.text && String(part.text).trim()
-        ? [{ kind: "output", text: trim(part.text) }]
-        : [];
+    case "text": {
+      const t = part.text && String(part.text).trim();
+      if (!t) return [];
+      const remembered = rememberFrom(String(part.text));
+      return remembered
+        ? [remembered, { kind: "output", text: trim(part.text) }]
+        : [{ kind: "output", text: trim(part.text) }];
+    }
 
     // Verified against test-support/opencode-tools.sample.jsonl. Note the
     // envelope type is "tool_use" while part.type is "tool" — keying on
@@ -160,7 +198,11 @@ function parseOpencode(line: string): AgentEvent[] {
 // output; completion comes from the process exit code, which ptyHarness
 // already handles. Honest and useful — just not structured.
 function parsePlain(line: string): AgentEvent[] {
-  return line.trim() ? [{ kind: "output", text: trim(line) }] : [];
+  if (!line.trim()) return [];
+  const remembered = rememberFrom(line);
+  // The convention is plain text, so it works even for CLIs whose structured
+  // format nobody here has captured.
+  return remembered ? [remembered, { kind: "output", text: trim(line) }] : [{ kind: "output", text: trim(line) }];
 }
 
 const UNVERIFIED: Array<{ id: string; label: string; command: string; models: string[]; args: (p: string, m?: string | null) => string[] }> = [

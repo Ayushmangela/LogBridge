@@ -153,7 +153,10 @@ describe("shared memory across machines", () => {
 
     // An empty memory store must leave the prompt completely untouched —
     // no empty "what this team knows" preamble.
-    expect(harness.prompts[0]).toBe("the very first task");
+    // No memories -> no context preamble. The REMEMBER convention is still
+    // appended, so the task must be the START of the prompt, not all of it.
+    expect(harness.prompts[0].startsWith("the very first task")).toBe(true);
+    expect(harness.prompts[0]).not.toContain("What this team already knows");
     await waitFor(() => taskState(taskId) === "completed", 8000, "completed");
     r.conn.stop();
   }, 20_000);

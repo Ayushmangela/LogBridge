@@ -105,7 +105,7 @@ describe("several agents on one machine", () => {
     // would have been run as though it belonged to the first.
     const t = await offer("agt_two", "work for the second agent");
     await waitFor(() => taskState(t) === "completed", 8000, "task completed");
-    expect(shared.prompts).toContain("work for the second agent");
+    expect(shared.prompts.some((p) => p.includes("work for the second agent"))).toBe(true);
 
     // The runner writes into the addressed agent's own working directory.
     const events = server.db.prepare("SELECT body FROM events WHERE task_id=? AND type='task.result'").all(t) as any[];
@@ -147,7 +147,7 @@ describe("several agents on one machine", () => {
     // older server that omits agentId must keep working.
     const t = await offer("agt_only", "still runs");
     await waitFor(() => taskState(t) === "completed", 8000, "completed");
-    expect(shared.prompts).toContain("still runs");
+    expect(shared.prompts.some((p) => p.includes("still runs"))).toBe(true);
     conn.stop();
   }, 20_000);
 });

@@ -24,6 +24,48 @@ export class Positions {
   }
 }
 
+/**
+ * What an agent is doing right now, from the last thing it reported.
+ *
+ * `task.event` is excluded from the activity feed on purpose — it's a
+ * firehose (see activity.ts). But the LATEST one is exactly what belongs on
+ * the agent's own card, which is why this reads the tail rather than the
+ * stream. `steps` is a count: the runner increments it per reported step
+ * boundary, and no provider knows the total, so nothing here is ever a
+ * percentage.
+ */
+export function latestProgress(db: Db, taskId: string): { note: string | null; steps: number } {
+  // json_valid() is not defensive padding: json_extract THROWS on a malformed
+  // body, and this runs inside the workspace projection — so one corrupt event
+  // row would blank the whole office for every room, not just this card.
+  const note = db
+    .prepare(
+      `SELECT json_extract(body, '$.summary') AS summary FROM events
+       WHERE task_id = ? AND type = 'task.event' AND json_valid(body)
+       ORDER BY seq DESC LIMIT 1`
+    )
+    .get(taskId) as any;
+
+  // The newest event is not necessarily a step boundary — an ordinary output
+  // line lands after one — so the count is read from the newest event that
+  // actually carries it, rather than resetting to 0 on the next line of chat.
+  const step = db
+    .prepare(
+      `SELECT json_extract(body, '$.data.steps') AS steps FROM events
+       WHERE task_id = ? AND type = 'task.event' AND json_valid(body)
+         AND json_extract(body, '$.data.steps') IS NOT NULL
+       ORDER BY seq DESC LIMIT 1`
+    )
+    .get(taskId) as any;
+
+  const summary = typeof note?.summary === "string" ? note.summary.trim() : "";
+  const steps = Number(step?.steps);
+  return {
+    note: summary ? summary.slice(0, 80) : null,
+    steps: Number.isFinite(steps) && steps > 0 ? Math.floor(steps) : 0,
+  };
+}
+
 function parseJsonArray(raw: unknown): ProviderInfoT[] {
   try {
     const parsed = JSON.parse(String(raw ?? "[]"));
@@ -110,7 +152,7 @@ export function buildView(db: Db, positions: Positions, meId: string): Workspace
                 ? Math.max(0, Math.floor((Date.now() - Date.parse(taskRow.started_at)) / 1000))
                 : 0,
               costUsd: taskRow.cost_usd ?? 0,
-              note: null,
+              ...latestProgress(db, taskRow.id),
             }
           : null,
         waitingOn: a.waiting_on ?? null,

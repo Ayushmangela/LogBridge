@@ -157,7 +157,7 @@ All six merge points passed, plus:
 
 - [ ] Server runs unattended on the spare laptop for a week without intervention
 - [ ] Both machines reconnect cleanly after sleep, every time
-- [ ] A looping agent gets killed by its budget cap
+- [x] A looping agent gets killed by its budget cap — `wifiDrop.test.ts`, "the budget cap kills a deliberately looping task"
 - [ ] Every state in the office traces to a real event in the log
 - [ ] A stranger can watch the office for 60 seconds and correctly say what the team is doing
 

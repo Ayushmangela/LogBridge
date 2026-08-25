@@ -14,6 +14,7 @@ interface Active {
   budgetSeconds: number;
   budgetUsd: number;
   lastCostUsd: number; // authoritative once the harness reports one — never fabricated
+  steps: number;       // observable step boundaries reported by the CLI — a count, never a fraction
   settled: boolean; // guards against double-reporting a result
   // Wall-clock budget, pausable. While the agent waits on a human it spends
   // nothing, so the clock must not run — a task killed because its owner was
@@ -35,7 +36,11 @@ export class TaskRunner {
     private onResult: (taskId: string, state: ResultState, reason: string | null, costUsd: number) => void,
     /** The agent asked something only a human can answer. The runner marks
      *  the task input-required and routes the question; the clock stops. */
-    private onQuestion: (taskId: string, questionId: string, question: string) => void = () => {}
+    private onQuestion: (taskId: string, questionId: string, question: string) => void = () => {},
+    /** Observable steps completed — a count, never a fraction. */
+    private onProgress?: (taskId: string, steps: number, note: string | null) => void,
+    /** The agent judged something worth keeping beyond this task. */
+    private onRemember?: (taskId: string, kind: string, text: string) => void
   ) {}
 
   has(taskId: string): boolean {
@@ -75,7 +80,7 @@ export class TaskRunner {
     const active: Active = {
       taskId, handle, startedAt: Date.now(),
       budgetSeconds: budget.seconds, budgetUsd: budget.usd,
-      lastCostUsd: 0, settled: false,
+      lastCostUsd: 0, steps: 0, settled: false,
       budgetTimer: null, remainingMs: budget.seconds * 1000, armedAt: null,
     };
     this.active.set(taskId, active);
@@ -92,6 +97,15 @@ export class TaskRunner {
           // Clock stops while a human thinks. Resumed in answer().
           this.pauseBudget(active);
           this.onQuestion(taskId, ev.id, ev.question);
+        }
+        else if (ev.kind === "progress") {
+          // Steps completed. The total is unknowable, so this is a count the
+          // UI reports as-is — never a percentage.
+          active.steps += ev.step;
+          this.onProgress?.(taskId, active.steps, ev.note ?? null);
+        }
+        else if (ev.kind === "remember") {
+          this.onRemember?.(taskId, ev.memoryKind, ev.text);
         }
         else if (ev.kind === "done") this.finish(taskId, ev.ok ? "completed" : "failed", ev.ok ? null : "harness reported failure");
       }

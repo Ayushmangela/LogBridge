@@ -8,7 +8,7 @@ import { open as openSealed, seal, sealAad, type EnvelopeT } from "@logbridge/pr
 import type { Identity } from "./identity.js";
 import type { AgentHarness } from "./harness/types.js";
 import { makePtyHarness } from "./harness/ptyHarness.js";
-import { detectInstalled, providerById } from "./harness/providers.js";
+import { detectInstalled, providerById, rememberInstruction } from "./harness/providers.js";
 import { Outbox } from "./outbox.js";
 import { loadCreatedAgents, saveCreatedAgents } from "./createdAgents.js";
 import { TaskRunner } from "./taskRunner.js";
@@ -117,6 +117,7 @@ export class RunnerConnection {
   private log: (msg: string) => void;
   private taskProject = new Map<string, string>(); // taskId -> projectId, for envelope routing
   private taskTitle = new Map<string, string>();   // taskId -> title, for the outcome memory
+  private taskAgent = new Map<string, string>();   // taskId -> the agent running it — memory attribution
   private pendingRecalls = new Map<string, (memories: RecalledMemory[]) => void>();
   private peers: PeerEntry[] = [];
   /** One harness per agent, built lazily and cached — spawning is cheap but
@@ -160,6 +161,17 @@ export class RunnerConnection {
           body: { taskId, question, options: ["answer"] },
         } as EnvelopeT);
         this.log(`agent asked (task ${taskId}): ${question}`);
+      },
+      (taskId, steps, note) => {
+        // Reported as a count. The UI shows "step 3", never "60%" — the
+        // denominator does not exist.
+        this.sendEnvelope(this.eventEnvelope(taskId, note ?? `step ${steps}`, { steps }));
+      },
+      (taskId, kind, text) => {
+        // The agent declared this worth keeping. Same channel as an outcome
+        // memory, but the agent chose it rather than the runner inferring it.
+        this.log(`agent wants to remember: ${text.slice(0, 60)}`);
+        this.writeMemory(kind, text, taskId);
       }
     );
   }
@@ -284,8 +296,12 @@ export class RunnerConnection {
       this.log(`accepting task ${body.taskId} for ${agent.name} on ${this.harnessForAgent(agent.id).name}: ${body.title}`);
       const cwd = agent.cwd ?? join(this.opts.dataDir, "work", agent.id);
       mkdirSync(cwd, { recursive: true });
-      const prompt = body.spec ?? body.title;
+      // The REMEMBER convention rides in the prompt: the parsers turn a
+      // matching line into a memory.write. One line, skipped when nothing
+      // was learned — memory is opt-in by the agent, never a form to fill.
+      const prompt = `${body.spec ?? body.title}\n\n${rememberInstruction()}`;
       this.taskTitle.set(body.taskId, body.title);
+      this.taskAgent.set(body.taskId, agent.id);
 
       // Recall first, then start — this is the whole point of shared memory:
       // the agent begins the task already knowing what the team learned,
@@ -967,6 +983,7 @@ export class RunnerConnection {
   private rememberOutcome(taskId: string, state: string, reason: string | null) {
     const title = this.taskTitle.get(taskId);
     this.taskTitle.delete(taskId);
+    this.taskAgent.delete(taskId);
     if (!title) return;
     const text =
       state === "completed"
@@ -976,7 +993,12 @@ export class RunnerConnection {
   }
 
   private writeMemory(kind: string, text: string, sourceTaskId: string | null) {
-    const agent = this.opts.agents[0];
+    // Attributed to the agent that actually ran the task. Using agents[0]
+    // here — as this did — credited every memory on a multi-agent machine to
+    // whichever agent happened to be declared first, so shared memory showed
+    // the wrong teammate's name against a fact they never learned.
+    const named = sourceTaskId ? this.agentById(this.taskAgent.get(sourceTaskId) ?? "") : undefined;
+    const agent = named ?? this.opts.agents[0];
     const project = this.taskProject.get(sourceTaskId ?? "") ?? agent?.projects[0];
     if (!agent || !project) return;
     // Goes through sendEnvelope (unlike recall) — a memory formed while the

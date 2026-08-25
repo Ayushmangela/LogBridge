@@ -1,7 +1,7 @@
 # The Contract
 ### Single source of truth for everything exchanged between the office and the system.
 
-**Version 1.18** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
+**Version 1.19** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
 
 > **Rule: never change this file alone.** Both people present, both agree, bump the version, add a changelog line. A contract one person edited is not a contract.
 
@@ -106,7 +106,9 @@ type TaskBrief = {
   title: string                // "Add JWT auth"
   elapsedSec: number
   costUsd: number
-  note: string | null          // "running test suite"
+  note: string | null          // ★ 1.19 the agent's latest line — "running test suite"
+  steps: number                // ★ 1.19 step boundaries reported so far. A COUNT,
+                               //   never a fraction: no provider reports a total
 }
 
 type MachineView = {
@@ -256,6 +258,7 @@ Five tilesets are registered in the map, all 32 px:
 
 | Version | Change | Why |
 |---|---|---|
+| **1.19** | Added **`TaskBrief.steps`**, and started populating **`TaskBrief.note`** | A running task was a black box between "started" and "done" — a 40-minute run and a 4-second run rendered identically, and `note` had been in the contract since 1.0 while the server always sent `null`. Providers emit real step boundaries (opencode `step_start`, claude assistant turns), so the count is observed rather than estimated. It is deliberately **not** a percentage: no CLI reports how many steps remain, so a progress bar here would be inventing its denominator |
 | **1.18** | Added **`Room.collaborationAvailable`** | Delegation, review, context sharing and consent are all inert unless a second *person* has a machine online, so the office was advertising a meeting room nobody could enter. Counts **distinct owners**, not machines — one person's laptop and desktop is not collaboration, and a soak rig must not flip it on |
 | **1.17** | Added **`ClientMessage.join`** | The server had no idea which room a browser was looking at — membership was only implied by `position`, which doesn't exist until the player moves. So chat was broadcast and replayed to every socket and the browser filtered it for display. Survivable with one room; wrong once the GitHub mirror started creating one per repo. A socket that hasn't joined now receives no chat at all: silence is recoverable, another project's conversation arriving is not |
 | **1.16** | **`Room.pulls`** (`PullView[]`, capped 20) — number/title/state/CI/author; `AgentView.githubRef` now populates from issue-sourced tasks | GitHub mirror (M6/prompt 7). Read-only polling with ETags (D9/D10): repo → room, open issues → queued tasks keyed by a UNIQUE `idem` of `gh:<repo>#<n>` so no poll ever duplicates one, closed issues retire their task, PR state and CI transitions land once in the activity feed. Left out and labelled: commit aggregation (needs per-push grouping the poll loop doesn't model yet) |

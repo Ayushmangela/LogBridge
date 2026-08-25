@@ -164,7 +164,7 @@ production dependencies (`npm audit --omit=dev`).
 | Semantic memory recall | an embedding model — today it's BM25, and says so |
 | `opencode` tool policy | it has no per-run mechanism; the harness refuses rather than pretending |
 | Forward secrecy for a sealed-message recipient | a double ratchet — this is a sealed box, not a ratchet |
-| A real progress percentage | tasks report start and finish and nothing between, so the bar shows *elapsed* |
+| A real progress **percentage** | no CLI reports how many steps remain. Step *counts* now work (1.19) — a percentage needs a denominator nothing exposes, so the bar stays *elapsed* |
 | Exact push boundaries | polling sees commits, not pushes — grouping is inferred within a 10-minute window and labelled as an approximation |
 
 **Not features — the untested claims**

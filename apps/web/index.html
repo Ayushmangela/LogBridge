@@ -225,6 +225,10 @@
 
     .task-id { font-size: 12px; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', monospace; }
     .task-name { font-size: 13.5px; font-weight: 600; margin-left: 8px; }
+    /* The agent's most recent line. One line only — it updates as the agent
+       works, and a growing block would shove the rest of the card around. */
+    .ct-note { font-size: 12px; color: var(--text-muted); margin: 5px 0 2px;
+               white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .pill {
       display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px;
       border-radius: 20px; font-size: 11px; font-weight: 650; margin: 8px 0 9px;
@@ -519,12 +523,13 @@
             <div id="ct-empty" class="empty-note" style="padding:14px 0;">Nothing running right now.</div>
             <div id="ct-body" style="display:none;">
               <div><span class="task-id" id="ct-id"></span><span class="task-name" id="ct-name"></span></div>
+              <div class="ct-note" id="ct-note"></div>
               <div class="pill running" id="ct-pill"><span class="d"></span><span id="ct-state">In progress</span></div>
               <div class="bar"><i id="ct-bar" style="width:0%"></i></div>
               <div class="task-meta">
                 <div><div class="meta-k">Assignee</div><div class="meta-v" id="ct-agent">—</div></div>
                 <div><div class="meta-k">Elapsed</div><div class="meta-v" id="ct-elapsed">—</div></div>
-                <div><div class="meta-k">Cost</div><div class="meta-v" id="ct-cost">—</div></div>
+                <div><div class="meta-k">Step</div><div class="meta-v" id="ct-steps">—</div></div>
               </div>
             </div>
           </div>
@@ -1599,13 +1604,25 @@
       document.getElementById('ct-name').textContent = busy.task.title;
       document.getElementById('ct-agent').textContent = busy.name;
       document.getElementById('ct-elapsed').textContent = formatElapsed(busy.task.elapsedSec);
-      document.getElementById('ct-cost').textContent = `$${busy.task.costUsd.toFixed(2)}`;
-      // There is no real progress signal — a task reports start and finish and
-      // nothing between — so this bar is elapsed-vs-budget, not completion.
-      // Labelled "elapsed" rather than dressed up as a percentage done.
+
+      // The agent's own last line, and the number of step boundaries its CLI
+      // has reported. Both come from the server (invariant 2) — the browser
+      // never infers what an agent is up to.
+      const note = document.getElementById('ct-note');
+      note.textContent = busy.task.note ?? '';
+      note.style.display = busy.task.note ? 'block' : 'none';
+
+      const steps = busy.task.steps ?? 0;
+      document.getElementById('ct-steps').textContent = steps > 0 ? String(steps) : '—';
+
+      // The bar is elapsed-vs-budget, NOT completion. Step count is a count
+      // precisely because no provider reports a total, so there is still no
+      // honest denominator to fill a bar with.
       const pct = Math.min(100, Math.round((busy.task.elapsedSec / 60) * 100));
       document.getElementById('ct-bar').style.width = pct + '%';
-      document.getElementById('ct-state').textContent = 'Running · ' + formatElapsed(busy.task.elapsedSec) + ' elapsed';
+      const stepPart = steps > 0 ? ` · step ${steps}` : '';
+      document.getElementById('ct-state').textContent =
+        'Running' + stepPart + ' · ' + formatElapsed(busy.task.elapsedSec) + ' elapsed';
     }
 
     // The feed comes from room.activity — the server projects the event log

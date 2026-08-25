@@ -151,7 +151,9 @@ describe("a browser-created agent survives a runner restart", () => {
     });
     const { taskId } = (await offer.json()) as { taskId: string };
     await waitFor(() => taskRow(taskId)?.state === "completed", 10000, "task completed after restart");
-    expect(h2.prompts).toContain("post-restart work");
+    // The task prompt now carries the REMEMBER convention appended to it,
+    // so assert the task is IN the prompt rather than equal to it.
+    expect(h2.prompts.some((p) => p.includes("post-restart work"))).toBe(true);
 
     second.stop();
   }, 40_000);
