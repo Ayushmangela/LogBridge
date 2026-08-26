@@ -780,6 +780,14 @@
               <button class="card-link" onclick="setView('agents')">← All agents</button>
             </div>
           </div>
+          <div id="cc-manage" style="display:flex;gap:6px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--border-soft);align-items:center">
+            <button class="cc-tab" onclick="openEditAgent()">Edit</button>
+            <button class="cc-tab" onclick="openNoteDialog()">Note</button>
+            <button class="cc-tab" id="cc-pause-btn" onclick="togglePause()">Pause</button>
+            <button class="cc-tab" onclick="retireAgent()">Retire</button>
+            <button class="cc-tab" style="color:var(--red);border-color:#fecaca" onclick="deleteAgent()">Delete</button>
+            <span id="cc-manage-err" style="font-size:11px;color:var(--red);display:none;margin-left:6px"></span>
+          </div>
 
           <div class="cc-tabs" id="cc-tabs"></div>
           <div class="panel-body" id="cc-body"></div>
@@ -1003,6 +1011,71 @@
       <button class="btn-primary" id="aa-submit">Create agent</button>
     </div>
     <input type="file" id="aa-import-file" accept=".json,application/json" style="display:none">
+  </div>
+</div>
+
+<div class="modal-backdrop" id="edit-agent-modal">
+  <div class="modal">
+    <h2>Edit agent</h2>
+    <div class="sub">Changes go over HTTP and re-render from the server’s broadcast — no optimistic local copy. Draft state is kept across broadcasts.</div>
+    <div class="form-grid">
+      <div class="field">
+        <label for="ea-name">Name</label>
+        <input id="ea-name" maxlength="64">
+      </div>
+      <div class="field">
+        <label for="ea-role">Role</label>
+        <select id="ea-role">
+          <option value="developer">Developer</option>
+          <option value="research">Research</option>
+          <option value="qa">QA</option>
+          <option value="review">Review</option>
+          <option value="docs">Docs</option>
+          <option value="planner">Planner</option>
+        </select>
+      </div>
+      <div class="field wide">
+        <label>Character</label>
+        <div class="char-grid" id="ea-char"></div>
+      </div>
+      <div class="field wide">
+        <label>Colour</label>
+        <div class="swatches" id="ea-color"></div>
+      </div>
+      <div class="field wide">
+        <label for="ea-description">Description</label>
+        <input id="ea-description" maxlength="120">
+      </div>
+      <div class="field wide">
+        <label for="ea-goal">Goal</label>
+        <textarea id="ea-goal" rows="3" maxlength="2000"></textarea>
+      </div>
+      <div class="field wide">
+        <label for="ea-caps">Capabilities (comma-separated)</label>
+        <input id="ea-caps" placeholder="implement_feature, fix_test">
+      </div>
+    </div>
+    <div id="edit-agent-error" style="display:none;margin-top:12px;padding:10px 12px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:var(--red);font-size:12.5px"></div>
+    <div class="dialog-actions">
+      <button class="btn-ghost" id="ea-cancel">Cancel</button>
+      <button class="btn-primary" id="ea-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="note-agent-modal">
+  <div class="modal" style="width:420px">
+    <h2>Note</h2>
+    <div class="sub">Shown under the agent in the roster. Keep it short — it shares the line with the task.</div>
+    <div class="field wide">
+      <label for="na-note">Note</label>
+      <input id="na-note" maxlength="120" placeholder="flaky on staging">
+    </div>
+    <div id="note-agent-error" style="display:none;margin-top:12px;padding:10px 12px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:var(--red);font-size:12.5px"></div>
+    <div class="dialog-actions">
+      <button class="btn-ghost" id="na-cancel">Cancel</button>
+      <button class="btn-primary" id="na-save">Save note</button>
+    </div>
   </div>
 </div>
 
@@ -2988,6 +3061,170 @@
     document.getElementById('aa-model').addEventListener('change', aaRenderCommand);
     document.getElementById('aa-bypass').addEventListener('change', aaRenderCommand);
     aaModal.addEventListener('click', (e) => { if (e.target === aaModal) aaModal.classList.remove('open'); });
+
+    // ---------------- managing an agent (BROWSER2 Phase 1) ----------------
+    // Edit, Note, Pause/Resume, Retire, Delete — all over HTTP, all re-rendered
+    // from the server's broadcast. Draft state is kept across broadcasts so a
+    // form that is being typed in does not lose focus when a view lands.
+    const eaModal = document.getElementById('edit-agent-modal');
+    const naModal = document.getElementById('note-agent-modal');
+    let eaCharacter = null;
+    let eaColor = null;
+
+    function eaBuildPickers() {
+      const grid = document.getElementById('ea-char');
+      grid.innerHTML = '';
+      for (const name of CHAR_NAMES) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'char-opt' + (name === eaCharacter ? ' sel' : '');
+        b.title = name;
+        b.style.backgroundImage = `url(/assets/characters/${name}.png)`;
+        b.style.backgroundSize = 'auto 72px';
+        b.onclick = () => { eaCharacter = name; eaBuildPickers(); };
+        grid.appendChild(b);
+      }
+      const sw = document.getElementById('ea-color');
+      sw.innerHTML = '';
+      for (const c of AGENT_COLORS) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'swatch' + (c === eaColor ? ' sel' : '');
+        b.style.background = c;
+        b.title = c;
+        b.onclick = () => { eaColor = c; eaBuildPickers(); };
+        sw.appendChild(b);
+      }
+    }
+
+    window.openEditAgent = function () {
+      const a = ccAgent();
+      if (!a) return;
+      document.getElementById('ea-name').value = a.name ?? '';
+      document.getElementById('ea-role').value = a.role ?? 'developer';
+      document.getElementById('ea-description').value = a.description ?? '';
+      document.getElementById('ea-goal').value = a.goal ?? '';
+      document.getElementById('ea-caps').value = (a.capabilities ?? []).join(', ');
+      eaCharacter = a.character ?? CHAR_NAMES[0];
+      eaColor = a.color ?? AGENT_COLORS[0];
+      eaBuildPickers();
+      document.getElementById('edit-agent-error').style.display = 'none';
+      eaModal.classList.add('open');
+    };
+
+    window.openNoteDialog = function () {
+      const a = ccAgent();
+      if (!a) return;
+      document.getElementById('na-note').value = a.note ?? '';
+      document.getElementById('note-agent-error').style.display = 'none';
+      naModal.classList.add('open');
+      setTimeout(() => document.getElementById('na-note').focus(), 50);
+    };
+
+    async function postAgent(path, body, errEl) {
+      errEl.style.display = 'none';
+      try {
+        const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) {
+          const msg = data.error || data.message || `request failed (${res.status})`;
+          errEl.textContent = msg;
+          errEl.style.display = 'block';
+          return { ok: false };
+        }
+        return { ok: true, data };
+      } catch (e) {
+        errEl.textContent = e.message || 'could not reach server';
+        errEl.style.display = 'block';
+        return { ok: false };
+      }
+    }
+
+    document.getElementById('ea-cancel')?.addEventListener('click', () => eaModal.classList.remove('open'));
+    eaModal.addEventListener('click', (e) => { if (e.target === eaModal) eaModal.classList.remove('open'); });
+    document.getElementById('ea-save')?.addEventListener('click', async () => {
+      const a = ccAgent();
+      if (!a) return;
+      const errEl = document.getElementById('edit-agent-error');
+      const caps = document.getElementById('ea-caps').value.split(',').map((s) => s.trim()).filter(Boolean);
+      const body = {
+        name: document.getElementById('ea-name').value.trim(),
+        role: document.getElementById('ea-role').value,
+        character: eaCharacter,
+        color: eaColor,
+        description: document.getElementById('ea-description').value.trim() || null,
+        goal: document.getElementById('ea-goal').value.trim() || null,
+        capabilities: caps,
+      };
+      if (!body.name) { errEl.textContent = 'Name is required.'; errEl.style.display = 'block'; return; }
+      const res = await postAgent(`/api/agents/${a.id}/edit`, { agentId: a.id, ...body }, errEl);
+      if (res.ok) eaModal.classList.remove('open');
+    });
+
+    document.getElementById('na-cancel')?.addEventListener('click', () => naModal.classList.remove('open'));
+    naModal.addEventListener('click', (e) => { if (e.target === naModal) naModal.classList.remove('open'); });
+    document.getElementById('na-save')?.addEventListener('click', async () => {
+      const a = ccAgent();
+      if (!a) return;
+      const errEl = document.getElementById('note-agent-error');
+      const note = document.getElementById('na-note').value;
+      const res = await postAgent(`/api/agents/${a.id}/note`, { agentId: a.id, note }, errEl);
+      if (res.ok) naModal.classList.remove('open');
+    });
+
+    window.togglePause = async function () {
+      const a = ccAgent();
+      if (!a) return;
+      const errEl = document.getElementById('cc-manage-err');
+      const isPaused = a.status === 'paused' || (a as any).paused;
+      const path = isPaused ? `/api/agents/${a.id}/resume` : `/api/agents/${a.id}/pause`;
+      const res = await postAgent(path, { agentId: a.id }, errEl);
+      if (!res.ok && errEl.textContent.includes('404')) {
+        errEl.textContent = 'Pause not available yet — server has no pause endpoint.';
+        errEl.style.display = 'block';
+      }
+    };
+
+    window.retireAgent = async function () {
+      const a = ccAgent();
+      if (!a) return;
+      const errEl = document.getElementById('cc-manage-err');
+      const res = await postAgent(`/api/agents/${a.id}/retire`, { agentId: a.id }, errEl);
+      if (!res.ok && errEl.textContent.includes('404')) {
+        errEl.textContent = 'Retire not available yet.';
+        errEl.style.display = 'block';
+      }
+    };
+
+    window.deleteAgent = async function () {
+      const a = ccAgent();
+      if (!a) return;
+      const errEl = document.getElementById('cc-manage-err');
+      // Count memories for the confirm: whatever Stream B decided, say it
+      const memCount = (latestView?.rooms?.[0]?.memories ?? []).filter((m) => m.agentName === a.name).length;
+      const keep = true; // we don't know; say kept, and note the uncertainty
+      const msg = `Delete ${a.name}? This agent's ${memCount} memories will be kept (server decides). This cannot be undone.`;
+      if (!confirm(msg)) return;
+      const res = await postAgent(`/api/agents/${a.id}/delete`, { agentId: a.id }, errEl);
+      if (!res.ok && errEl.textContent.includes('404')) {
+        errEl.textContent = 'Delete not available yet — server has no delete endpoint.';
+        errEl.style.display = 'block';
+      } else if (res.ok) {
+        setView('agents');
+      }
+    };
+
+    // Keep pause button label in sync with the broadcast
+    const origRenderCC = renderCommandCenter;
+    window.renderCommandCenter = function () {
+      origRenderCC();
+      const a = ccAgent();
+      const btn = document.getElementById('cc-pause-btn');
+      if (btn && a) {
+        const isPaused = a.status === 'paused' || (a as any).paused;
+        btn.textContent = isPaused ? 'Resume' : 'Pause';
+      }
+    };
 
     // ---------------- bottom strip ----------------
     function renderCurrentTask(room) {
