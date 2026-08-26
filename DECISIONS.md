@@ -65,6 +65,19 @@ Agents are *placed*, never animated. Humans move freely.
 **Why:** it makes "the office shows real activity" structural rather than aspirational. There is no code path that produces motion without an event, so fake activity is impossible to render.
 **Would change it:** nothing. This is the second axiom.
 
+**One reconciled exception — idle roaming.** An idle agent drifts inside the
+*idle zone* rather than standing on its slot. This is motion with no event
+behind it, so it is genuinely an exception and is recorded as one rather than
+explained away. It is admissible because the lie D11 forbids is an agent that
+**looks busy while doing nothing** — an agent wandering in the cafeteria
+depicts idleness accurately. Two properties keep it honest, and both are
+enforced by tests rather than by intention: it **can never leave the idle
+zone** (a drifting agent in the working area would be exactly the forbidden
+lie), and it is **deterministic** from `(agentId, serverTime)`, so every
+browser draws the same office. Forcing it to "trace" by writing a synthetic
+`roam` event per tick was rejected: that would make the event log itself lie,
+which is worse than a documented exception.
+
 > **Phase 1 note (2026-08-25) — idle roaming reconciliation:** Idle agents now
 > drift inside the **idle zone only** (cafeteria). This is motion without a
 > server event, so it relaxes the strict "no motion without an event" wording,

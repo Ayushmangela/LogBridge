@@ -33,17 +33,24 @@ export type TriggerViewT = z.infer<typeof TriggerView>;
 // lifecycle. They are kept separate from BodySchemas so the gateway can
 // validate trigger payloads independently.
 
+// Everything past the four essentials is `.nullish().default(null)`, not bare
+// `.nullable()`. Bare nullable means a caller must SEND every field, even as
+// null: omitting `tz` — the natural way to say "use the server's own zone" —
+// was a 400. The browser happens to send all ten, so this never broke it, but
+// any other caller (a script, a CLI, a future runner) would hit it on the
+// first try. Widening is backward-compatible: payloads that send explicit
+// nulls still validate exactly as before.
 export const TriggerCreate = z.object({
   projectId: z.string(),
   name: z.string(),
   kind: z.enum(["schedule", "event"]),
   rule: z.string(),
-  taskTitle: z.string().nullable(),
-  taskSpec: z.string().nullable(),
-  taskCapability: z.string().nullable(),
-  budgetSeconds: z.number().int().positive().nullable(),
-  budgetUsd: z.number().positive().nullable(),
-  tz: z.string().nullable(),
+  taskTitle: z.string().nullish().default(null),
+  taskSpec: z.string().nullish().default(null),
+  taskCapability: z.string().nullish().default(null),
+  budgetSeconds: z.number().int().positive().nullish().default(null),
+  budgetUsd: z.number().positive().nullish().default(null),
+  tz: z.string().nullish().default(null),
 });
 
 export type TriggerCreateT = z.infer<typeof TriggerCreate>;

@@ -158,7 +158,7 @@ All six merge points passed, plus:
 - [ ] Server runs unattended on the spare laptop for a week without intervention
 - [ ] Both machines reconnect cleanly after sleep, every time
 - [x] A looping agent gets killed by its budget cap — `wifiDrop.test.ts`, "the budget cap kills a deliberately looping task"
-- [ ] Every state in the office traces to a real event in the log
+- [x] Every state in the office traces to a real event in the log — audited in `apps/server/src/traces.test.ts`, with **one recorded exception**: idle roaming is motion with no event, admissible because it is confined to the idle zone and deterministic. See D11's reconciled exception
 - [ ] A stranger can watch the office for 60 seconds and correctly say what the team is doing
 
 That last one is the real test. If they can't, the office is decoration and something in the state mapping is wrong.
