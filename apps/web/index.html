@@ -2219,7 +2219,7 @@
         // If this task is waiting for input and the agent is this one, surface the ask
         // This is the M4 mid-task question flow — not a second inbox, but the same ChatMessage.ask filtered to this agent.
         // Check chatLog for a pending ask for this task
-        const ask = (window as any).chatLog?.find?.((m: any) => m.ask?.taskId === t.id);
+        const ask = window.chatLog?.find?.((m) => m.ask?.taskId === t.id);
         if (ask && !ask.answered) {
           const askBox = document.createElement('div');
           askBox.style.cssText = 'margin-top:8px;padding:8px 10px;background:#fffbf0;border:1px solid #f5d99b;border-radius:7px;font-size:12px';
@@ -2245,8 +2245,8 @@
       inp.style.cssText = 'flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:12.5px;background:var(--surface-2);color:var(--text)';
       inp.id = 'cc-steer-input';
       // Keep draft across broadcasts
-      if ((window as any)._ccSteerDraft?.agentId === a.id) inp.value = (window as any)._ccSteerDraft.text;
-      inp.oninput = () => { (window as any)._ccSteerDraft = { agentId: a.id, text: inp.value }; };
+      if (window._ccSteerDraft?.agentId === a.id) inp.value = window._ccSteerDraft.text;
+      inp.oninput = () => { window._ccSteerDraft = { agentId: a.id, text: inp.value }; };
 
       const btn = document.createElement('button');
       btn.className = 'btn-primary';
@@ -2271,14 +2271,14 @@
             if (res.status === 404) err.textContent = 'Steer not available yet — server has no steer endpoint.';
           } else {
             inp.value = '';
-            (window as any)._ccSteerDraft = null;
+            window._ccSteerDraft = null;
             err.textContent = 'Steered — next task will include it.';
             err.style.display = 'block';
             err.style.color = 'var(--green)';
             setTimeout(() => { err.style.display = 'none'; err.style.color = 'var(--red)'; }, 2000);
           }
         } catch (e) {
-          err.textContent = (e as Error).message || 'could not reach server';
+          err.textContent = e.message || 'could not reach server';
           err.style.display = 'block';
         } finally {
           btn.disabled = false;
@@ -2358,8 +2358,8 @@
       const ctxLabel = document.createElement('div');
       ctxLabel.style.cssText = 'font-size:11px;font-weight:700;letter-spacing:.4px;color:var(--text-faint);text-transform:uppercase;margin-bottom:6px';
       ctxLabel.textContent = 'Context';
-      const ctxVal = (a as any).contextUsed ?? (a as any).context?.used;
-      const ctxLimit = (a as any).contextLimit ?? (a as any).context?.limit;
+      const ctxVal = a.contextUsed ?? a.context?.used;
+      const ctxLimit = a.contextLimit ?? a.context?.limit;
       if (isOffline) {
         ctxRow.innerHTML = '<div class="empty-note" style="padding:8px 0">Unknown — machine offline</div>';
       } else if (Number.isFinite(ctxVal) && Number.isFinite(ctxLimit) && ctxLimit > 0) {
@@ -2374,8 +2374,8 @@
       // Tool calls + directory + engine
       const info = document.createElement('div');
       info.style.cssText = 'margin-top:14px;display:grid;gap:8px';
-      const toolCalls = (a as any).toolCalls ?? (a.task?.steps != null ? `${a.task.steps} steps` : null);
-      const row = (k: string, v: string) => {
+      const toolCalls = a.toolCalls ?? (a.task?.steps != null ? `${a.task.steps} steps` : null);
+      const row = (k, v) => {
         const el = document.createElement('div');
         el.style.cssText = 'display:flex;justify-content:space-between;font-size:12.5px;padding:8px 10px;background:var(--surface-2);border:1px solid var(--border-soft);border-radius:8px';
         const kk = document.createElement('span');
@@ -2388,8 +2388,8 @@
         return el;
       };
       info.append(row('Tool calls', isOffline ? 'Unknown' : (toolCalls ?? '0')));
-      info.append(row('Working dir', (a as any).cwd ?? a.folder ?? 'unknown'));
-      const engine = a.provider ? `${a.provider}${(a as any).model ? ' · ' + (a as any).model : ''}` : 'unknown';
+      info.append(row('Working dir', a.cwd ?? a.folder ?? 'unknown'));
+      const engine = a.provider ? `${a.provider}${a.model ? ' · ' + a.model : ''}` : 'unknown';
       info.append(row('Engine', isOffline ? 'Unknown' : engine));
       body.appendChild(info);
 
@@ -2430,7 +2430,7 @@
             setTimeout(() => { dErr.style.display = 'none'; dErr.style.color = 'var(--red)'; }, 2500);
           }
         } catch (e) {
-          dErr.textContent = (e as Error).message || 'could not reach server';
+          dErr.textContent = e.message || 'could not reach server';
           dErr.style.display = 'block';
         } finally {
           dBtn.disabled = false;
@@ -2500,7 +2500,7 @@
             setTimeout(() => { eErr.style.display = 'none'; eErr.style.color = 'var(--red)'; }, 2500);
           }
         } catch (e) {
-          eErr.textContent = (e as Error).message || 'could not reach server';
+          eErr.textContent = e.message || 'could not reach server';
           eErr.style.display = 'block';
         } finally {
           eBtn.disabled = false;
@@ -2638,7 +2638,7 @@
           append(txt);
         }
         // Poll for new output every 2s while the tab is active — degrade gracefully, cap DOM
-        let timer: any = null;
+        let timer = null;
         const poll = async () => {
           if (document.hidden || !body.isConnected || (ccAgent()?.id !== a.id) || ccTab !== 'output') {
             if (timer) clearInterval(timer);
@@ -2655,9 +2655,9 @@
         };
         timer = setInterval(poll, 2000);
         // Stop polling when we leave the tab or the agent
-        const orig = (window as any)._ccOutputTimer;
+        const orig = window._ccOutputTimer;
         if (orig) clearInterval(orig);
-        (window as any)._ccOutputTimer = timer;
+        window._ccOutputTimer = timer;
       }).catch(() => { wrap.textContent = 'Could not reach server for output.'; });
     }
 
@@ -2681,7 +2681,7 @@
       body.appendChild(ph);
       fetch(`/api/graph?projectId=${room.id}`).then(async (res) => {
         let nodes = agents;
-        let edges: any[] = [];
+        let edges = [];
         if (res.ok) {
           const data = await res.json().catch(() => ({}));
           nodes = data.nodes ?? agents;
@@ -2703,10 +2703,10 @@
         const wrap = document.createElement('div');
         wrap.style.cssText = 'position:relative;width:320px;height:220px;margin:12px auto;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);overflow:hidden';
         // Place nodes deterministically: sort by id, then angle by hash
-        const sorted = [...nodes].sort((x: any, y: any) => x.id.localeCompare(y.id));
-        const pos = new Map<string, {x:number,y:number}>();
+        const sorted = [...nodes].sort((x, y) => x.id.localeCompare(y.id));
+        const pos = new Map();
         for (let i = 0; i < sorted.length; i++) {
-          const id = (sorted[i] as any).id ?? (sorted[i] as any).name;
+          const id = sorted[i].id ?? sorted[i].name;
           const h = hashString(String(id));
           const angle = (h % 360) * Math.PI / 180 + (i * 2 * Math.PI / sorted.length / 2);
           // Mix hash angle and index to avoid overlap while staying deterministic
@@ -2715,11 +2715,11 @@
           const y = cy + r * Math.sin(angle);
           pos.set(String(id), { x, y });
           // Also map name to same pos for actor lookup
-          const name = (sorted[i] as any).name;
+          const name = sorted[i].name;
           if (name) pos.set(name, { x, y });
         }
         // Draw edges as thin lines, color by kind
-        const colorFor = (k: string) => k === 'delegation' ? '#8b5cf6' : k === 'review' ? '#3b82f6' : '#22c55e';
+        const colorFor = (k) => k === 'delegation' ? '#8b5cf6' : k === 'review' ? '#3b82f6' : '#22c55e';
         for (const e of edges.slice(0, 30)) {
           const from = pos.get(String(e.from)) ?? pos.get(String(e.fromAgent)) ?? { x: cx, y: cy };
           const to = pos.get(String(e.to)) ?? pos.get(String(e.toAgent)) ?? { x: cx + 20, y: cy + 20 };
@@ -2729,13 +2729,13 @@
         }
         // Draw nodes
         for (const n of sorted) {
-          const id = (n as any).id ?? (n as any).name;
-          const p = pos.get(String(id))!;
+          const id = n.id ?? n.name;
+          const p = pos.get(String(id)) || { x: cx, y: cy };
           const dot = document.createElement('div');
           dot.style.cssText = `position:absolute;left:${p.x - 14}px;top:${p.y - 14}px;width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.2)`;
-          dot.textContent = ((n as any).name ?? id).slice(0, 2).toUpperCase();
-          dot.title = (n as any).name ?? id;
-          dot.onclick = () => openCommandCenter((n as any).id ?? id);
+          dot.textContent = (n.name ?? id).slice(0, 2).toUpperCase();
+          dot.title = n.name ?? id;
+          dot.onclick = () => openCommandCenter(n.id ?? id);
           wrap.appendChild(dot);
         }
         // Legend
@@ -2755,11 +2755,11 @@
       body.appendChild(note);
       // Check what exists before building: Room chat and mid-task questions
       const room = activeRoom();
-      const chat = (window as any).chatLog ?? [];
+      const chat = window.chatLog ?? [];
       // Filter chat where from is this agent or text mentions this agent, plus activity filtered
-      const mineChat = chat.filter((m: any) => m.from?.id === a.id || m.from?.name === a.name || (m.text && m.text.includes(a.name)));
+      const mineChat = chat.filter((m) => m.from?.id === a.id || m.from?.name === a.name || (m.text && m.text.includes(a.name)));
       const mineActivity = (room?.activity ?? []).filter((it) => it.actor === a.name);
-      const all = [...mineChat.map((m: any) => ({ kind: 'chat', text: m.text, ts: m.ts, from: m.from?.name })), ...mineActivity.map((it) => ({ kind: it.type, text: it.summary, ts: it.ts, from: it.actor }))];
+      const all = [...mineChat.map((m) => ({ kind: 'chat', text: m.text, ts: m.ts, from: m.from?.name })), ...mineActivity.map((it) => ({ kind: it.type, text: it.summary, ts: it.ts, from: it.actor }))];
       if (!all.length) {
         body.innerHTML += '<div class="empty-note">No messages for this agent yet — chat and mid-task questions appear here.</div>';
         return;
@@ -3818,7 +3818,7 @@
       const a = ccAgent();
       if (!a) return;
       const errEl = document.getElementById('cc-manage-err');
-      const isPaused = a.status === 'paused' || (a as any).paused;
+      const isPaused = a.status === 'paused' || a.paused;
       const path = isPaused ? `/api/agents/${a.id}/resume` : `/api/agents/${a.id}/pause`;
       const res = await postAgent(path, { agentId: a.id }, errEl);
       if (!res.ok && errEl.textContent.includes('404')) {
@@ -3863,7 +3863,7 @@
       const a = ccAgent();
       const btn = document.getElementById('cc-pause-btn');
       if (btn && a) {
-        const isPaused = a.status === 'paused' || (a as any).paused;
+        const isPaused = a.status === 'paused' || a.paused;
         btn.textContent = isPaused ? 'Resume' : 'Pause';
       }
     };
