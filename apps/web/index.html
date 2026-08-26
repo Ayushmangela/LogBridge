@@ -1975,6 +1975,7 @@
         { id: 'tasks', label: 'Tasks', surface: 'both' },
         { id: 'steer', label: 'Steer', surface: 'employee' },
         { id: 'traces', label: 'Traces', surface: 'employee' },
+        { id: 'monitor', label: 'Monitor', surface: 'employee' },
       ];
       if (!a) return all;
       if (isOrchestrator(a)) return all.filter((t) => t.surface === 'floor' || t.surface === 'both');
@@ -2059,6 +2060,7 @@
       else if (ccTab === 'tasks') ccRenderTasks(body, a);
       else if (ccTab === 'steer') ccRenderSteer(body, a);
       else if (ccTab === 'traces') ccRenderTraces(body, a);
+      else if (ccTab === 'monitor') ccRenderMonitor(body, a);
       else ccRenderActivity(body, a);
     }
 
@@ -2330,6 +2332,176 @@
       }).catch(() => {
         placeholder.textContent = 'Could not reach server for traces.';
       });
+    }
+
+    function ccRenderMonitor(body, a) {
+      body.innerHTML = '';
+      const room = activeRoom();
+      const machine = room?.machines?.find((m) => m.id === a.machineId);
+      const isOffline = !machine?.online;
+      const note = document.createElement('div');
+      note.className = 'cmd-note';
+      note.textContent = 'Per-agent use — context, tools, directory and engine. The bar has a real denominator the runner reports; do not reuse it for progress.';
+      body.appendChild(note);
+
+      // Context bar — honest vs stale
+      const ctxRow = document.createElement('div');
+      ctxRow.style.cssText = 'margin-top:14px';
+      const ctxLabel = document.createElement('div');
+      ctxLabel.style.cssText = 'font-size:11px;font-weight:700;letter-spacing:.4px;color:var(--text-faint);text-transform:uppercase;margin-bottom:6px';
+      ctxLabel.textContent = 'Context';
+      const ctxVal = (a as any).contextUsed ?? (a as any).context?.used;
+      const ctxLimit = (a as any).contextLimit ?? (a as any).context?.limit;
+      if (isOffline) {
+        ctxRow.innerHTML = '<div class="empty-note" style="padding:8px 0">Unknown — machine offline</div>';
+      } else if (Number.isFinite(ctxVal) && Number.isFinite(ctxLimit) && ctxLimit > 0) {
+        const pct = Math.min(100, Math.round((ctxVal / ctxLimit) * 100));
+        ctxRow.innerHTML = `<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>${ctxVal.toLocaleString()} / ${ctxLimit.toLocaleString()} tokens</span><span>${pct}%</span></div><div class="bar"><i style="width:${pct}%"></i></div>`;
+      } else {
+        ctxRow.innerHTML = '<div class="empty-note" style="padding:8px 0">No context data yet — shows as work runs</div>';
+      }
+      ctxRow.prepend(ctxLabel);
+      body.appendChild(ctxRow);
+
+      // Tool calls + directory + engine
+      const info = document.createElement('div');
+      info.style.cssText = 'margin-top:14px;display:grid;gap:8px';
+      const toolCalls = (a as any).toolCalls ?? (a.task?.steps != null ? `${a.task.steps} steps` : null);
+      const row = (k: string, v: string) => {
+        const el = document.createElement('div');
+        el.style.cssText = 'display:flex;justify-content:space-between;font-size:12.5px;padding:8px 10px;background:var(--surface-2);border:1px solid var(--border-soft);border-radius:8px';
+        const kk = document.createElement('span');
+        kk.style.cssText = 'color:var(--text-faint);font-weight:600';
+        kk.textContent = k;
+        const vv = document.createElement('span');
+        vv.style.cssText = 'font-weight:600;color:var(--text)';
+        vv.textContent = v;
+        el.append(kk, vv);
+        return el;
+      };
+      info.append(row('Tool calls', isOffline ? 'Unknown' : (toolCalls ?? '0')));
+      info.append(row('Working dir', (a as any).cwd ?? a.folder ?? 'unknown'));
+      const engine = a.provider ? `${a.provider}${(a as any).model ? ' · ' + (a as any).model : ''}` : 'unknown';
+      info.append(row('Engine', isOffline ? 'Unknown' : engine));
+      body.appendChild(info);
+
+      // Dispatch box — creates work via existing task path
+      const dispatch = document.createElement('div');
+      dispatch.style.cssText = 'margin-top:16px';
+      const dLabel = document.createElement('div');
+      dLabel.style.cssText = 'font-size:11px;font-weight:700;letter-spacing:.4px;color:var(--text-faint);text-transform:uppercase;margin-bottom:6px';
+      dLabel.textContent = 'Dispatch';
+      const dRow = document.createElement('div');
+      dRow.style.cssText = 'display:flex;gap:8px';
+      const dInp = document.createElement('input');
+      dInp.placeholder = 'What should this agent do next?';
+      dInp.style.cssText = 'flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:12.5px;background:var(--surface-2);color:var(--text)';
+      const dBtn = document.createElement('button');
+      dBtn.className = 'btn-primary';
+      dBtn.textContent = 'Dispatch';
+      dBtn.style.cssText = 'padding:8px 14px;border-radius:8px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer';
+      const dErr = document.createElement('div');
+      dErr.style.cssText = 'font-size:11px;color:var(--red);margin-top:8px;display:none';
+      dBtn.onclick = async () => {
+        const text = dInp.value.trim();
+        if (!text) { dErr.textContent = 'Enter what to dispatch.'; dErr.style.display = 'block'; return; }
+        dErr.style.display = 'none';
+        dBtn.disabled = true;
+        dBtn.textContent = 'Dispatching…';
+        try {
+          const res = await fetch('/debug/submit-task', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: a.project_id ?? activeRoom()?.id, title: text, spec: text, requiredCapability: null }) });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.error) {
+            dErr.textContent = data.error || `dispatch failed (${res.status})`;
+            dErr.style.display = 'block';
+          } else {
+            dInp.value = '';
+            dErr.textContent = data.queued ? 'Queued — orchestrator will route it.' : `Dispatched to ${data.assignedTo ?? 'agent'}.`;
+            dErr.style.display = 'block';
+            dErr.style.color = 'var(--green)';
+            setTimeout(() => { dErr.style.display = 'none'; dErr.style.color = 'var(--red)'; }, 2500);
+          }
+        } catch (e) {
+          dErr.textContent = (e as Error).message || 'could not reach server';
+          dErr.style.display = 'block';
+        } finally {
+          dBtn.disabled = false;
+          dBtn.textContent = 'Dispatch';
+        }
+      };
+      dRow.append(dInp, dBtn);
+      dispatch.append(dLabel, dRow, dErr);
+      body.appendChild(dispatch);
+
+      // Engine picker — warns about restart
+      const eng = document.createElement('div');
+      eng.style.cssText = 'margin-top:16px';
+      const eLabel = document.createElement('div');
+      eLabel.style.cssText = 'font-size:11px;font-weight:700;letter-spacing:.4px;color:var(--text-faint);text-transform:uppercase;margin-bottom:6px';
+      eLabel.textContent = 'Engine';
+      const eNote = document.createElement('div');
+      eNote.style.cssText = 'font-size:11px;color:var(--text-faint);margin-bottom:6px';
+      eNote.textContent = 'Changing provider/model restarts this agent’s harness. The agent will briefly go offline.';
+      const eRow = document.createElement('div');
+      eRow.style.cssText = 'display:flex;gap:8px;align-items:center';
+      const eSel = document.createElement('select');
+      eSel.style.cssText = 'flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:12.5px;background:var(--surface-2);color:var(--text)';
+      // Fill from room machines' providers — degrade to unknown when offline
+      const providers = isOffline ? [] : (room?.machines?.find((m) => m.id === a.machineId)?.providers ?? []);
+      if (!providers.length) {
+        const o = document.createElement('option');
+        o.textContent = isOffline ? 'Unknown — machine offline' : 'No providers reported';
+        o.disabled = true;
+        o.selected = true;
+        eSel.appendChild(o);
+        eSel.disabled = true;
+      } else {
+        for (const p of providers) {
+          const o = document.createElement('option');
+          o.value = p.id;
+          o.textContent = p.label + (p.id === a.provider ? ' (current)' : '');
+          if (p.id === a.provider) o.selected = true;
+          eSel.appendChild(o);
+        }
+      }
+      const eBtn = document.createElement('button');
+      eBtn.className = 'btn-primary';
+      eBtn.textContent = 'Change engine';
+      eBtn.style.cssText = 'padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text-dim);font-weight:700;font-size:12.5px;cursor:pointer';
+      const eErr = document.createElement('div');
+      eErr.style.cssText = 'font-size:11px;color:var(--red);margin-top:8px;display:none';
+      eBtn.onclick = async () => {
+        if (eSel.disabled) return;
+        const provider = eSel.value;
+        if (!provider) return;
+        if (!confirm(`Change ${a.name}'s engine to ${provider}? This restarts its harness and it will briefly go offline.`)) return;
+        eErr.style.display = 'none';
+        eBtn.disabled = true;
+        eBtn.textContent = 'Restarting…';
+        try {
+          const res = await fetch(`/api/agents/${a.id}/engine`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ provider }) });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.ok === false) {
+            eErr.textContent = data.error || `engine change failed (${res.status})`;
+            eErr.style.display = 'block';
+            if (res.status === 404) eErr.textContent = 'Engine change not available yet — server has no engine endpoint.';
+          } else {
+            eErr.textContent = 'Restarting — engine will change on next heartbeat.';
+            eErr.style.display = 'block';
+            eErr.style.color = 'var(--green)';
+            setTimeout(() => { eErr.style.display = 'none'; eErr.style.color = 'var(--red)'; }, 2500);
+          }
+        } catch (e) {
+          eErr.textContent = (e as Error).message || 'could not reach server';
+          eErr.style.display = 'block';
+        } finally {
+          eBtn.disabled = false;
+          eBtn.textContent = 'Change engine';
+        }
+      };
+      eRow.append(eSel, eBtn);
+      eng.append(eLabel, eNote, eRow, eErr);
+      body.appendChild(eng);
     }
 
     // ---------------- Command Center: Memory tab ----------------
