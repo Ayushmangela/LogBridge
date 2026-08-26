@@ -443,6 +443,38 @@
     .cc-mem-filter:focus { outline: none; border-color: var(--accent); background: var(--surface); }
     .cc-mem-count { font-size: 11px; color: var(--text-faint); font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
 
+    /* command center triggers tab */
+    .cc-trig-form { display: grid; grid-template-columns: 1fr 110px 1fr; gap: 8px; margin-bottom: 10px; }
+    .cc-trig-form input, .cc-trig-form select { width: 100%; box-sizing: border-box; background: var(--surface-2);
+      border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-family: inherit;
+      font-size: 12.5px; color: var(--text); }
+    .cc-trig-form input:focus, .cc-trig-form select:focus { outline: none; border-color: var(--accent); background: var(--surface); }
+    .cc-trig-form .wide { grid-column: 1 / -1; }
+    .cc-trig-hint { font-size: 11px; color: var(--text-faint); line-height: 1.5; margin: 2px 0 12px; }
+    .cc-trig-hint code { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; background: #f1f3f8; padding: 1px 5px; border-radius: 4px; }
+    .cc-trig-actions { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
+    .cc-trig-error { color: var(--red); font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: break-word; }
+    .trig-row { display: flex; gap: 14px; align-items: flex-start; background: var(--surface-2);
+                border: 1px solid var(--border-soft); border-left: 3px solid var(--green);
+                border-radius: 10px; padding: 11px 13px; margin-bottom: 9px; }
+    .trig-row.off { border-left-color: #c3c9d4; opacity: .62; }
+    .trig-main { flex: 1; min-width: 0; }
+    .trig-name-line { display: flex; gap: 8px; align-items: baseline; }
+    .trig-name { font-weight: 700; font-size: 13.5px; overflow-wrap: break-word; }
+    .trig-rule { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent); margin-top: 3px; overflow-wrap: break-word; }
+    .trig-sub { font-size: 11.5px; color: var(--text-dim); margin-top: 4px; overflow-wrap: break-word; }
+    .trig-when { text-align: right; flex-shrink: 0; max-width: 170px; }
+    .trig-next { font-size: 12px; font-weight: 600; }
+    .trig-last { font-size: 11px; color: var(--text-faint); font-family: 'JetBrains Mono', monospace; margin-top: 3px; }
+    .trig-btns { display: flex; flex-direction: column; gap: 5px; flex-shrink: 0; }
+    .trig-toggle { font: inherit; font-size: 11px; font-weight: 800; letter-spacing: .4px; cursor: pointer;
+                   border-radius: 7px; padding: 4px 10px; border: 1px solid var(--border);
+                   background: var(--green); color: #fff; min-width: 44px; }
+    .trig-toggle.is-off { background: #eef1f6; color: #4b5563; }
+    .trig-del { font: inherit; font-size: 11px; cursor: pointer; border-radius: 7px; padding: 4px 10px;
+                border: 1px solid var(--border); background: transparent; color: var(--red); }
+    .trig-del.confirm { background: var(--red); border-color: var(--red); color: #fff; }
+
     /* not-built placeholder */
     .temp { border: 1px dashed #d8c98f; background: #fffdf5; border-radius: 12px;
             padding: 18px 20px; font-size: 13px; line-height: 1.6; color: var(--text-dim); max-width: 620px; }
@@ -1848,6 +1880,7 @@
       { id: 'commands', label: 'Commands' },
       { id: 'activity', label: 'Activity' },
       { id: 'memory', label: 'Memory' },
+      { id: 'triggers', label: 'Triggers' },
     ];
 
     function renderCommandCenter() {
@@ -1905,6 +1938,7 @@
       body.innerHTML = '';
       if (ccTab === 'commands') ccRenderCommands(body, a);
       else if (ccTab === 'memory') ccRenderMemory(body, a);
+      else if (ccTab === 'triggers') ccRenderTriggers(body, a);
       else ccRenderActivity(body, a);
     }
 
@@ -2134,6 +2168,294 @@
         input.focus();
         const end = input.value.length;
         input.setSelectionRange(end, end);
+      }
+    }
+
+    // ---------------- Command Center: Triggers tab ----------------
+    //
+    // Standing rules that create tasks on a schedule or when an event lands.
+    // The list is room-scoped (Room.triggers) but lives here because this is
+    // the panel the design gives it. Everything that changes state goes over
+    // HTTP and the server's broadcast re-renders the result — the browser
+    // never edits its own copy of the list.
+    //
+    // Draft/focus survive between broadcasts for the same reason the memory
+    // filter's do: this whole panel rebuilds mid-typing whenever any view
+    // arrives, and a form that resets itself is a form nobody can fill in.
+    let ccTrigDraft = {};
+    let ccTrigFocus = null;
+    let ccTrigError = '';
+    let ccTrigConfirmId = null; // delete needs a second click; survives re-renders
+
+    async function ccTrigPost(path, payload) {
+      try {
+        const r = await fetch('/api/triggers' + path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const d = await r.json().catch(() => null);
+        if (d && typeof d.ok === 'boolean') return d;
+        return { ok: false, error: `HTTP ${r.status} with an unreadable body` };
+      } catch (e) {
+        // The server said nothing — say so plainly rather than pretending
+        // this is one of ITS errors.
+        return { ok: false, error: `request failed before the server answered (${e?.message ?? e})` };
+      }
+    }
+
+    function fmtNextFire(iso) {
+      const ms = Date.parse(iso);
+      if (!Number.isFinite(ms)) return null;
+      return ms - Date.now() < 86400_000
+        ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : new Date(ms).toLocaleDateString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+    }
+
+    function ccRenderTriggers(body, a) {
+      const room = activeRoom();
+      const triggers = room?.triggers ?? [];
+
+      const head = document.createElement('div');
+      head.className = 'section-label';
+      head.style.marginTop = '0';
+      head.textContent = 'New trigger';
+      body.appendChild(head);
+
+      const FIELDS = [
+        { key: 'name', ph: 'Name, e.g. Morning triage', type: 'text', col: '' },
+        { key: 'kind', kind: 'segment', col: '' },
+        { key: 'rule', ph: 'every day at 09:00', type: 'text', col: '' },
+        { key: 'taskTitle', ph: 'Task title (defaults to the name)', type: 'text', col: 'wide' },
+        { key: 'taskSpec', ph: 'Instructions for whoever picks it up (optional)', type: 'text', col: 'wide' },
+        { key: 'taskCapability', ph: 'Required capability (optional)', type: 'text', col: '' },
+        { key: 'budgetSeconds', ph: 'Budget seconds', type: 'number', col: '' },
+        { key: 'budgetUsd', ph: 'Budget USD', type: 'number', col: '', step: '0.01' },
+      ];
+
+      const form = document.createElement('div');
+      form.className = 'cc-trig-form';
+      for (const f of FIELDS) {
+        if (f.kind === 'segment') {
+          // Two choices read better as visible buttons than as a dropdown,
+          // and a button is clickable by anything that can click at all.
+          const segs = document.createElement('div');
+          segs.className = f.col || undefined;
+          segs.style.cssText = 'display:flex;gap:4px;';
+          const paintSegs = () => {
+            for (const b of segs.children) {
+              const on = (ccTrigDraft.kind ?? 'schedule') === b.dataset.kindValue;
+              b.style.background = on ? 'var(--accent)' : 'var(--surface-2)';
+              b.style.borderColor = on ? 'var(--accent)' : 'var(--border)';
+              b.style.color = on ? '#fff' : 'var(--text-dim)';
+              b.style.fontWeight = on ? '700' : '400';
+            }
+          };
+          for (const [v, label] of [['schedule', 'Schedule'], ['event', 'Event']]) {
+            const seg = document.createElement('button');
+            seg.type = 'button';
+            seg.textContent = label;
+            seg.dataset.kindValue = v;
+            seg.style.cssText = 'flex:1;font:inherit;font-size:12px;padding:8px 4px;border-radius:8px;cursor:pointer;' +
+              'border:1px solid var(--border);background:var(--surface-2);color:var(--text-dim);';
+            seg.onclick = () => { ccTrigDraft.kind = v; paintSegs(); drawRuleHint(); };
+            segs.appendChild(seg);
+          }
+          paintSegs();
+          form.appendChild(segs);
+          continue;
+        }
+        const el = document.createElement('input');
+        el.type = f.type;
+        el.placeholder = f.ph;
+        if (f.step) el.step = f.step;
+        if (f.type === 'number') el.min = '0';
+        el.dataset.ccTrig = f.key;
+        el.value = ccTrigDraft[f.key] ?? '';
+        el.addEventListener('focus', () => { ccTrigFocus = f.key; });
+        el.addEventListener('blur', () => { if (ccTrigFocus === f.key) ccTrigFocus = null; });
+        el.addEventListener('input', () => { ccTrigDraft[f.key] = el.value; });
+        if (f.col) el.classList.add(f.col);
+        form.appendChild(el);
+      }
+      body.appendChild(form);
+
+      const hint = document.createElement('div');
+      hint.className = 'cc-trig-hint';
+      const drawRuleHint = () => {
+        hint.innerHTML = '';
+        if ((ccTrigDraft.kind ?? 'schedule') === 'event') {
+          hint.textContent = 'The event type to react to as written in the event log, e.g. ';
+          const c = document.createElement('code');
+          c.textContent = 'task.result';
+          hint.appendChild(c);
+        } else {
+          hint.append('Accepted forms: ');
+          for (const ex of ['every day at HH:MM', 'every weekday at HH:MM', 'every <weekday> at HH:MM', 'every <n> minutes|hours']) {
+            const c = document.createElement('code');
+            c.textContent = ex;
+            hint.appendChild(c);
+            hint.append(' ');
+          }
+        }
+      };
+      drawRuleHint();
+      body.appendChild(hint);
+
+      const actions = document.createElement('div');
+      actions.className = 'cc-trig-actions';
+      const createBtn = document.createElement('button');
+      createBtn.className = 'btn-primary';
+      createBtn.textContent = 'Create trigger';
+      createBtn.onclick = async () => {
+        // Local emptiness checks are layout help, not validation policy —
+        // everything real is decided server-side and shown verbatim below.
+        if (!String(ccTrigDraft.name ?? '').trim()) { ccTrigError = 'Give the trigger a name.'; draw(); return; }
+        if (!String(ccTrigDraft.rule ?? '').trim()) { ccTrigError = 'A trigger needs a rule — what should fire it?'; draw(); return; }
+        const numOrNull = (v) => {
+          const s = String(v ?? '').trim();
+          if (!s) return null;
+          const n = Number(s);
+          return Number.isFinite(n) ? n : null;
+        };
+        createBtn.disabled = true;
+        const res = await ccTrigPost('', {
+          projectId: room.id,
+          name: String(ccTrigDraft.name).trim(),
+          kind: ccTrigDraft.kind === 'event' ? 'event' : 'schedule',
+          rule: String(ccTrigDraft.rule).trim(),
+          taskTitle: String(ccTrigDraft.taskTitle ?? '').trim() || null,
+          taskSpec: String(ccTrigDraft.taskSpec ?? '').trim() || null,
+          taskCapability: String(ccTrigDraft.taskCapability ?? '').trim() || null,
+          budgetSeconds: numOrNull(ccTrigDraft.budgetSeconds),
+          budgetUsd: numOrNull(ccTrigDraft.budgetUsd),
+          tz: null, // server resolves its own zone — the browser never guesses one
+        });
+        createBtn.disabled = false;
+        if (res.ok) {
+          ccTrigDraft = {}; ccTrigError = '';
+          // The create response carries no view — the broadcast re-renders the
+          // LIST. The form however still shows what was typed until the next
+          // broadcast, and a form that keeps its values after submitting reads
+          // as "did that even work?", so rebuild the whole panel now.
+          renderCommandCenter();
+          return;
+        } else {
+          ccTrigError = res.error ?? 'unknown error';
+        }
+        draw();
+      };
+      const errLine = document.createElement('div');
+      errLine.className = 'cc-trig-error';
+      errLine.style.flex = '1';
+      actions.append(createBtn, errLine);
+      body.appendChild(actions);
+
+      const listHead = document.createElement('div');
+      listHead.className = 'section-label';
+      listHead.textContent = 'Standing rules';
+      body.appendChild(listHead);
+
+      const list = document.createElement('div');
+
+      const drawRow = (t) => {
+        const row = document.createElement('div');
+        row.className = 'trig-row' + (t.enabled ? '' : ' off');
+
+        const main = document.createElement('div');
+        main.className = 'trig-main';
+        const nameLine = document.createElement('div');
+        nameLine.className = 'trig-name-line';
+        const name = document.createElement('span');
+        name.className = 'trig-name';
+        name.textContent = t.name;
+        const pill = document.createElement('span');
+        pill.className = 'mem-scope s-agent'; // reuse the plain pill styling
+        pill.textContent = t.kind;
+        nameLine.append(name, pill);
+        const ruleEl = document.createElement('div');
+        ruleEl.className = 'trig-rule';
+        ruleEl.textContent = t.rule;
+        ruleEl.title = t.tz ? `evaluated in ${t.tz}` : '';
+        const subBits = [];
+        if (t.taskTitle && t.taskTitle !== t.name) subBits.push(`creates “${t.taskTitle}”`);
+        if (t.taskCapability) subBits.push(`needs ${t.taskCapability}`);
+        if (t.budgetSeconds) subBits.push(`${t.budgetSeconds}s budget`);
+        if (t.budgetUsd) subBits.push(`$${t.budgetUsd} budget`);
+        const sub = document.createElement('div');
+        sub.className = 'trig-sub';
+        sub.textContent = subBits.join(' · ') || (t.taskSpec ? `creates “${t.taskTitle}”` : '');
+        main.append(nameLine, ruleEl);
+        if (sub.textContent) main.appendChild(sub);
+
+        const when = document.createElement('div');
+        when.className = 'trig-when';
+        const next = document.createElement('div');
+        next.className = 'trig-next';
+        // A paused trigger has no honest "next" — its stored slot is stale.
+        next.textContent = !t.enabled ? 'off'
+          : t.kind === 'event' ? `armed for ${t.rule}`
+          : (fmtNextFire(t.nextFireAt) ? `next ${fmtNextFire(t.nextFireAt)}` : '—');
+        const last = document.createElement('div');
+        last.className = 'trig-last';
+        last.textContent = t.lastFiredAt ? `fired ${relativeTime(t.lastFiredAt)}` : 'never fired';
+        when.append(next, last);
+
+        const btns = document.createElement('div');
+        btns.className = 'trig-btns';
+        const toggle = document.createElement('button');
+        toggle.className = 'trig-toggle' + (t.enabled ? '' : ' is-off');
+        toggle.textContent = t.enabled ? 'ON' : 'OFF';
+        toggle.onclick = async () => {
+          toggle.disabled = true;
+          const res = await ccTrigPost('/enable', { id: t.id, enabled: !t.enabled });
+          toggle.disabled = false;
+          if (!res.ok) { ccTrigError = `${t.name}: ${res.error ?? 'unknown error'}`; draw(); }
+        };
+        const del = document.createElement('button');
+        del.className = 'trig-del' + (ccTrigConfirmId === t.id ? ' confirm' : '');
+        del.textContent = ccTrigConfirmId === t.id ? 'really?' : 'Delete';
+        del.onclick = async () => {
+          if (ccTrigConfirmId !== t.id) { ccTrigConfirmId = t.id; draw(); return; }
+          ccTrigConfirmId = null;
+          del.disabled = true;
+          const res = await ccTrigPost('/delete', { id: t.id });
+          del.disabled = false;
+          if (!res.ok) { ccTrigError = `${t.name}: ${res.error ?? 'unknown error'}`; draw(); }
+        };
+        btns.append(toggle, del);
+
+        row.append(main, when, btns);
+        return row;
+      };
+
+      const draw = () => {
+        errLine.textContent = ccTrigError;
+        list.innerHTML = '';
+        if (!triggers.length) {
+          const empty = document.createElement('div');
+          empty.className = 'empty-note';
+          // Also the honest reading when an older server ships no field at all.
+          empty.textContent = 'No triggers yet — standing rules that create work on their own appear here.';
+          list.appendChild(empty);
+          return;
+        }
+        for (const t of triggers) list.appendChild(drawRow(t));
+      };
+      draw();
+
+      body.appendChild(list);
+
+      // Restore focus after a broadcast rebuild (same deal as the memory tab).
+      if (ccTrigFocus) {
+        const el = form.querySelector(`[data-cc-trig="${ccTrigFocus}"]`);
+        if (el) {
+          el.focus();
+          if (typeof el.setSelectionRange === 'function') {
+            const end = el.value.length;
+            el.setSelectionRange(end, end);
+          }
+        }
       }
     }
 
