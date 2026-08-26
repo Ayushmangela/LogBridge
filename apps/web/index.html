@@ -426,6 +426,22 @@
     .mem-kind.k-preference { background: #e9f9ef; color: #15803d; }
     .mem-text { flex: 1; font-size: 13px; line-height: 1.5; min-width: 0; overflow-wrap: break-word; }
     .mem-meta { font-size: 11px; color: var(--text-faint); font-family: 'JetBrains Mono', monospace; white-space: nowrap; flex-shrink: 0; }
+    /* scope pill — deliberately plainer than the kind pills, so project vs
+       agent reads at a glance without competing with fact/outcome/etc. */
+    .mem-scope { font-size: 9.5px; text-transform: uppercase; letter-spacing: .6px; font-weight: 800;
+                 padding: 3px 8px; border-radius: 20px; flex-shrink: 0;
+                 background: #f3eeff; color: #6d28d9; }
+    .mem-scope.s-agent { background: #eef1f6; color: #4b5563; }
+    /* memories the viewed agent itself formed — switching agents moves this */
+    .mem-item.mine { border-left-color: var(--accent); }
+    .mem-item.mine .mem-meta b { color: var(--accent); }
+
+    /* command center memory tab */
+    .cc-mem-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+    .cc-mem-filter { flex: 1; max-width: 360px; min-width: 0; background: var(--surface-2); border: 1px solid var(--border);
+                     border-radius: 8px; padding: 8px 11px; font-family: inherit; font-size: 12.5px; color: var(--text); }
+    .cc-mem-filter:focus { outline: none; border-color: var(--accent); background: var(--surface); }
+    .cc-mem-count { font-size: 11px; color: var(--text-faint); font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
 
     /* not-built placeholder */
     .temp { border: 1px dashed #d8c98f; background: #fffdf5; border-radius: 12px;
@@ -1831,6 +1847,7 @@
     const CC_TABS = [
       { id: 'commands', label: 'Commands' },
       { id: 'activity', label: 'Activity' },
+      { id: 'memory', label: 'Memory' },
     ];
 
     function renderCommandCenter() {
@@ -1887,6 +1904,7 @@
 
       body.innerHTML = '';
       if (ccTab === 'commands') ccRenderCommands(body, a);
+      else if (ccTab === 'memory') ccRenderMemory(body, a);
       else ccRenderActivity(body, a);
     }
 
@@ -2004,6 +2022,118 @@
         main.appendChild(t);
         row.appendChild(main);
         body.appendChild(row);
+      }
+    }
+
+    // ---------------- Command Center: Memory tab ----------------
+    //
+    // The shared memory this agent can see. Everything that reaches a
+    // browser is already in room.memories — MEMORY.md: agent-private notes
+    // are for their author's recall and never ship — so this renders the
+    // wire as-is, scope badge included, rather than assuming "project".
+    // Filter state survives re-renders because a broadcast rebuilds this
+    // whole panel mid-typing; narrowing must not reset when it does.
+    let ccMemFilter = '';
+    let ccMemFilterFocused = false;
+
+    function ccRenderMemory(body, a) {
+      const all = activeRoom()?.memories ?? [];
+      const newestFirst = [...all].sort(
+        (x, y) => (Date.parse(y.createdAt) || 0) - (Date.parse(x.createdAt) || 0));
+
+      const bar = document.createElement('div');
+      bar.className = 'cc-mem-bar';
+
+      const input = document.createElement('input');
+      input.className = 'cc-mem-filter';
+      input.type = 'text';
+      input.placeholder = 'Filter by text, kind or agent\u2026';
+      input.setAttribute('aria-label', 'Filter memories');
+      input.value = ccMemFilter;
+      input.addEventListener('focus', () => { ccMemFilterFocused = true; });
+      input.addEventListener('blur', () => { ccMemFilterFocused = false; });
+      input.addEventListener('input', () => {
+        ccMemFilter = input.value;
+        drawList(); // list only — redrawing the input would fight the caret
+      });
+
+      const count = document.createElement('span');
+      count.className = 'cc-mem-count';
+      bar.append(input, count);
+
+      const list = document.createElement('div');
+
+      const drawList = () => {
+        const q = ccMemFilter.trim().toLowerCase();
+        const rows = q
+          ? newestFirst.filter((m) =>
+              m.text.toLowerCase().includes(q) ||
+              String(m.kind).toLowerCase().includes(q) ||
+              String(m.agentName).toLowerCase().includes(q))
+          : newestFirst;
+
+        list.innerHTML = '';
+        count.textContent = q
+          ? `${rows.length} of ${newestFirst.length} match`
+          : (newestFirst.length ? `${newestFirst.length} memories` : '');
+
+        if (!newestFirst.length) {
+          const empty = document.createElement('div');
+          empty.className = 'empty-note';
+          empty.textContent =
+            'No memories yet \u2014 they form as agents finish tasks, then every agent in the room recalls them.';
+          list.appendChild(empty);
+          return;
+        }
+        if (!rows.length) {
+          const empty = document.createElement('div');
+          empty.className = 'empty-note';
+          empty.textContent = `Nothing matches \u201c${ccMemFilter.trim()}\u201d.`;
+          list.appendChild(empty);
+          return;
+        }
+
+        for (const m of rows) {
+          const item = document.createElement('div');
+          // Formed by the viewed agent gets the accent border — switching
+          // agents visibly moves which rows are "its" learnings.
+          item.className = 'mem-item' + (m.agentName === a.name ? ' mine' : '');
+          item.title = m.scope === 'agent'
+            ? `Agent memory \u2014 only ${m.agentName} recalls this`
+            : 'Project memory \u2014 every agent in this room recalls it';
+
+          const scope = document.createElement('span');
+          scope.className = `mem-scope s-${m.scope}`;
+          scope.textContent = m.scope;
+          const kind = document.createElement('span');
+          kind.className = `mem-kind k-${m.kind}`;
+          kind.textContent = m.kind;
+          const text = document.createElement('span');
+          text.className = 'mem-text';
+          text.textContent = m.text; // agent-authored — never innerHTML
+          const meta = document.createElement('span');
+          meta.className = 'mem-meta';
+          meta.textContent = '';
+          if (m.agentName === a.name) {
+            const b = document.createElement('b');
+            b.textContent = m.agentName;
+            meta.append(b, document.createTextNode(` formed it \u00b7 ${relativeTime(m.createdAt)}`));
+          } else {
+            meta.textContent = `${m.agentName} \u00b7 ${relativeTime(m.createdAt)}`;
+          }
+          item.append(scope, kind, text, meta);
+          list.appendChild(item);
+        }
+      };
+
+      drawList();
+      body.append(bar, list);
+
+      // Focus only once attached — a detached element can't take it.
+      if (ccMemFilterFocused) {
+        input.focus();
+        const end = input.value.length;
+        input.setSelectionRange(end, end);
       }
     }
 
