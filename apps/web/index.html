@@ -1977,6 +1977,7 @@
         { id: 'traces', label: 'Traces', surface: 'employee' },
         { id: 'monitor', label: 'Monitor', surface: 'employee' },
         { id: 'git', label: 'Git', surface: 'employee' },
+        { id: 'output', label: 'Output', surface: 'employee' },
       ];
       if (!a) return all;
       if (isOrchestrator(a)) return all.filter((t) => t.surface === 'floor' || t.surface === 'both');
@@ -2063,6 +2064,7 @@
       else if (ccTab === 'traces') ccRenderTraces(body, a);
       else if (ccTab === 'monitor') ccRenderMonitor(body, a);
       else if (ccTab === 'git') ccRenderGit(body, a);
+      else if (ccTab === 'output') ccRenderOutput(body, a);
       else ccRenderActivity(body, a);
     }
 
@@ -2571,6 +2573,88 @@
         }
         body.appendChild(info);
       }).catch(() => { ph.textContent = 'Could not reach server for git.'; });
+    }
+
+    function ccRenderOutput(body, a) {
+      body.innerHTML = '';
+      const note = document.createElement('div');
+      note.className = 'cmd-note';
+      note.textContent = "This is the agent's output as it arrives — not a terminal. It has no prompt and you cannot type into it. Auto-scroll stops when you scroll up.";
+      body.appendChild(note);
+
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'margin-top:12px;border:1px solid var(--border);border-radius:8px;background:#0d0f18;color:#e6e8f0;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:11.5px;line-height:1.5;max-height:320px;overflow-y:auto;padding:10px 12px;white-space:pre-wrap;word-break:break-word';
+      wrap.textContent = 'Loading output…';
+      body.appendChild(wrap);
+
+      let autoScroll = true;
+      wrap.addEventListener('scroll', () => {
+        // If user scrolls up more than 20px from bottom, stop auto-scrolling
+        const atBottom = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < 20;
+        autoScroll = atBottom;
+      });
+
+      let shown = 0;
+      const cap = 400; // cap DOM nodes — a long run will out-produce any browser that keeps everything
+      const append = (text) => {
+        // Split into lines and cap
+        const lines = String(text).split('\n');
+        for (const line of lines) {
+          if (shown >= cap) {
+            // Drop oldest line
+            const first = wrap.firstChild;
+            if (first) wrap.removeChild(first);
+            shown--;
+          }
+          const div = document.createElement('div');
+          div.textContent = line;
+          wrap.appendChild(div);
+          shown++;
+        }
+        if (autoScroll) wrap.scrollTop = wrap.scrollHeight;
+      };
+
+      // Try the honest endpoint; Stream B Phase 5 will provide it
+      fetch(`/api/agents/${a.id}/output?limit=200`).then(async (res) => {
+        if (!res.ok) {
+          if (res.status === 404) wrap.textContent = 'Output not available yet — server has no output endpoint. This is the read-only stream that will show live lines here.';
+          else wrap.textContent = `Could not load output (${res.status}).`;
+          return;
+        }
+        const data = await res.json().catch(() => ({}));
+        const out = data.output ?? data.lines ?? data.events ?? [];
+        wrap.textContent = '';
+        shown = 0;
+        if (!out.length) {
+          wrap.textContent = 'No output yet — lines appear as the agent writes them.';
+          return;
+        }
+        for (const item of out) {
+          const txt = typeof item === 'string' ? item : (item.text ?? item.summary ?? JSON.stringify(item));
+          append(txt);
+        }
+        // Poll for new output every 2s while the tab is active — degrade gracefully, cap DOM
+        let timer: any = null;
+        const poll = async () => {
+          if (document.hidden || !body.isConnected || (ccAgent()?.id !== a.id) || ccTab !== 'output') {
+            if (timer) clearInterval(timer);
+            return;
+          }
+          try {
+            const r2 = await fetch(`/api/agents/${a.id}/output?since=${shown}`);
+            if (r2.ok) {
+              const d2 = await r2.json().catch(() => ({}));
+              const more = d2.output ?? d2.lines ?? [];
+              for (const it of more) append(typeof it === 'string' ? it : (it.text ?? it.summary ?? ''));
+            }
+          } catch {}
+        };
+        timer = setInterval(poll, 2000);
+        // Stop polling when we leave the tab or the agent
+        const orig = (window as any)._ccOutputTimer;
+        if (orig) clearInterval(orig);
+        (window as any)._ccOutputTimer = timer;
+      }).catch(() => { wrap.textContent = 'Could not reach server for output.'; });
     }
 
     // ---------------- Command Center: Memory tab ----------------
