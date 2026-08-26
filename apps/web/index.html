@@ -1965,6 +1965,7 @@
       { id: 'activity', label: 'Activity' },
       { id: 'memory', label: 'Memory' },
       { id: 'triggers', label: 'Triggers' },
+      { id: 'tasks', label: 'Tasks' },
     ];
 
     function renderCommandCenter() {
@@ -2023,6 +2024,7 @@
       if (ccTab === 'commands') ccRenderCommands(body, a);
       else if (ccTab === 'memory') ccRenderMemory(body, a);
       else if (ccTab === 'triggers') ccRenderTriggers(body, a);
+      else if (ccTab === 'tasks') ccRenderTasks(body, a);
       else ccRenderActivity(body, a);
     }
 
@@ -2138,6 +2140,48 @@
         t.className = 'cmd-desc';
         t.textContent = it.summary;
         main.appendChild(t);
+        row.appendChild(main);
+        body.appendChild(row);
+      }
+    }
+
+    function ccRenderTasks(body, a) {
+      const room = activeRoom();
+      const tasks = (room?.tasks ?? []).filter((t) => t.agentId === a.id || t.agentName === a.name);
+      if (!tasks.length) {
+        body.innerHTML = '<div class="empty-note">No tasks for this agent yet — queued work, current runs and recent finishes appear here.</div>';
+        return;
+      }
+      // Newest first is already the view order; keep it
+      for (const t of tasks) {
+        const row = document.createElement('div');
+        row.className = 'cmd-row';
+        const main = document.createElement('div');
+        main.className = 'cmd-main';
+        const title = document.createElement('div');
+        title.className = 'cmd-name';
+        title.textContent = t.title;
+        const meta = document.createElement('div');
+        meta.className = 'cmd-desc';
+        // State + time, no invented progress
+        const state = document.createElement('span');
+        state.textContent = t.state;
+        state.style.cssText = 'font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--text-faint);margin-right:8px';
+        const when = document.createElement('span');
+        when.textContent = relativeTime(t.startedAt ?? t.createdAt);
+        when.style.cssText = 'font-size:11px;color:var(--text-faint)';
+        meta.append(state, when);
+        main.append(title, meta);
+        // If this task is waiting for input and the agent is this one, surface the ask
+        // This is the M4 mid-task question flow — not a second inbox, but the same ChatMessage.ask filtered to this agent.
+        // Check chatLog for a pending ask for this task
+        const ask = (window as any).chatLog?.find?.((m: any) => m.ask?.taskId === t.id);
+        if (ask && !ask.answered) {
+          const askBox = document.createElement('div');
+          askBox.style.cssText = 'margin-top:8px;padding:8px 10px;background:#fffbf0;border:1px solid #f5d99b;border-radius:7px;font-size:12px';
+          askBox.textContent = ask.text;
+          main.appendChild(askBox);
+        }
         row.appendChild(main);
         body.appendChild(row);
       }
