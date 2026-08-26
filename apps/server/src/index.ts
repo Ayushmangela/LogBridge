@@ -9,6 +9,8 @@ import { Positions } from "./view.js";
 import { registerCommandRoutes } from "./commands.js";
 import { registerGateway } from "./gateway.js";
 import { orchestrate, registerNodeGateway, requestAgentCreate, sendTaskOffer, taskCancelEnvelope, type NodeSockets } from "./nodeGateway.js";
+import { createTrigger, deleteTrigger, setTriggerEnabled, startEventLoop, startTriggerLoop } from "./triggers.js";
+import { TriggerCreate, TriggerDelete, TriggerEnable } from "@logbridge/protocol";
 
 export interface BuiltServer {
   app: ReturnType<typeof Fastify>;
@@ -63,6 +65,72 @@ export async function buildServer(
   // Static reference data, deliberately not in the workspace view — see
   // commands.ts for why.
   registerCommandRoutes(app);
+
+  // Triggers: schedule and event loops — real tasks from standing rules.
+  // Started here, like github's poll, so a task appears in the DB and the
+  // office notices (firing pushes a view). Unref so they don't keep tests alive.
+  const triggerLoop = startTriggerLoop(db, { onChange: broadcastView });
+  const eventLoop = startEventLoop(db, { onChange: broadcastView });
+  app.addHook("onClose", async () => {
+    triggerLoop.stop();
+    eventLoop.stop();
+  });
+
+  // ---- Triggers — create, enable/disable, delete (Phase 1, the wire) ----
+  app.post("/api/triggers", async (req, reply) => {
+    const parsed = TriggerCreate.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ ok: false, error: parsed.error.message });
+    }
+    // Project must exist, or the task would be orphaned and invisible
+    if (!db.prepare("SELECT 1 FROM projects WHERE id = ?").get(parsed.data.projectId)) {
+      return reply.code(404).send({ ok: false, error: `no such project "${parsed.data.projectId}"` });
+    }
+    const res = createTrigger(db, {
+      projectId: parsed.data.projectId,
+      name: parsed.data.name,
+      kind: parsed.data.kind,
+      rule: parsed.data.rule,
+      template: {
+        title: parsed.data.taskTitle ?? parsed.data.name,
+        spec: parsed.data.taskSpec ?? null,
+        requiredCapability: parsed.data.taskCapability ?? null,
+        budgetSeconds: parsed.data.budgetSeconds ?? undefined,
+        budgetUsd: parsed.data.budgetUsd ?? undefined,
+      },
+      tz: parsed.data.tz ?? undefined,
+    });
+    if (!res.ok) {
+      // Parser's own message, 4xx — not a 500. It was written to be read.
+      return reply.code(400).send({ ok: false, error: res.error });
+    }
+    broadcastView();
+    return { ok: true, id: res.id };
+  });
+
+  app.post("/api/triggers/enable", async (req, reply) => {
+    const parsed = TriggerEnable.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ ok: false, error: parsed.error.message });
+    }
+    const row = db.prepare("SELECT id FROM triggers WHERE id = ?").get(parsed.data.id) as any;
+    if (!row) return reply.code(404).send({ ok: false, error: "no such trigger" });
+    setTriggerEnabled(db, parsed.data.id, parsed.data.enabled);
+    broadcastView();
+    return { ok: true };
+  });
+
+  app.post("/api/triggers/delete", async (req, reply) => {
+    const parsed = TriggerDelete.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ ok: false, error: parsed.error.message });
+    }
+    const row = db.prepare("SELECT id FROM triggers WHERE id = ?").get(parsed.data.id) as any;
+    if (!row) return reply.code(404).send({ ok: false, error: "no such trigger" });
+    deleteTrigger(db, parsed.data.id);
+    broadcastView();
+    return { ok: true };
+  });
 
   app.post<{ Body: { agentId: string; title: string; spec?: string; budgetSeconds?: number; budgetUsd?: number } }>(
     "/debug/offer-task",

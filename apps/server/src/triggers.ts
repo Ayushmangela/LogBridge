@@ -284,6 +284,10 @@ export function setTriggerEnabled(db: Db, id: string, enabled: boolean): void {
   db.prepare("UPDATE triggers SET enabled = ? WHERE id = ?").run(enabled ? 1 : 0, id);
 }
 
+export function deleteTrigger(db: Db, id: string): void {
+  db.prepare("DELETE FROM triggers WHERE id = ?").run(id);
+}
+
 /** Record a firing and reschedule. Phase 2's loop calls this atomically-ish:
  *  better-sqlite3 is synchronous single-process, so check-then-write cannot
  *  interleave with itself. */
