@@ -176,6 +176,29 @@ export function buildView(db: Db, positions: Positions, meId: string): Workspace
         summonedBy: a.summoned_by ?? null,
         summonedAt: a.summoned_at ?? null,
         summonedPos: a.summoned_x != null && a.summoned_y != null ? { x: Number(a.summoned_x), y: Number(a.summoned_y) } : null,
+        paused: Boolean(a.paused),
+        retired: Boolean(a.retired),
+        health: {
+          lastHeartbeat: machine?.last_seen ?? null,
+          consecutiveFailures: (() => {
+            const pastStates = db.prepare(
+              "SELECT state FROM tasks WHERE agent_id = ? AND state IN ('completed', 'failed') ORDER BY created_at DESC LIMIT 10"
+            ).all(a.id) as any[];
+            let f = 0;
+            for (const s of pastStates) {
+              if (s.state === "failed") f++;
+              else break;
+            }
+            return f;
+          })(),
+          machineOnline: Boolean(machine?.online),
+        },
+        machineOnline: Boolean(machine?.online),
+        contextUsed: a.context_used ?? null,
+        contextLimit: a.context_limit ?? null,
+        toolCalls: a.tool_calls ?? (taskRow ? 1 : 0),
+        cwd: a.folder ?? null,
+        model: a.model ?? null,
         role: a.role,
         status: a.status,
         zone: "idle",

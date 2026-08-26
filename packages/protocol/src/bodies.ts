@@ -195,6 +195,44 @@ export const BodySchemas = {
     ),
   }),
 
+  // ---- agent lifecycle (HANDOFF-SERVER-2 Phase 1) ----
+  "agent.pause": z.object({ agentId: z.string() }),
+  "agent.resume": z.object({ agentId: z.string() }),
+  "agent.retire": z.object({ agentId: z.string() }),
+  "agent.unretire": z.object({ agentId: z.string() }),
+  "agent.delete": z.object({ agentId: z.string() }),
+  "agent.patch": z.object({
+    agentId: z.string(),
+    name: z.string().nullish(),
+    description: z.string().nullish(),
+    goal: z.string().nullish(),
+    character: z.string().nullish(),
+    color: z.string().nullish(),
+    capabilities: z.array(z.string()).nullish(),
+  }),
+  "agent.git": z.object({
+    requestId: z.string(),
+    agentId: z.string(),
+  }),
+  "agent.git.result": z.object({
+    requestId: z.string(),
+    ok: z.boolean(),
+    branch: z.string().nullable().optional(),
+    clean: z.boolean().optional(),
+    ahead: z.number().optional(),
+    behind: z.number().optional(),
+    changedFiles: z.array(z.string()).optional(),
+    commits: z.array(
+      z.object({
+        sha: z.string(),
+        message: z.string(),
+        author: z.string().optional(),
+        ts: z.string().optional(),
+      })
+    ).optional(),
+    error: z.string().nullable().optional(),
+  }),
+
   // Server -> node: who else is in this project and how to seal to them.
   // A sender needs the recipient's key *before* it can encrypt, and the
   // envelope's `to` is bound into the AAD, so the server cannot re-address a

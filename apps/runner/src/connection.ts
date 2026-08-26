@@ -2,6 +2,7 @@
 // and — the whole point — survive the socket dying without losing or
 // duplicating anything. See SYSTEM.md §3b-§3d and DECISIONS.md D20.
 import WebSocket from "ws";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { open as openSealed, seal, sealAad, type EnvelopeT } from "@logbridge/protocol";
@@ -487,6 +488,12 @@ export class RunnerConnection {
       this.handleAgentCreate(env, body);
       return;
     }
+
+    // ---- git state query ----
+    if (env.type === "agent.git") {
+      this.handleAgentGit(env, body);
+      return;
+    }
   }
 
   private agentById(id: string | null | undefined): AgentDecl | undefined {
@@ -733,6 +740,114 @@ export class RunnerConnection {
       to: { kind: "node", id: this.opts.identity.machineId },
       task: null, idem: null, ts: new Date().toISOString(),
       body: { requestId, ok: true, agentId: id, error: null },
+    } as EnvelopeT);
+  }
+
+  private handleAgentGit(env: EnvelopeT, body: any): void {
+    const { requestId, agentId } = body;
+    const agent = this.agentById(agentId);
+    if (!agent) {
+      this.sendGitResult(env, requestId, {
+        ok: false,
+        branch: null,
+        clean: true,
+        ahead: 0,
+        behind: 0,
+        changedFiles: [],
+        commits: [],
+        error: "agent not found on this machine",
+      });
+      return;
+    }
+
+    const ws = resolveWorkspace({
+      agentId: agent.id,
+      folder: agent.folder ?? null,
+      isolation: agent.isolation ?? "worktree",
+      fallbackDir: join(this.opts.dataDir, "work", agent.id),
+    });
+
+    if (ws.degradedReason && ws.degradedReason.toLowerCase().includes("not a git repository")) {
+      this.sendGitResult(env, requestId, {
+        ok: true,
+        branch: null,
+        clean: true,
+        ahead: 0,
+        behind: 0,
+        changedFiles: [],
+        commits: [],
+        error: null,
+      });
+      return;
+    }
+
+    try {
+      const branchRes = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: ws.cwd, encoding: "utf8" });
+      const branch = branchRes.status === 0 ? branchRes.stdout.trim() : null;
+
+      const statusRes = spawnSync("git", ["status", "--porcelain"], { cwd: ws.cwd, encoding: "utf8" });
+      const statusLines = statusRes.status === 0 ? statusRes.stdout.trim().split("\n").filter(Boolean) : [];
+      const clean = statusLines.length === 0;
+      const changedFiles = statusLines.map((l) => l.trim().slice(3));
+
+      let ahead = 0;
+      let behind = 0;
+      const abRes = spawnSync("git", ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"], { cwd: ws.cwd, encoding: "utf8" });
+      if (abRes.status === 0) {
+        const parts = abRes.stdout.trim().split(/\s+/);
+        if (parts.length === 2) {
+          behind = Number(parts[0]) || 0;
+          ahead = Number(parts[1]) || 0;
+        }
+      }
+
+      const logRes = spawnSync("git", ["log", "-n", "5", "--pretty=format:%h|%s|%an|%cI"], { cwd: ws.cwd, encoding: "utf8" });
+      const commits = logRes.status === 0 && logRes.stdout.trim()
+        ? logRes.stdout.trim().split("\n").map((line) => {
+            const [sha, message, author, ts] = line.split("|");
+            return { sha: sha ?? "", message: message ?? "", author, ts };
+          })
+        : [];
+
+      this.sendGitResult(env, requestId, {
+        ok: true,
+        branch,
+        clean,
+        ahead,
+        behind,
+        changedFiles,
+        commits,
+        error: null,
+      });
+    } catch (err: any) {
+      this.sendGitResult(env, requestId, {
+        ok: false,
+        branch: null,
+        clean: true,
+        ahead: 0,
+        behind: 0,
+        changedFiles: [],
+        commits: [],
+        error: err?.message ?? "git inspection failed",
+      });
+    }
+  }
+
+  private sendGitResult(env: EnvelopeT, requestId: string, result: any): void {
+    this.sendEnvelope({
+      v: 1,
+      id: crypto.randomUUID(),
+      type: "agent.git.result",
+      project: env.project,
+      from: { kind: "node", id: this.opts.identity.machineId },
+      to: { kind: "node", id: this.opts.identity.machineId },
+      task: null,
+      idem: null,
+      ts: new Date().toISOString(),
+      body: {
+        requestId,
+        ...result,
+      },
     } as EnvelopeT);
   }
 

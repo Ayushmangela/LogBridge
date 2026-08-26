@@ -146,6 +146,25 @@ export const AgentView = z.object({
   summonedBy: z.string().nullable().optional(),
   summonedAt: z.string().nullable().optional(),
   summonedPos: Point.nullable().optional(),
+
+  // ★ 1.25 — agent lifecycle (HANDOFF-SERVER-2 Phase 1). Paused agents are
+  // visible but never routed work; retired agents keep history/memories and
+  // can return. Both optional so old rows remain valid (see 1.22).
+  paused: z.boolean().optional(),
+  retired: z.boolean().optional(),
+
+  // ★ 1.26 — agent health & monitor fields (HANDOFF-SERVER-2 Phase 2 & HANDOFF-SERVER-4 Phase 7).
+  health: z.object({
+    lastHeartbeat: z.string().nullable(),
+    consecutiveFailures: z.number(),
+    machineOnline: z.boolean(),
+  }).optional(),
+  machineOnline: z.boolean().optional(),
+  contextUsed: z.number().nullable().optional(),
+  contextLimit: z.number().nullable().optional(),
+  toolCalls: z.number().optional(),
+  cwd: z.string().nullable().optional(),
+  model: z.string().nullable().optional(),
 });
 
 // What a machine reports about the CLIs it actually has installed — computed

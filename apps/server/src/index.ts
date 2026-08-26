@@ -4,11 +4,21 @@ import websocket from "@fastify/websocket";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { WebSocket } from "ws";
-import { appendEvent, clearSummon, createTask, openDb, summonAgent, type Db } from "./db.js";
+import {
+  appendEvent, clearSummon, createTask, openDb, summonAgent,
+  setAgentPaused, setAgentRetired, deleteAgent,
+  setAgentSteer, getAgentHistory, moveAgent, cloneAgent,
+  getAgentTraces, getAgentOutput, getProjectGraph,
+  type Db
+} from "./db.js";
 import { Positions } from "./view.js";
 import { registerCommandRoutes } from "./commands.js";
 import { registerGateway } from "./gateway.js";
-import { orchestrate, registerNodeGateway, requestAgentCreate, sendTaskOffer, taskCancelEnvelope, type NodeSockets } from "./nodeGateway.js";
+import {
+  orchestrate, registerNodeGateway, requestAgentCreate,
+  sendTaskOffer, taskCancelEnvelope, requestAgentGit,
+  type NodeSockets
+} from "./nodeGateway.js";
 import { createTrigger, deleteTrigger, setTriggerEnabled, startEventLoop, startTriggerLoop } from "./triggers.js";
 import { TriggerCreate, TriggerDelete, TriggerEnable } from "@logbridge/protocol";
 
@@ -65,6 +75,233 @@ export async function buildServer(
   // Static reference data, deliberately not in the workspace view — see
   // commands.ts for why.
   registerCommandRoutes(app);
+
+  // ---- agent lifecycle routes (HANDOFF-SERVER-2 Phase 1) ----
+  const handleAgentEdit = async (agentId: string, body: any, reply: any) => {
+    if (!agentId) return reply.code(400).send({ ok: false, error: "agentId required" });
+    const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId) as any;
+    if (!agent) return reply.code(404).send({ ok: false, error: "no such agent" });
+    const updates: string[] = [];
+    const vals: any[] = [];
+    if (body.name !== undefined) {
+      updates.push("name = ?");
+      vals.push(String(body.name).trim().slice(0, 200));
+    }
+    if (body.description !== undefined) {
+      updates.push("description = ?");
+      vals.push(body.description ? String(body.description).trim().slice(0, 120) : null);
+    }
+    if (body.goal !== undefined) {
+      updates.push("goal = ?");
+      vals.push(body.goal ? String(body.goal).trim().slice(0, 2000) : null);
+    }
+    if (body.character !== undefined) {
+      updates.push("character = ?");
+      vals.push(body.character ?? null);
+    }
+    if (body.color !== undefined) {
+      updates.push("color = ?");
+      vals.push(body.color ?? null);
+    }
+    if (body.role !== undefined) {
+      updates.push("role = ?");
+      vals.push(body.role ?? "developer");
+    }
+    if (body.note !== undefined) {
+      updates.push("note = ?");
+      vals.push(body.note ? String(body.note).trim().slice(0, 120) : null);
+    }
+    if (body.capabilities !== undefined) {
+      updates.push("capabilities = ?");
+      vals.push(JSON.stringify(Array.isArray(body.capabilities) ? body.capabilities : []));
+    }
+    if (updates.length === 0) return reply.code(400).send({ ok: false, error: "no fields to update" });
+    vals.push(agentId);
+    db.prepare(`UPDATE agents SET ${updates.join(", ")} WHERE id = ?`).run(...vals);
+    broadcastView();
+    return { ok: true };
+  };
+
+  app.patch<{ Params: { id: string }; Body: any }>("/api/agents/:id", async (req, reply) => {
+    const id = req.params.id || (req.params as any).agentId;
+    return handleAgentEdit(id, req.body ?? {}, reply);
+  });
+
+  app.post<{ Params: { id: string }; Body: any }>("/api/agents/:id/edit", async (req, reply) => {
+    const id = req.params.id || (req.params as any).agentId;
+    return handleAgentEdit(id, req.body ?? {}, reply);
+  });
+
+  app.post<{ Params: { id: string }; Body: { note?: string } }>("/api/agents/:id/note", async (req, reply) => {
+    const id = req.params.id || (req.params as any).agentId;
+    if (!id) return reply.code(400).send({ ok: false, error: "agentId required" });
+    const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(id) as any;
+    if (!agent) return reply.code(404).send({ ok: false, error: "no such agent" });
+    const note = req.body?.note ? String(req.body.note).trim().slice(0, 120) : null;
+    db.prepare("UPDATE agents SET note = ? WHERE id = ?").run(note, id);
+    broadcastView();
+    return { ok: true };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/agents/:id/pause", async (req, reply) => {
+    const id = req.params.id || (req.params as any).agentId;
+    if (!id) return reply.code(400).send({ ok: false, error: "agentId required" });
+    const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(id) as any;
+    if (!agent) return reply.code(404).send({ ok: false, error: "no such agent" });
+    setAgentPaused(db, id, true);
+    broadcastView();
+    return { ok: true };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/agents/:id/resume", async (req, reply) => {
+    const id = req.params.id || (req.params as any).agentId;
+    if (!id) return reply.code(400).send({ ok: false, error: "agentId required" });
+    const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(id) as any;
+    if (!agent) return reply.code(404).send({ ok: false, error: "no such agent" });
+    setAgentPaused(db, id, false);
+    broadcastView();
+    return { ok: true };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/agents/:id/retire", async (req, reply) => {
+    const id = req.params.id || (req.params as any).agentId;
+    if (!id) return reply.code(400).send({ ok: false, error: "agentId required" });
+    const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(id) as any;
+    if (!agent) return reply.code(404).send({ ok: false, error: "no such agent" });
+    setAgentRetired(db, id, true);
+    broadcastView();
+    return { ok: true };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/agents/:id/unretire", async (req, reply) => {
+    const id = req.params.id || (req.params as any).agentId;
+    if (!id) return reply.code(400).send({ ok: false, error: "agentId required" });
+    const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(id) as any;
+    if (!agent) return reply.code(404).send({ ok: false, error: "no such agent" });
+    setAgentRetired(db, id, false);
+    broadcastView();
+    return { ok: true };
+  });
+
+  const handleAgentDelete = async (agentId: string, reply: any) => {
+    if (!agentId) return reply.code(400).send({ ok: false, error: "agentId required" });
+    const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId) as any;
+    if (!agent) return reply.code(404).send({ ok: false, error: "no such agent" });
+    deleteAgent(db, agentId);
+    broadcastView();
+    return { ok: true };
+  };
+
+  app.delete<{ Params: { id: string } }>("/api/agents/:id", async (req, reply) => {
+    const id = req.params.id || (req.params as any).agentId;
+    return handleAgentDelete(id, reply);
+  });
+
+  app.post<{ Params: { id: string } }>("/api/agents/:id/delete", async (req, reply) => {
+    const id = req.params.id || (req.params as any).agentId;
+    return handleAgentDelete(id, reply);
+  });
+
+  // ---- Phase 2: Per-agent history (HANDOFF-SERVER-2 Phase 2) ----
+  app.get<{ Params: { id: string }; Querystring: { limit?: string; offset?: string } }>(
+    "/api/agents/:id/history",
+    async (req, reply) => {
+      const id = req.params.id || (req.params as any).agentId;
+      const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(id) as any;
+      if (!agent) return reply.code(404).send({ ok: false, error: "no such agent" });
+      const limit = Number(req.query.limit ?? 20);
+      const offset = Number(req.query.offset ?? 0);
+      const history = getAgentHistory(db, id, limit, offset);
+      return { ok: true, ...history };
+    }
+  );
+
+  // ---- Phase 3: Steer, Move, Clone (HANDOFF-SERVER-2 Phase 3) ----
+  app.post<{ Params: { id: string }; Body: { text: string } }>("/api/agents/:id/steer", async (req, reply) => {
+    const id = req.params.id || (req.params as any).agentId;
+    const { text } = req.body ?? {};
+    if (!text || typeof text !== "string") return reply.code(400).send({ ok: false, error: "text required" });
+    const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(id) as any;
+    if (!agent) return reply.code(404).send({ ok: false, error: "no such agent" });
+    setAgentSteer(db, id, text);
+    return { ok: true, steered: true };
+  });
+
+  app.post<{ Params: { id: string }; Body: { projectId: string } }>("/api/agents/:id/move", async (req, reply) => {
+    const id = req.params.id || (req.params as any).agentId;
+    const { projectId } = req.body ?? {};
+    if (!projectId) return reply.code(400).send({ ok: false, error: "projectId required" });
+    const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(id) as any;
+    if (!agent) return reply.code(404).send({ ok: false, error: "no such agent" });
+    const moved = moveAgent(db, id, projectId);
+    if (!moved) return reply.code(404).send({ ok: false, error: `project "${projectId}" does not exist` });
+    broadcastView();
+    return { ok: true, agentId: id, projectId };
+  });
+
+  app.post<{ Params: { id: string }; Body: { projectId: string; name?: string } }>("/api/agents/:id/clone", async (req, reply) => {
+    const id = req.params.id || (req.params as any).agentId;
+    const { projectId, name } = req.body ?? {};
+    if (!projectId) return reply.code(400).send({ ok: false, error: "projectId required" });
+    const cloned = cloneAgent(db, id, projectId, name);
+    if (!cloned) return reply.code(404).send({ ok: false, error: "could not clone agent — check agent and project exist" });
+    broadcastView();
+    return { ok: true, agent: cloned };
+  });
+
+  // ---- Phase 4: Traces (HANDOFF-SERVER-3 Phase 4) ----
+  app.get<{ Params: { id: string }; Querystring: { limit?: string } }>("/api/agents/:id/traces", async (req, reply) => {
+    const id = req.params.id || (req.params as any).agentId;
+    const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(id) as any;
+    if (!agent) return reply.code(404).send({ ok: false, error: "no such agent" });
+    const limit = Number(req.query.limit ?? 50);
+    const traces = getAgentTraces(db, id, limit);
+    return { ok: true, agentId: id, traces, events: traces };
+  });
+
+  // ---- Phase 5: Output stream (HANDOFF-SERVER-3 Phase 5) ----
+  app.get<{ Params: { id: string }; Querystring: { limit?: string; since?: string } }>(
+    "/api/agents/:id/output",
+    async (req, reply) => {
+      const id = req.params.id || (req.params as any).agentId;
+      const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(id) as any;
+      if (!agent) return reply.code(404).send({ ok: false, error: "no such agent" });
+      const limit = Number(req.query.limit ?? 200);
+      const since = req.query.since ? Number(req.query.since) : undefined;
+      const res = getAgentOutput(db, id, limit, since);
+      return { ok: true, ...res, lines: res.output };
+    }
+  );
+
+  // ---- Phase 6: Git state (HANDOFF-SERVER-3 Phase 6) ----
+  app.get<{ Params: { id: string } }>("/api/agents/:id/git", async (req, reply) => {
+    const id = req.params.id || (req.params as any).agentId;
+    const gitState = await requestAgentGit(db, nodeSockets, id);
+    return gitState;
+  });
+
+  // ---- Phase 7: Engine swap (HANDOFF-SERVER-4 Phase 7) ----
+  app.post<{ Params: { id: string }; Body: { provider: string; model?: string | null } }>(
+    "/api/agents/:id/engine",
+    async (req, reply) => {
+      const id = req.params.id || (req.params as any).agentId;
+      const { provider, model } = req.body ?? {};
+      if (!provider) return reply.code(400).send({ ok: false, error: "provider required" });
+      const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(id) as any;
+      if (!agent) return reply.code(404).send({ ok: false, error: "no such agent" });
+      db.prepare("UPDATE agents SET provider = ?, model = ? WHERE id = ?").run(provider, model ?? null, id);
+      broadcastView();
+      return { ok: true, restarting: true, message: "Restarting — engine will change on next heartbeat." };
+    }
+  );
+
+  // ---- Phase 8: Message Graph (HANDOFF-SERVER-4 Phase 8) ----
+  app.get<{ Querystring: { projectId?: string; windowHours?: string } }>("/api/graph", async (req, reply) => {
+    const projectId = req.query.projectId ?? "prj_acme_api";
+    const windowHours = Number(req.query.windowHours ?? 168);
+    const graph = getProjectGraph(db, projectId, windowHours);
+    return { ok: true, ...graph };
+  });
 
   // Triggers: schedule and event loops — real tasks from standing rules.
   // Started here, like github's poll, so a task appears in the DB and the

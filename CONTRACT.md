@@ -1,7 +1,7 @@
 # The Contract
 ### Single source of truth for everything exchanged between the office and the system.
 
-**Version 1.24** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
+**Version 1.25** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
 
 > **Rule: never change this file alone.** Both people present, both agree, bump the version, add a changelog line. A contract one person edited is not a contract.
 
@@ -127,6 +127,15 @@ type AgentView = {
   goal: string | null          // ★ 1.20 its standing objective
   provider?: string | null     // ★ 1.22 which agent CLI it runs. null = the machine's default harness
   githubRef: { kind: "pr" | "issue"; ref: string } | null   // "acme/api#212"
+  paused?: boolean             // ★ 1.25 paused agents stay visible but take no routed work
+  retired?: boolean            // ★ 1.25 retired agents keep history/memories and can return
+  health?: { lastHeartbeat: string | null; consecutiveFailures: number; machineOnline: boolean } // ★ 1.25
+  machineOnline?: boolean      // ★ 1.25
+  contextUsed?: number | null  // ★ 1.25 tokens used
+  contextLimit?: number | null // ★ 1.25 token limit
+  toolCalls?: number           // ★ 1.25 count of tool calls
+  cwd?: string | null          // ★ 1.25 working directory
+  model?: string | null        // ★ 1.25 model name
 }
 
 type TaskBrief = {
@@ -291,6 +300,7 @@ Five tilesets are registered in the map, all 32 px:
 
 | Version | Change | Why |
 |---|---|---|
+| **1.25** | Added agent lifecycle fields (**`paused`**, **`retired`**), health metrics (**`health`**, **`machineOnline`**), monitor fields (**`contextUsed`**, **`contextLimit`**, **`toolCalls`**, **`cwd`**, **`model`**), and new HTTP endpoints (lifecycle, history, steer, move, clone, traces, output, git, engine, graph) | Supports floor management across HANDOFF-SERVER-2, 3, and 4. Paused and retired agents remain visible in the room while being excluded from orchestrator routing; health surfaces uptime and failure rates in the view; monitor console tracks context tokens and tool calls; git state inspects runner worktrees without server-side filesystem access; steer injects prompt context; message graph projects inter-agent communications strictly from envelope metadata without violating sealed payload confidentiality |
 | **1.24** | Added **`Room.triggers: TriggerView[]`** — standing rules that create tasks | Triggers are stored per project and projected into the view so the browser can list them without inventing its own. Always an array (empty when no triggers) so a database written before triggers existed still produces a valid view — a required field with no value would have blanked the office for every viewer until each trigger was recreated. Stream A builds its list UI against this |
 | **1.23** | Added **`AgentView.summonedBy` / `summonedAt` / `summonedPos`** — summon is a real event, not a tween | The agent walks to the caller's tile (player position) and stays until dismissed or it gets work — `setAgentStatus(working)` clears the summon so work always wins. `summon`/`summon.cancel` land in the activity feed. Optional for the same reason as `provider`: older agent rows have null and a required field would blank the office |
 | **1.22** | Added **`AgentView.provider`**; made **`ProviderInfo.command`** optional | The Command Center's command reference is keyed by the CLI an agent runs, and the view never carried it — the runner reported it on `agent.card` as `harness` and the server dropped it. `command` becoming optional is a **fix, not a refinement**: `providers` is JSON frozen at a machine's last handshake, the gateway validates the whole view and sends **nothing** when validation fails, so shipping it as required in 1.21 blanked every office until each runner happened to reconnect. Any field added to a view fed by stored producer data carries that same risk and must be optional |

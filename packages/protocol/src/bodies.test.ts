@@ -137,6 +137,32 @@ describe("envelope schemas", () => {
         };
       case "agent.create.result":
         return { requestId: "req_1", ok: true, agentId: "agt_new", error: null };
+      case "agent.pause":
+        return { agentId: "agt_1" };
+      case "agent.resume":
+        return { agentId: "agt_1" };
+      case "agent.retire":
+        return { agentId: "agt_1" };
+      case "agent.unretire":
+        return { agentId: "agt_1" };
+      case "agent.delete":
+        return { agentId: "agt_1" };
+      case "agent.patch":
+        return { agentId: "agt_1", name: "new-name" };
+      case "agent.git":
+        return { requestId: "req_git_1", agentId: "agt_1" };
+      case "agent.git.result":
+        return {
+          requestId: "req_git_1",
+          ok: true,
+          branch: "main",
+          clean: true,
+          ahead: 0,
+          behind: 0,
+          changedFiles: [],
+          commits: [],
+          error: null,
+        };
       default: throw new Error(`no fixture for ${type}`);
     }
   }

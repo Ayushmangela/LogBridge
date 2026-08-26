@@ -205,3 +205,31 @@ An unassigned task is routed to an agent by capability, machine-online, concurre
 **Would change it:** nothing short of exactly-once delivery, which is not on the table.
 
 **Hand-assignment still wins.** A task created with an agent already set is invisible to the orchestrator, so `@mention` and `/debug/offer-task` are unaffected.
+
+
+### D28 — An agent can only be reached while its owner's machine is online
+An agent belongs to a person's machine (D1) and every message between machines
+goes through the server (D2). It follows that **when that machine is offline,
+the agent is unreachable — no delegation, no review request, no context share,
+no new work.** The server does not queue the message for later delivery; it
+records `<type>.undeliverable` with `reason: "machine offline"` and stops.
+
+**Why:** the alternative is a promise the system cannot keep. An agent is a
+real CLI process on somebody's laptop — if the laptop is shut, there is
+nothing to run the work, and a queued request would sit invisible until an
+unknowable future moment and then execute against a repository that has moved
+on. Failing immediately and visibly is the honest outcome: the sender learns
+now, in the room, rather than believing work is underway.
+
+This is also why `Room.collaborationAvailable` counts **distinct owners with a
+machine online**, and why the office hides delegation and review entirely
+until a second *person* is genuinely present. One person's laptop and desktop
+is not collaboration, and a soak rig must not switch it on.
+
+**Enforced in:** `nodeGateway.ts` (sealed flows to an offline machine become
+`.undeliverable`), `index.ts` (agent creation refuses an offline machine), and
+`view.ts` (`collaborationAvailable`).
+
+**Would change it:** store-and-forward with an explicit expiry, if someone
+genuinely wants "run this when my laptop wakes up". That is a different
+feature with its own failure modes — not a tweak to this one.

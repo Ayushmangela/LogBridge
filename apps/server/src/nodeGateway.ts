@@ -25,6 +25,8 @@ import {
   setAgentStatus,
   setTaskState,
   tasksForMachine,
+  consumeAgentSteer,
+  isAgentDeleted,
 } from "./db.js";
 import { makeChallenge, verifySignature } from "./nodeAuth.js";
 import { parsePlan } from "./plan.js";
@@ -55,6 +57,12 @@ const pendingAgentCreates = new Map<
   string,
   (r: { ok: boolean; agentId: string | null; error: string | null }) => void
 >();
+
+const pendingGitRequests = new Map<
+  string,
+  (r: any) => void
+>();
+const GIT_REQUEST_TIMEOUT_MS = 3000;
 
 // Delegations held for the target machine's owner to approve or refuse
 // (SEALED.md "Consent"). The held envelope is forwarded byte-for-byte on
@@ -629,20 +637,87 @@ export function sendTaskOffer(db: Db, nodeSockets: NodeSockets, taskId: string):
   if (!agent) return false;
   const socket = nodeSockets.get(agent.machine_id);
   if (!socket || socket.readyState !== socket.OPEN) return false;
-  socket.send(JSON.stringify(taskOfferEnvelope({ ...task, _machineId: agent.machine_id })));
+  const steer = consumeAgentSteer(db, task.agent_id);
+  socket.send(JSON.stringify(taskOfferEnvelope({ ...task, _machineId: agent.machine_id }, steer)));
   return true;
 }
 
-export function taskOfferEnvelope(t: any): EnvelopeT {
+export function taskOfferEnvelope(t: any, steer?: string | null): EnvelopeT {
+  let spec = t.spec ?? null;
+  if (steer) {
+    spec = `[Steer Context]: ${steer}\n\n${spec ?? ""}`;
+  }
   return {
     v: 1, id: crypto.randomUUID(), type: "task.offer", project: t.project_id,
     from: { kind: "server", id: "server" }, to: { kind: "node", id: t._machineId ?? "" },
     task: t.id, idem: crypto.randomUUID(), ts: new Date().toISOString(),
     body: {
-      taskId: t.id, agentId: t.agent_id ?? null, title: t.title, spec: t.spec ?? null,
+      taskId: t.id, agentId: t.agent_id ?? null, title: t.title, spec,
       acceptance: null, budget: { seconds: t.budget_seconds ?? 60, usd: t.budget_usd ?? 1.0 },
     },
   };
+}
+
+export async function requestAgentGit(
+  db: Db,
+  nodeSockets: NodeSockets,
+  agentId: string
+): Promise<{
+  ok: boolean;
+  branch: string | null;
+  clean: boolean;
+  ahead: number;
+  behind: number;
+  changedFiles: string[];
+  commits: Array<{ sha: string; message: string; author?: string; ts?: string }>;
+  error: string | null;
+}> {
+  const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId) as any;
+  if (!agent) {
+    return { ok: false, branch: null, clean: true, ahead: 0, behind: 0, changedFiles: [], commits: [], error: "agent not found" };
+  }
+  const machine = getMachine(db, agent.machine_id) as any;
+  if (!machine || !machine.online) {
+    return { ok: true, branch: "unknown", clean: true, ahead: 0, behind: 0, changedFiles: [], commits: [], error: "machine offline" };
+  }
+  if (agent.isolation === "shared") {
+    return { ok: true, branch: null, clean: true, ahead: 0, behind: 0, changedFiles: [], commits: [], error: null };
+  }
+
+  const socket = nodeSockets.get(agent.machine_id);
+  if (!socket || socket.readyState !== socket.OPEN) {
+    return { ok: true, branch: "unknown", clean: true, ahead: 0, behind: 0, changedFiles: [], commits: [], error: "runner disconnected" };
+  }
+
+  const requestId = crypto.randomUUID();
+  const env: EnvelopeT = {
+    v: 1,
+    id: crypto.randomUUID(),
+    type: "agent.git",
+    project: agent.project_id ?? "",
+    from: { kind: "server", id: "server" },
+    to: { kind: "node", id: agent.machine_id },
+    task: null,
+    idem: crypto.randomUUID(),
+    ts: new Date().toISOString(),
+    body: { requestId, agentId: agent.id },
+  };
+
+  const result = new Promise<any>((resolve) => {
+    const timer = setTimeout(() => {
+      if (pendingGitRequests.delete(requestId)) {
+        resolve({ ok: true, branch: "unknown", clean: true, ahead: 0, behind: 0, changedFiles: [], commits: [], error: "timeout" });
+      }
+    }, GIT_REQUEST_TIMEOUT_MS);
+    if (timer.unref) timer.unref();
+    pendingGitRequests.set(requestId, (r) => {
+      clearTimeout(timer);
+      resolve(r);
+    });
+  });
+
+  socket.send(JSON.stringify(env));
+  return result;
 }
 
 function handleNodeEnvelope(
@@ -916,7 +991,19 @@ function handleNodeEnvelope(
     return;
   }
 
+  if (env.type === "agent.git.result") {
+    const cb = pendingGitRequests.get(body.requestId);
+    if (cb) {
+      pendingGitRequests.delete(body.requestId);
+      cb(body);
+    }
+    return;
+  }
+
   if (env.type === "agent.card") {
+    if (isAgentDeleted(db, body.id)) {
+      return;
+    }
     // The machine owner declares agents locally; the server just upserts
     // the card. Simplification: one project per agent for now (the schema
     // and buildView both assume this already) — take the first of `projects`.

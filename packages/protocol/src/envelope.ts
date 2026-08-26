@@ -10,6 +10,8 @@ export const MESSAGE_TYPES = [
   "agent.create", "agent.create.result",
   "peer.directory",
   "agent.card", "node.status", "presence", "chat", "position",
+  "agent.pause", "agent.resume", "agent.retire", "agent.unretire", "agent.delete", "agent.patch",
+  "agent.git", "agent.git.result",
 ] as const;
 
 export type MessageType = (typeof MESSAGE_TYPES)[number];
