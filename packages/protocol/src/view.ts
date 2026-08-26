@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TaskState } from "./task-state.js";
+import { TriggerView } from "./triggers.js";
 
 export const AgentRole = z.enum([
   "developer", "research", "qa", "review", "docs", "planner",
@@ -214,6 +215,7 @@ export const Room = z.object({
   pulls: z.array(PullView),
   memories: z.array(MemoryView),
   activity: z.array(ActivityItem),
+  triggers: z.array(TriggerView),
 });
 
 export const WorkspaceView = z.object({

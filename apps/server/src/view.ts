@@ -9,6 +9,7 @@ import {
   type ProviderInfoT,
   type PullViewT,
   type RoomT,
+  type TriggerViewT,
   type WorkspaceViewT,
 } from "@logbridge/protocol";
 
@@ -117,6 +118,27 @@ export function buildView(db: Db, positions: Positions, meId: string): Workspace
       });
 
     const roomAgents = agents.filter((a) => a.project_id === p.id);
+
+    const roomTriggers: TriggerViewT[] = (
+      db.prepare("SELECT * FROM triggers WHERE project_id = ? ORDER BY created_at").all(p.id) as any[]
+    ).map((r) => ({
+      id: r.id,
+      projectId: r.project_id,
+      name: r.name,
+      enabled: Boolean(r.enabled),
+      kind: r.kind as "schedule" | "event",
+      rule: r.rule,
+      taskTitle: r.task_title ?? null,
+      taskSpec: r.task_spec ?? null,
+      taskCapability: r.task_capability ?? null,
+      budgetSeconds: r.budget_seconds ?? null,
+      budgetUsd: r.budget_usd ?? null,
+      tz: r.tz ?? null,
+      createdAt: r.created_at,
+      lastFiredAt: r.last_fired_at ?? null,
+      nextFireAt: r.next_fire_at ?? null,
+      lastEvtSeq: r.last_evt_seq ?? 0,
+    }));
 
     const views: AgentViewT[] = roomAgents.map((a) => {
       const machine = machineById.get(a.machine_id);
@@ -250,6 +272,7 @@ export function buildView(db: Db, positions: Positions, meId: string): Workspace
       memories: recentMemories(db, p.id, 30).filter((m) => m.scope === "project"),
       activity: recentActivity(db, p.id, 30),
       pulls: recentPulls(db, p.id, 20),
+      triggers: roomTriggers,
     };
   });
 

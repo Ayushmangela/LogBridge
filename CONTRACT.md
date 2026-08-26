@@ -1,7 +1,7 @@
 # The Contract
 ### Single source of truth for everything exchanged between the office and the system.
 
-**Version 1.23** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
+**Version 1.24** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
 
 > **Rule: never change this file alone.** Both people present, both agree, bump the version, add a changelog line. A contract one person edited is not a contract.
 
@@ -42,6 +42,7 @@ type Room = {
   tasks: BoardTask[]           // ★ 1.8 every task in the room — the board's rows
   memories: MemoryView[]       // ★ 1.9 what the team has learned (project scope only)
   activity: ActivityItem[]     // ★ 1.10 what just happened, newest first (30 max)
+  triggers: TriggerView[]      // ★ 1.24 standing rules that create tasks (see TRIGGERS.md)
   collaborationAvailable: boolean  // ★ 1.18 two or more DISTINCT owners online
 }
 
@@ -52,6 +53,25 @@ type ActivityItem = {         // projected from the event log, server-side
   summary: string             // ALREADY human-readable — the UI only renders
   taskId: string | null
   ts: string
+}
+
+type TriggerView = {          // standing rule (TRIGGERS.md), projected server-side
+  id: string
+  projectId: string
+  name: string
+  enabled: boolean
+  kind: "schedule" | "event"
+  rule: string
+  taskTitle: string | null
+  taskSpec: string | null
+  taskCapability: string | null
+  budgetSeconds: number | null
+  budgetUsd: number | null
+  tz: string | null
+  createdAt: string
+  lastFiredAt: string | null
+  nextFireAt: string | null
+  lastEvtSeq: number           // event cursor for kind:"event", 0 for schedule
 }
 
 type MemoryView = {           // see MEMORY.md
@@ -271,6 +291,7 @@ Five tilesets are registered in the map, all 32 px:
 
 | Version | Change | Why |
 |---|---|---|
+| **1.24** | Added **`Room.triggers: TriggerView[]`** — standing rules that create tasks | Triggers are stored per project and projected into the view so the browser can list them without inventing its own. Always an array (empty when no triggers) so a database written before triggers existed still produces a valid view — a required field with no value would have blanked the office for every viewer until each trigger was recreated. Stream A builds its list UI against this |
 | **1.23** | Added **`AgentView.summonedBy` / `summonedAt` / `summonedPos`** — summon is a real event, not a tween | The agent walks to the caller's tile (player position) and stays until dismissed or it gets work — `setAgentStatus(working)` clears the summon so work always wins. `summon`/`summon.cancel` land in the activity feed. Optional for the same reason as `provider`: older agent rows have null and a required field would blank the office |
 | **1.22** | Added **`AgentView.provider`**; made **`ProviderInfo.command`** optional | The Command Center's command reference is keyed by the CLI an agent runs, and the view never carried it — the runner reported it on `agent.card` as `harness` and the server dropped it. `command` becoming optional is a **fix, not a refinement**: `providers` is JSON frozen at a machine's last handshake, the gateway validates the whole view and sends **nothing** when validation fails, so shipping it as required in 1.21 blanked every office until each runner happened to reconnect. Any field added to a view fed by stored producer data carries that same risk and must be optional |
 | **1.21** | Added **`ProviderInfo.command`** | The Add Agent dialog shows the command an agent will run. Composing that string in the browser would mean the browser guessing flags for CLIs it has never seen installed, and drifting silently the first time an arg changed. The machine now generates it from the **same `buildArgs` the harness spawns**, so the preview cannot be wrong without the run being wrong too. `bypassFlag` is carried separately and is null for every provider that has no such mode — the toggle shows the literal flag rather than implying one exists |
