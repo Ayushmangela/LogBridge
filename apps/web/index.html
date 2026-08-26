@@ -1978,6 +1978,8 @@
         { id: 'monitor', label: 'Monitor', surface: 'employee' },
         { id: 'git', label: 'Git', surface: 'employee' },
         { id: 'output', label: 'Output', surface: 'employee' },
+        { id: 'graph', label: 'Graph', surface: 'floor' },
+        { id: 'messages', label: 'Messages', surface: 'employee' },
       ];
       if (!a) return all;
       if (isOrchestrator(a)) return all.filter((t) => t.surface === 'floor' || t.surface === 'both');
@@ -2065,6 +2067,8 @@
       else if (ccTab === 'monitor') ccRenderMonitor(body, a);
       else if (ccTab === 'git') ccRenderGit(body, a);
       else if (ccTab === 'output') ccRenderOutput(body, a);
+      else if (ccTab === 'graph') ccRenderGraph(body, a);
+      else if (ccTab === 'messages') ccRenderMessages(body, a);
       else ccRenderActivity(body, a);
     }
 
@@ -2655,6 +2659,130 @@
         if (orig) clearInterval(orig);
         (window as any)._ccOutputTimer = timer;
       }).catch(() => { wrap.textContent = 'Could not reach server for output.'; });
+    }
+
+    function ccRenderGraph(body, a) {
+      body.innerHTML = '';
+      const note = document.createElement('div');
+      note.className = 'cmd-note';
+      note.textContent = 'Agents as nodes, messages as edges — delegation vs review vs chat, deterministic layout seeded from agent ids.';
+      body.appendChild(note);
+
+      const room = activeRoom();
+      const agents = room?.agents ?? [];
+      if (!agents.length) {
+        body.innerHTML += '<div class="empty-note">No agents to graph.</div>';
+        return;
+      }
+      // Try honest endpoint; Stream B Phase 8 will provide it
+      const ph = document.createElement('div');
+      ph.className = 'empty-note';
+      ph.textContent = 'Loading graph…';
+      body.appendChild(ph);
+      fetch(`/api/graph?projectId=${room.id}`).then(async (res) => {
+        let nodes = agents;
+        let edges: any[] = [];
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          nodes = data.nodes ?? agents;
+          edges = data.edges ?? [];
+        } else {
+          // Fallback: build edges from activity (delegation/review/chat) — honest, not a second store
+          const act = room.activity ?? [];
+          edges = act.filter((it) => it.type.startsWith('delegate') || it.type.startsWith('review') || it.type === 'chat').map((it) => ({
+            from: it.actor ?? 'system',
+            to: it.taskId ?? '',
+            kind: it.type.includes('delegate') ? 'delegation' : it.type.includes('review') ? 'review' : 'chat',
+          }));
+          ph.textContent = res.status === 404 ? 'Graph not available yet — server has no graph endpoint. Showing activity-derived edges.' : `Could not load graph (${res.status}) — showing activity.`;
+          if (res.status !== 404) return;
+        }
+        ph.remove();
+        // Deterministic layout: circle, seeded from hashString(agent.id)
+        const W = 320, H = 220, cx = W / 2, cy = H / 2, R = Math.min(W, H) / 2 - 30;
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'position:relative;width:320px;height:220px;margin:12px auto;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);overflow:hidden';
+        // Place nodes deterministically: sort by id, then angle by hash
+        const sorted = [...nodes].sort((x: any, y: any) => x.id.localeCompare(y.id));
+        const pos = new Map<string, {x:number,y:number}>();
+        for (let i = 0; i < sorted.length; i++) {
+          const id = (sorted[i] as any).id ?? (sorted[i] as any).name;
+          const h = hashString(String(id));
+          const angle = (h % 360) * Math.PI / 180 + (i * 2 * Math.PI / sorted.length / 2);
+          // Mix hash angle and index to avoid overlap while staying deterministic
+          const r = R * (0.7 + (h % 30) / 100);
+          const x = cx + r * Math.cos(angle);
+          const y = cy + r * Math.sin(angle);
+          pos.set(String(id), { x, y });
+          // Also map name to same pos for actor lookup
+          const name = (sorted[i] as any).name;
+          if (name) pos.set(name, { x, y });
+        }
+        // Draw edges as thin lines, color by kind
+        const colorFor = (k: string) => k === 'delegation' ? '#8b5cf6' : k === 'review' ? '#3b82f6' : '#22c55e';
+        for (const e of edges.slice(0, 30)) {
+          const from = pos.get(String(e.from)) ?? pos.get(String(e.fromAgent)) ?? { x: cx, y: cy };
+          const to = pos.get(String(e.to)) ?? pos.get(String(e.toAgent)) ?? { x: cx + 20, y: cy + 20 };
+          const line = document.createElement('div');
+          line.style.cssText = `position:absolute;left:${from.x}px;top:${from.y}px;width:${Math.hypot(to.x - from.x, to.y - from.y)}px;height:2px;background:${colorFor(e.kind)};transform-origin:0 50%;transform:rotate(${Math.atan2(to.y - from.y, to.x - from.x)}rad);opacity:.7`;
+          wrap.appendChild(line);
+        }
+        // Draw nodes
+        for (const n of sorted) {
+          const id = (n as any).id ?? (n as any).name;
+          const p = pos.get(String(id))!;
+          const dot = document.createElement('div');
+          dot.style.cssText = `position:absolute;left:${p.x - 14}px;top:${p.y - 14}px;width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.2)`;
+          dot.textContent = ((n as any).name ?? id).slice(0, 2).toUpperCase();
+          dot.title = (n as any).name ?? id;
+          dot.onclick = () => openCommandCenter((n as any).id ?? id);
+          wrap.appendChild(dot);
+        }
+        // Legend
+        const legend = document.createElement('div');
+        legend.style.cssText = 'position:absolute;bottom:6px;left:6px;display:flex;gap:8px;font-size:10px;color:var(--text-faint)';
+        legend.innerHTML = '<span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:2px;background:#8b5cf6;display:inline-block"></span>delegation</span><span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:2px;background:#3b82f6;display:inline-block"></span>review</span><span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:2px;background:#22c55e;display:inline-block"></span>chat</span>';
+        wrap.appendChild(legend);
+        body.appendChild(wrap);
+      }).catch(() => { ph.textContent = 'Could not reach server for graph.'; });
+    }
+
+    function ccRenderMessages(body, a) {
+      body.innerHTML = '';
+      const note = document.createElement('div');
+      note.className = 'cmd-note';
+      note.textContent = "This agent's conversation — what it was asked, what it answered, questions it raised. Filtered from Room chat, not a second store.";
+      body.appendChild(note);
+      // Check what exists before building: Room chat and mid-task questions
+      const room = activeRoom();
+      const chat = (window as any).chatLog ?? [];
+      // Filter chat where from is this agent or text mentions this agent, plus activity filtered
+      const mineChat = chat.filter((m: any) => m.from?.id === a.id || m.from?.name === a.name || (m.text && m.text.includes(a.name)));
+      const mineActivity = (room?.activity ?? []).filter((it) => it.actor === a.name);
+      const all = [...mineChat.map((m: any) => ({ kind: 'chat', text: m.text, ts: m.ts, from: m.from?.name })), ...mineActivity.map((it) => ({ kind: it.type, text: it.summary, ts: it.ts, from: it.actor }))];
+      if (!all.length) {
+        body.innerHTML += '<div class="empty-note">No messages for this agent yet — chat and mid-task questions appear here.</div>';
+        return;
+      }
+      // Sort by ts if available
+      all.sort((x, y) => (Date.parse(x.ts ?? '') || 0) - (Date.parse(y.ts ?? '') || 0));
+      for (const m of all.slice(-30)) {
+        const row = document.createElement('div');
+        row.className = 'cmd-row';
+        const main = document.createElement('div');
+        main.className = 'cmd-main';
+        const k = document.createElement('div');
+        k.className = 'cmd-desc';
+        k.style.cssText = 'font-size:11px;font-weight:700;color:var(--text-faint)';
+        k.textContent = m.kind;
+        const t = document.createElement('div');
+        t.className = 'cmd-name';
+        t.style.cssText = 'font-size:12px';
+        t.textContent = m.text;
+        main.append(k, t);
+        row.appendChild(main);
+        body.appendChild(row);
+      }
     }
 
     // ---------------- Command Center: Memory tab ----------------
