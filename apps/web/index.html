@@ -1960,15 +1960,28 @@
 
     // The design shows ten tabs. Only the ones that do something are listed:
     // a tab opening an empty panel reads as a bug, not as "not built yet".
-    const CC_TABS = [
-      { id: 'commands', label: 'Commands' },
-      { id: 'activity', label: 'Activity' },
-      { id: 'memory', label: 'Memory' },
-      { id: 'triggers', label: 'Triggers' },
-      { id: 'tasks', label: 'Tasks' },
-      { id: 'steer', label: 'Steer' },
-      { id: 'traces', label: 'Traces' },
-    ];
+    // Two-surface split (BROWSER3 Phase 4): planner is the cheapest honest orchestrator
+    // marker — AgentRole already has planner and agents.role is stored. No new
+    // server field is needed. If a real isOrchestrator boolean is wanted, that
+    // is Stream B's, and the reviewer owns the call. Leaving the split as-is is
+    // legitimate if it turns out worse.
+    function isOrchestrator(a) { return a && a.role === 'planner'; }
+    function getCCTabs(a) {
+      const all = [
+        { id: 'commands', label: 'Commands', surface: 'floor' },
+        { id: 'activity', label: 'Activity', surface: 'floor' },
+        { id: 'memory', label: 'Memory', surface: 'floor' },
+        { id: 'triggers', label: 'Triggers', surface: 'floor' },
+        { id: 'tasks', label: 'Tasks', surface: 'both' },
+        { id: 'steer', label: 'Steer', surface: 'employee' },
+        { id: 'traces', label: 'Traces', surface: 'employee' },
+      ];
+      if (!a) return all;
+      if (isOrchestrator(a)) return all.filter((t) => t.surface === 'floor' || t.surface === 'both');
+      return all.filter((t) => t.surface === 'employee' || t.surface === 'both');
+    }
+    // Back-compat for any code that still reads CC_TABS directly (none does now)
+    const CC_TABS = getCCTabs(null);
 
     function renderCommandCenter() {
       const a = ccAgent();
@@ -2012,9 +2025,26 @@
         if (ccErr) { ccErr.textContent = ''; ccErr.style.display = 'none'; }
       }
 
+      // Two-surface split: keep ccTab valid for the current agent's surface
+      const availTabs = getCCTabs(a);
+      if (!availTabs.some((t) => t.id === ccTab)) ccTab = availTabs[0]?.id ?? 'tasks';
+      // Show a subtle surface label so the split is visible without being noisy
+      const manageRow = document.getElementById('cc-manage');
+      if (manageRow) {
+        manageRow.style.display = ''; // always, but label the surface
+        let label = document.getElementById('cc-surface-label');
+        if (!label) {
+          label = document.createElement('span');
+          label.id = 'cc-surface-label';
+          label.style.cssText = 'font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text-faint);margin-left:auto';
+          manageRow.appendChild(label);
+        }
+        label.textContent = isOrchestrator(a) ? 'Orchestrator · floor' : 'Employee · ' + (a.name || '');
+      }
+
       const tabs = document.getElementById('cc-tabs');
       tabs.innerHTML = '';
-      for (const t of CC_TABS) {
+      for (const t of availTabs) {
         const b = document.createElement('button');
         b.className = 'cc-tab' + (t.id === ccTab ? ' active' : '');
         b.textContent = t.label;
