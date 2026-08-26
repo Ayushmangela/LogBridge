@@ -1966,6 +1966,8 @@
       { id: 'memory', label: 'Memory' },
       { id: 'triggers', label: 'Triggers' },
       { id: 'tasks', label: 'Tasks' },
+      { id: 'steer', label: 'Steer' },
+      { id: 'traces', label: 'Traces' },
     ];
 
     function renderCommandCenter() {
@@ -2025,6 +2027,8 @@
       else if (ccTab === 'memory') ccRenderMemory(body, a);
       else if (ccTab === 'triggers') ccRenderTriggers(body, a);
       else if (ccTab === 'tasks') ccRenderTasks(body, a);
+      else if (ccTab === 'steer') ccRenderSteer(body, a);
+      else if (ccTab === 'traces') ccRenderTraces(body, a);
       else ccRenderActivity(body, a);
     }
 
@@ -2185,6 +2189,117 @@
         row.appendChild(main);
         body.appendChild(row);
       }
+    }
+
+    function ccRenderSteer(body, a) {
+      body.innerHTML = '';
+      const note = document.createElement('div');
+      note.className = 'cmd-note';
+      note.textContent = 'One line of context for the next task — it lands in the prompt, not in a running process. This is not a terminal.';
+      body.appendChild(note);
+
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:8px;margin-top:12px';
+      const inp = document.createElement('input');
+      inp.placeholder = 'e.g. prefer pnpm, check the staging DB first';
+      inp.style.cssText = 'flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:12.5px;background:var(--surface-2);color:var(--text)';
+      inp.id = 'cc-steer-input';
+      // Keep draft across broadcasts
+      if ((window as any)._ccSteerDraft?.agentId === a.id) inp.value = (window as any)._ccSteerDraft.text;
+      inp.oninput = () => { (window as any)._ccSteerDraft = { agentId: a.id, text: inp.value }; };
+
+      const btn = document.createElement('button');
+      btn.className = 'btn-primary';
+      btn.textContent = 'Steer next task';
+      btn.style.cssText = 'padding:8px 14px;border-radius:8px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer';
+      const err = document.createElement('div');
+      err.style.cssText = 'font-size:11px;color:var(--red);margin-top:8px;display:none';
+      btn.onclick = async () => {
+        const text = inp.value.trim();
+        if (!text) { err.textContent = 'Enter a line of context.'; err.style.display = 'block'; return; }
+        err.style.display = 'none';
+        btn.disabled = true;
+        btn.textContent = 'Steering…';
+        try {
+          const res = await fetch(`/api/agents/${a.id}/steer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.ok === false) {
+            const msg = data.error || `steer failed (${res.status})`;
+            err.textContent = msg;
+            err.style.display = 'block';
+            // If 404, degrade honestly
+            if (res.status === 404) err.textContent = 'Steer not available yet — server has no steer endpoint.';
+          } else {
+            inp.value = '';
+            (window as any)._ccSteerDraft = null;
+            err.textContent = 'Steered — next task will include it.';
+            err.style.display = 'block';
+            err.style.color = 'var(--green)';
+            setTimeout(() => { err.style.display = 'none'; err.style.color = 'var(--red)'; }, 2000);
+          }
+        } catch (e) {
+          err.textContent = (e as Error).message || 'could not reach server';
+          err.style.display = 'block';
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'Steer next task';
+        }
+      };
+
+      row.append(inp, btn);
+      body.append(row, err);
+    }
+
+    function ccRenderTraces(body, a) {
+      body.innerHTML = '';
+      const note = document.createElement('div');
+      note.className = 'cmd-note';
+      note.textContent = 'Tool calls and step boundaries from task.event rows — what the agent actually did, not a live terminal.';
+      body.appendChild(note);
+
+      const room = activeRoom();
+      // Find the agent's tasks, then pull their task.event rows from the activity feed is not enough
+      // (task.event is noise-filtered from activity). Instead, try to fetch traces via an endpoint,
+      // and degrade if it is not there.
+      const placeholder = document.createElement('div');
+      placeholder.className = 'empty-note';
+      placeholder.textContent = 'Loading traces…';
+      body.appendChild(placeholder);
+
+      // Try the honest endpoint; if 404, degrade
+      fetch(`/api/agents/${a.id}/traces?limit=50`).then(async (res) => {
+        if (!res.ok) {
+          if (res.status === 404) placeholder.textContent = 'Traces not available yet — server has no traces endpoint. What is here is the honest, buildable part of “watch it work”.';
+          else placeholder.textContent = `Could not load traces (${res.status}).`;
+          return;
+        }
+        const data = await res.json().catch(() => ({}));
+        const traces = data.traces ?? data.events ?? [];
+        if (!traces.length) {
+          placeholder.textContent = 'No tool calls yet — traces appear as the agent works.';
+          return;
+        }
+        placeholder.remove();
+        for (const ev of traces) {
+          const row = document.createElement('div');
+          row.className = 'cmd-row';
+          const main = document.createElement('div');
+          main.className = 'cmd-main';
+          const kind = document.createElement('div');
+          kind.className = 'cmd-desc';
+          kind.style.cssText = 'font-size:11px;font-weight:700;color:var(--text-faint)';
+          kind.textContent = ev.kind || ev.type || 'event';
+          const summary = document.createElement('div');
+          summary.className = 'cmd-name';
+          summary.style.cssText = 'font-size:12px';
+          summary.textContent = ev.summary || ev.text || JSON.stringify(ev.data ?? ev.body ?? '').slice(0, 120);
+          main.append(kind, summary);
+          row.appendChild(main);
+          body.appendChild(row);
+        }
+      }).catch(() => {
+        placeholder.textContent = 'Could not reach server for traces.';
+      });
     }
 
     // ---------------- Command Center: Memory tab ----------------
