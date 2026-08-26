@@ -525,6 +525,12 @@
     #agent-create-error { display: none; margin-top: 12px; padding: 10px 12px; border-radius: 8px;
                           background: #fef2f2; border: 1px solid #fecaca; color: var(--red);
                           font-size: 12.5px; line-height: 1.5; }
+    /* import hire — review notes are prose, not errors; problems go here too
+       but in the red error block, so a clean import never looks like one */
+    #aa-import-note { display: none; margin-top: 12px; padding: 10px 12px; border-radius: 8px;
+                      background: #f0f4ff; border: 1px solid #d8def8; color: #3b4b8c;
+                      font-size: 12.5px; line-height: 1.55; }
+    #aa-import-note ul { margin: 6px 0 0 16px; }
 
     /* inspector, floated over the office */
     .inspector {
@@ -854,7 +860,9 @@
   <div class="modal">
     <h2>Add an agent</h2>
     <div class="sub">The agent is registered on the machine you pick, runs that machine's CLI, and works in
-      the project's folder there. The machine has the final say — it refuses anything its owner hasn't allowed.</div>
+      the project's folder there. The machine has the final say — it refuses anything its owner hasn't allowed.
+      Have a hire manifest? <b>Import hire…</b> fills this dialog with it for review — nothing is created
+      until you press Create agent.</div>
     <div class="wiz">
       <!-- Step rail. Mirrors the mockup: the four things you decide about an
            agent, in the order you decide them. -->
@@ -988,10 +996,13 @@
       </div>
     </div>
     <div id="agent-create-error"></div>
+    <div id="aa-import-note"></div>
     <div class="dialog-actions">
+      <button class="btn-ghost" id="aa-import" style="margin-right:auto">Import hire…</button>
       <button class="btn-ghost" id="aa-cancel">Cancel</button>
       <button class="btn-primary" id="aa-submit">Create agent</button>
     </div>
+    <input type="file" id="aa-import-file" accept=".json,application/json" style="display:none">
   </div>
 </div>
 
@@ -2723,6 +2734,7 @@
       aaIsolationChanged();
       aaShowStep('identity');   // always reopen at step 1
       aaPopulateProviders();
+      aaImportNote('');         // a fresh dialog carries no previous import's notes
       aaModal.classList.add('open');
       setTimeout(() => document.getElementById('aa-name').focus(), 50);
     }
@@ -2788,6 +2800,185 @@
     document.getElementById('open-add-agent').addEventListener('click', aaOpen);
     window.openAddAgent = aaOpen; // the sidebar "+" calls this
     document.getElementById('aa-cancel').addEventListener('click', () => aaModal.classList.remove('open'));
+
+    // ---------------- import hire ----------------
+    //
+    // A manifest is UNTRUSTED input that happens to arrive as a file: it is
+    // only ever a prefilled DRAFT of this dialog. Every field lands where a
+    // human can change it, and the only path to a real agent is the same
+    // Create button as always — import itself never talks to the server.
+    // COMMAND-CENTER.md wants this validated with Zod in packages/protocol;
+    // that file is another stream's, so the same checks live here for now.
+    const AA_MANIFEST_STRINGS = ['name', 'machine', 'machineId', 'project', 'projectId',
+      'character', 'color', 'folder', 'provider', 'model', 'cwd', 'description', 'goal'];
+    const AA_MANIFEST_LISTS = ['capabilities', 'allowTools', 'denyPaths'];
+
+    function aaValidateManifest(raw) {
+      const problems = [];
+      let obj;
+      try {
+        obj = JSON.parse(raw);
+      } catch (e) {
+        return { problems: [`This file is not valid JSON — the parser said: ${e.message}`] };
+      }
+      if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
+        return { problems: ['The file parses, but a hire manifest is a JSON object with fields like "name", "role" and "machine" — this is ' + (Array.isArray(obj) ? 'an array' : typeof obj) + '.'] };
+      }
+      const values = {};
+      for (const k of AA_MANIFEST_STRINGS) {
+        if (obj[k] === undefined || obj[k] === null) continue;
+        if (typeof obj[k] !== 'string') { problems.push(`"${k}" should be text, but it is ${typeof obj[k]} (${JSON.stringify(obj[k])}).`); continue; }
+        values[k] = obj[k];
+      }
+      for (const k of AA_MANIFEST_LISTS) {
+        if (obj[k] === undefined || obj[k] === null) continue;
+        if (Array.isArray(obj[k]) && obj[k].every((x) => typeof x === 'string')) { values[k] = obj[k]; continue; }
+        // a hand-written manifest plausibly says "a, b" — take it, don't refuse it
+        if (typeof obj[k] === 'string') { values[k] = obj[k].split(',').map((x) => x.trim()).filter(Boolean); continue; }
+        problems.push(`"${k}" should be a list of strings, but it is ${Array.isArray(obj[k]) ? 'a list containing non-strings' : typeof obj[k]}.`);
+      }
+      if (obj.role !== undefined && obj.role !== null) {
+        if (['developer', 'research', 'qa', 'review', 'docs', 'planner'].includes(obj.role)) values.role = obj.role;
+        else problems.push(`"role" is "${obj.role}" — expected one of developer, research, qa, review, docs, planner.`);
+      }
+      if (obj.isolation !== undefined && obj.isolation !== null) {
+        if (['shared', 'worktree', 'copy'].includes(obj.isolation)) values.isolation = obj.isolation;
+        else problems.push(`"isolation" is "${obj.isolation}" — expected one of shared, worktree, copy.`);
+      }
+      if (obj.bypassPermissions !== undefined && obj.bypassPermissions !== null) {
+        if (typeof obj.bypassPermissions === 'boolean') values.bypassPermissions = obj.bypassPermissions;
+        else problems.push(`"bypassPermissions" should be true or false, but it is ${JSON.stringify(obj.bypassPermissions)}.`);
+      }
+      const known = new Set([...AA_MANIFEST_STRINGS, ...AA_MANIFEST_LISTS, 'role', 'isolation', 'bypassPermissions']);
+      const ignored = Object.keys(obj).filter((k) => !known.has(k));
+      return { values, problems, ignored };
+    }
+
+    function aaImportNote(html) {
+      const el = document.getElementById('aa-import-note');
+      el.innerHTML = html;   // built from literals + escaped values below, never raw manifest text
+      el.style.display = html ? 'block' : 'none';
+    }
+    function esc(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    async function aaImportFile() {
+      // The input is a persistent hidden element: clicking it opens the
+      // picker, and its change event carries the chosen file.
+      document.getElementById('aa-import-file').click();
+    }
+    document.getElementById('aa-import').addEventListener('click', aaImportFile);
+    document.getElementById('aa-import-file').addEventListener('change', async (ev) => {
+      const input = ev.target;
+      const file = input.files?.[0];
+      input.value = ''; // selecting the same file twice must still fire change
+      if (!file) return;
+        let raw;
+        try { raw = await file.text(); }
+        catch (e) { aaImportNote('Could not read the file: ' + esc(e.message)); return; }
+
+        const { values, problems, ignored } = aaValidateManifest(raw);
+        const errEl = document.getElementById('agent-create-error');
+        if (problems.length) {
+          // A rejected import must not touch the form — the person may have
+          // half-filled it by hand before trying to import.
+          errEl.innerHTML = '<b>Import failed — nothing was changed.</b><ul>' +
+            problems.map((p) => '<li>' + esc(p) + '</li>').join('') + '</ul>';
+          errEl.style.display = 'block';
+          aaImportNote('');
+          return;
+        }
+        errEl.style.display = 'none';
+
+        const notes = [];
+        const room = activeRoom();
+        const machines = room?.machines ?? [];
+
+        // Identity
+        if (values.name !== undefined) document.getElementById('aa-name').value = values.name;
+        if (values.role !== undefined) document.getElementById('aa-role').value = values.role;
+        if (values.character !== undefined) {
+          if (CHAR_NAMES.includes(values.character)) { aaCharacter = values.character; }
+          else { notes.push(`character "${esc(values.character)}" is not one this office can draw — pick a sprite`); }
+        }
+        if (values.color !== undefined) {
+          const c = AGENT_COLORS.find((x) => x.toLowerCase() === values.color.toLowerCase());
+          if (c) { aaColor = c; }
+          else { notes.push(`colour ${esc(values.color)} is not in this office's palette — pick the closest`); }
+        }
+        aaBuildIdentityPickers();
+
+        // Workspace
+        if (values.folder !== undefined) document.getElementById('aa-folder').value = values.folder;
+        if (values.isolation !== undefined) {
+          document.getElementById('aa-isolation').value = values.isolation;
+          aaIsolationChanged();
+        }
+
+        // Machine + project. A manifest from another context can name a
+        // machine or project that isn't here — that is a review note, not a
+        // refusal: the human picks one, nothing else about the import changes.
+        const mSel = document.getElementById('aa-machine');
+        const machineMatch = machines.find((m) => m.id === values.machineId) ??
+          machines.find((m) => m.name === values.machine) ?? null;
+        if (machineMatch) {
+          mSel.value = machineMatch.id;
+          aaPopulateProviders();
+        } else if (values.machine || values.machineId) {
+          notes.push(`machine ${esc(values.machine ?? values.machineId)} is not in this room right now — pick one`);
+        }
+        const pSel = document.getElementById('aa-project');
+        const projectMatch = (latestView?.rooms ?? []).find((r) => r.id === values.projectId) ??
+          (latestView?.rooms ?? []).find((r) => r.name === values.project) ?? null;
+        if (projectMatch) pSel.value = projectMatch.id;
+        else if (values.project || values.projectId) {
+          notes.push(`project ${esc(values.project ?? values.projectId)} is not here — pick one`);
+        }
+
+        // Engine. The provider list belongs to the machine, so what the
+        // manifest asks for is only a suggestion — the select offers what is
+        // really installed, and anything else becomes a note.
+        if (values.provider !== undefined && !mSel.disabled) {
+          const pSel2 = document.getElementById('aa-provider');
+          const has = [...pSel2.options].some((o) => o.value === values.provider && !o.disabled);
+          if (has) {
+            pSel2.value = values.provider;
+            aaProviderChanged();
+          } else {
+            notes.push(`provider ${esc(values.provider)} is not available on this machine — pick one`);
+          }
+        }
+        if (values.model !== undefined) {
+          const modelSel = document.getElementById('aa-model');
+          if ([...modelSel.options].some((o) => o.value === values.model)) {
+            modelSel.value = values.model;
+            aaRenderCommand();
+          } else if (values.model) {
+            notes.push(`model ${esc(values.model)} is not offered here — pick one`);
+          }
+        }
+        if (values.bypassPermissions !== undefined) {
+          document.getElementById('aa-bypass').checked = values.bypassPermissions;
+          document.getElementById('aa-bypass').dispatchEvent(new Event('change'));
+        }
+
+        // Advanced + capabilities + briefing
+        if (values.capabilities !== undefined) document.getElementById('aa-caps').value = values.capabilities.join(', ');
+        if (values.cwd !== undefined) document.getElementById('aa-cwd').value = values.cwd;
+        if (values.allowTools !== undefined) document.getElementById('aa-allow').value = values.allowTools.join(', ');
+        if (values.denyPaths !== undefined) document.getElementById('aa-deny').value = values.denyPaths.join(', ');
+        if (values.description !== undefined) document.getElementById('aa-description').value = values.description;
+        if (values.goal !== undefined) document.getElementById('aa-goal').value = values.goal;
+
+        if (ignored.length) notes.push(`ignored field${ignored.length > 1 ? 's' : ''} this version doesn't know: ${ignored.map(esc).join(', ')}`);
+        aaShowStep('identity');
+        aaImportNote(
+          `<b>Imported ${esc(file.name)} — review every field.</b> Nothing is created until you press Create agent.` +
+          (notes.length ? '<ul>' + notes.map((n) => '<li>' + n + '</li>').join('') + '</ul>' : ''));
+    });
     document.getElementById('aa-machine').addEventListener('change', aaPopulateProviders);
     document.getElementById('aa-provider').addEventListener('change', aaProviderChanged);
     document.getElementById('aa-submit').addEventListener('click', aaSubmit);
