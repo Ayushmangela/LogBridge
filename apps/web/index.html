@@ -1976,6 +1976,7 @@
         { id: 'steer', label: 'Steer', surface: 'employee' },
         { id: 'traces', label: 'Traces', surface: 'employee' },
         { id: 'monitor', label: 'Monitor', surface: 'employee' },
+        { id: 'git', label: 'Git', surface: 'employee' },
       ];
       if (!a) return all;
       if (isOrchestrator(a)) return all.filter((t) => t.surface === 'floor' || t.surface === 'both');
@@ -2061,6 +2062,7 @@
       else if (ccTab === 'steer') ccRenderSteer(body, a);
       else if (ccTab === 'traces') ccRenderTraces(body, a);
       else if (ccTab === 'monitor') ccRenderMonitor(body, a);
+      else if (ccTab === 'git') ccRenderGit(body, a);
       else ccRenderActivity(body, a);
     }
 
@@ -2502,6 +2504,73 @@
       eRow.append(eSel, eBtn);
       eng.append(eLabel, eNote, eRow, eErr);
       body.appendChild(eng);
+    }
+
+    function ccRenderGit(body, a) {
+      body.innerHTML = '';
+      const room = activeRoom();
+      const machine = room?.machines?.find((m) => m.id === a.machineId);
+      const isOffline = !machine?.online;
+      const note = document.createElement('div');
+      note.className = 'cmd-note';
+      note.textContent = 'Branch, ahead/behind and recent commits for this agent’s workspace — honest about offline and shared.';
+      body.appendChild(note);
+
+      if (isOffline) {
+        body.innerHTML += '<div class="empty-note">Unknown — machine offline. The agent is unreachable, so git state is not shown.</div>';
+        return;
+      }
+      if (a.isolation === 'shared') {
+        body.innerHTML += '<div class="empty-note">Shared-isolation — this agent has no branch of its own; it works directly in the folder.</div>';
+        return;
+      }
+      // Try the honest endpoint; Stream B Phase 6 will provide it
+      const ph = document.createElement('div');
+      ph.className = 'empty-note';
+      ph.textContent = 'Loading git…';
+      body.appendChild(ph);
+      fetch(`/api/agents/${a.id}/git`).then(async (res) => {
+        if (!res.ok) {
+          if (res.status === 404) ph.textContent = 'Git not available yet — server has no git endpoint.';
+          else ph.textContent = `Could not load git (${res.status}).`;
+          return;
+        }
+        const data = await res.json().catch(() => ({}));
+        // Expected shape: {branch, clean, ahead, behind, changedFiles:[], commits:[]}
+        // Degrade if any field missing
+        if (!data.branch && !data.commits) {
+          ph.textContent = 'No git data — not a git repo or no commits yet.';
+          return;
+        }
+        ph.remove();
+        const info = document.createElement('div');
+        info.style.cssText = 'display:grid;gap:8px;margin-top:12px';
+        const row = (k, v) => {
+          const el = document.createElement('div');
+          el.style.cssText = 'display:flex;justify-content:space-between;font-size:12.5px;padding:8px 10px;background:var(--surface-2);border:1px solid var(--border-soft);border-radius:8px';
+          const kk = document.createElement('span'); kk.style.cssText = 'color:var(--text-faint);font-weight:600'; kk.textContent = k;
+          const vv = document.createElement('span'); vv.style.cssText = 'font-weight:600;color:var(--text)'; vv.textContent = v;
+          el.append(kk, vv); return el;
+        };
+        info.append(row('Branch', data.branch ?? 'unknown'));
+        info.append(row('Status', data.clean === true ? 'clean' : data.clean === false ? 'dirty' : 'unknown'));
+        if (Number.isFinite(data.ahead) || Number.isFinite(data.behind)) {
+          info.append(row('Ahead/behind', `${data.ahead ?? '?'} / ${data.behind ?? '?'}`));
+        }
+        if (Array.isArray(data.changedFiles) && data.changedFiles.length) {
+          const cf = document.createElement('div');
+          cf.style.cssText = 'font-size:12px;padding:8px 10px;background:var(--surface-2);border:1px solid var(--border-soft);border-radius:8px';
+          cf.innerHTML = '<div style="font-weight:600;color:var(--text-faint);margin-bottom:4px">Changed files</div>' + data.changedFiles.map((f) => `<div style="font-family:monospace;font-size:11.5px">${f}</div>`).join('');
+          info.append(cf);
+        }
+        if (Array.isArray(data.commits) && data.commits.length) {
+          const cl = document.createElement('div');
+          cl.style.cssText = 'font-size:12px;padding:8px 10px;background:var(--surface-2);border:1px solid var(--border-soft);border-radius:8px';
+          cl.innerHTML = '<div style="font-weight:600;color:var(--text-faint);margin-bottom:4px">Recent commits</div>' + data.commits.slice(0, 5).map((c) => `<div style="margin-bottom:4px"><span style="font-family:monospace;font-size:11px;color:var(--text-faint)">${(c.sha ?? '').slice(0, 7)}</span> ${c.message ?? ''}</div>`).join('');
+          info.append(cl);
+        }
+        body.appendChild(info);
+      }).catch(() => { ph.textContent = 'Could not reach server for git.'; });
     }
 
     // ---------------- Command Center: Memory tab ----------------
