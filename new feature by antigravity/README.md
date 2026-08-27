@@ -19,6 +19,8 @@ LogBridge has been upgraded by **Antigravity** with a next-generation autonomous
 | **9. Project Workspaces & Commander Provisioning** | Dedicated Project Launcher screen, strict project scoping, and auto-spawning of single Central Commander. | [PROJECT_WORKSPACES.md](./PROJECT_WORKSPACES.md) |
 | **10. Authentication & Scoped Office Navigation** | Signup/Login gateway, post-login workspace launcher, and contextual sidebar pruning inside project offices. | [AUTHENTICATION_AND_PROJECT_SCOPING.md](./AUTHENTICATION_AND_PROJECT_SCOPING.md) |
 | **11. Spatial Private Room Chat & Team Membership** | Gather.town style spatial talk in cabins & meeting room with avatar speech bubbles, audio cues, and automatic project enrollment. | [SPATIAL_ROOM_CHAT.md](./SPATIAL_ROOM_CHAT.md) |
+| **12. Core Agent-Related Task & Execution System** | Direct dispatch modal, live steering (`steer`), lifecycle pause/resume/halt controls, structured trace waterfall timeline, and Central Commander hierarchical delegation. | [AGENT_TASK_SYSTEM.md](./AGENT_TASK_SYSTEM.md) |
+| **13. Modern Dark Glassmorphic UI/UX Overhaul** | Unified floating command island, sleek vertical zoom dock, glowing status halos, dark developer-tool design system, and segmented Command Center tabs. | [UI_UX_OVERHAUL.md](./UI_UX_OVERHAUL.md) |
 
 ---
 
