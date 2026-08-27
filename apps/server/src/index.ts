@@ -868,6 +868,29 @@ export async function buildServer(
       writeFileSync(agentsMdPath, directive, "utf8");
     } catch {}
 
+    // 3. Initialize Commander's private memory and deliver orientation message to inbox
+    try {
+      const memoryContent = `# Central Operations Commander Memory: ${name}\n\n` +
+        `- [${new Date().toISOString()}] Commissioned as Central Operations Commander for "${name}".\n` +
+        `- Project Directory: ${folder}\n` +
+        `- Standing Protocol: Analyze objectives, draft architecture on board.md, log tasks on tasks.json, recruit/delegate to subordinates.\n`;
+      hive.setAgentMemory(commanderId, memoryContent);
+
+      hive.postMessage({
+        from: "operator",
+        to: commanderId,
+        act: "inform",
+        subject: `Welcome, Commander: Project "${name}" initialized`,
+        body: `Welcome, Commander. You have been appointed Central Operations Commander for project "${name}". Your workspace is at ${folder}.\n\n` +
+          `HIVE PROTOCOL:\n` +
+          `1. Maintain situational awareness of the project.\n` +
+          `2. Formulate master architecture on ~/workspace/hive/board.md.\n` +
+          `3. Track deliverables on ~/workspace/hive/tasks.json.\n` +
+          `4. Delegate missions to specialized subordinate agents.\n` +
+          `Stand ready for operator directives.`
+      }, "operator");
+    } catch {}
+
     broadcastView();
 
     return {

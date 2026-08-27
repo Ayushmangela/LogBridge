@@ -42,6 +42,14 @@ describe("Project Management & Single Commander Architecture", () => {
     expect(agents[0].name).toBe("nike-commander");
     expect(agents[0].role).toBe("planner");
 
+    // Verify Commander received orientation message in Hive mailbox and has memory initialized
+    const messages = server.hive.getAgentMessages(body2.commander.id);
+    expect(messages.inbox.length).toBe(1);
+    expect(messages.inbox[0].from).toBe("operator");
+    expect(messages.inbox[0].subject).toContain("Welcome, Commander");
+    const memory = server.hive.getAgentMemory(body2.commander.id);
+    expect(memory).toContain("Central Operations Commander Memory");
+
     // 4. Verify project list returns the new project with commander
     const res3 = await server.app.inject({
       method: "GET",
