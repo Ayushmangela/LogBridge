@@ -49,12 +49,16 @@ export async function buildServer(
     ? join(dirname(fileURLToPath(import.meta.url)), "..", ".test-hive-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7))
     : process.env.HIVE_HOME || join(process.env.HOME || "", "workspace", "hive");
 
+  let broadcastViewRef: (() => void) | null = null;
   const hive = new HiveManager(hiveHome, (ev) => {
     const payload = JSON.stringify({ type: "hive:event", event: ev });
     for (const ws of browserSockets) {
       if (ws.readyState === ws.OPEN) {
         ws.send(payload);
       }
+    }
+    if (ev.kind === "meeting" || ev.kind === "message" || ev.kind === "task") {
+      try { broadcastViewRef?.(); } catch {}
     }
   });
 
@@ -100,7 +104,8 @@ export async function buildServer(
   });
   app.get("/", async (_req, reply) => reply.sendFile("index.html"));
 
-  const { broadcastView, broadcastChat } = registerGateway(app, db, positions, browserSockets, nodeSockets);
+  const { broadcastView, broadcastChat } = registerGateway(app, db, positions, browserSockets, nodeSockets, hive);
+  broadcastViewRef = broadcastView;
   registerNodeGateway(app, db, nodeSockets, broadcastView, {
     leaseSeconds: opts.leaseSeconds,
     sweepIntervalMs: opts.sweepIntervalMs,
@@ -690,7 +695,7 @@ export async function buildServer(
     app.log.info(`github mirror running for: ${repos.join(", ")}`);
   }
 
-  // ─── Hive Multi-Agent Endpoints (munder-difflin architecture) ──────
+  // ─── Hive Multi-Agent Endpoints (Antigravity architecture) ──────
   app.get("/api/hive/roster", async () => {
     return hive.getRegistry();
   });
@@ -742,6 +747,26 @@ export async function buildServer(
     if (typeof body?.content !== "string") return reply.code(400).send({ error: "content required" });
     hive.setAgentMemory(agentId, body.content);
     return { ok: true, content: body.content };
+  });
+
+  app.get("/api/hive/meetings", async () => {
+    return { meetings: hive.getActiveMeetings() };
+  });
+
+  app.post("/api/hive/meeting", async (req, reply) => {
+    const body = req.body as any;
+    if (!body?.agentA || !body?.agentB) {
+      return reply.code(400).send({ error: "agentA and agentB required" });
+    }
+    const action = body.action || "start";
+    if (action === "end") {
+      hive.endMeeting(body.agentA, body.agentB);
+    } else {
+      const durationMs = body.durationSeconds ? Number(body.durationSeconds) * 1000 : 45000;
+      hive.setMeeting(body.agentA, body.agentB, durationMs, body.reason || "Inter-Agent Collaboration");
+    }
+    broadcastView();
+    return { ok: true, meetings: hive.getActiveMeetings() };
   });
 
   return { app, db, nodeSockets, browserSockets, hive };

@@ -1,7 +1,11 @@
 import { describe, expect, test } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { WorkspaceView, type WorkspaceViewT } from "@logbridge/protocol";
 import { appendEvent, openDb, type Db } from "./db.js";
 import { Positions, buildView } from "./view.js";
+import { HiveManager } from "./hive.js";
 
 function seed(db: Db) {
   db.prepare("INSERT INTO projects (id, gh_repo, name, layout) VALUES (?, ?, ?, ?)").run(
@@ -188,5 +192,36 @@ describe("buildView", () => {
     const parsed = WorkspaceView.safeParse(buildView(db, positions, "usr_ayush"));
     if (!parsed.success) throw new Error(`view violated the contract: ${parsed.error}`);
     expect(parsed.success).toBe(true);
+  });
+
+  test("places agents in collaborating zone when hive meeting is active", () => {
+    const db = openDb(":memory:");
+    seed(db);
+
+    const tmpRoot = mkdtempSync(join(tmpdir(), "view-hive-test-"));
+    const hive = new HiveManager(tmpRoot);
+
+    hive.registerAgent({ id: "agt_dev", name: "dev-api", role: "developer" });
+    hive.registerAgent({ id: "agt_qa", name: "qa-api", role: "qa" });
+
+    // Without meeting
+    const viewBefore = buildView(db, new Positions(), "usr_ayush", hive);
+    const qaBefore = viewBefore.rooms[0].agents.find((a) => a.id === "agt_qa");
+    expect(qaBefore?.zone).toBe("working");
+
+    // Call meeting
+    hive.setMeeting("agt_dev", "agt_qa", 60000, "API Alignment");
+    const viewAfter = buildView(db, new Positions(), "usr_ayush", hive);
+    const devAfter = viewAfter.rooms[0].agents.find((a) => a.id === "agt_dev");
+    const qaAfter = viewAfter.rooms[0].agents.find((a) => a.id === "agt_qa");
+
+    expect(devAfter?.zone).toBe("collaborating");
+    expect(devAfter?.waitingOn).toBe("qa-api");
+    expect(qaAfter?.zone).toBe("collaborating");
+    expect(qaAfter?.waitingOn).toBe("dev-api");
+    expect(viewAfter.rooms[0].collaborationAvailable).toBe(true);
+
+    hive.stopRouter();
+    try { rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
   });
 });

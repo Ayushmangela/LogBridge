@@ -166,9 +166,11 @@ describe("HANDOFF-SERVER-2 Phase 1 — Agent lifecycle (edit, note, pause, retir
     const server = await buildServer({ dbPath: ":memory:" });
     seedTestProject(server.db);
 
-    // Seed a memory and past task for agt_1
     writeMemory(server.db, {
       scope: "project",
+      scopeId: null,
+      sourceTaskId: null,
+      agentId: "agt_1",
       projectId: "prj_test",
       agentName: "dev-api",
       kind: "fact",

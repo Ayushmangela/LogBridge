@@ -1,6 +1,7 @@
 import type { Db } from "./db.js";
 import { lastSeq, recentMemories, tasksForProject } from "./db.js";
 import { recentActivity } from "./activity.js";
+import type { HiveManager } from "./hive.js";
 import {
   zoneFor,
   type AgentViewT,
@@ -92,7 +93,18 @@ function recentPulls(db: Db, projectId: string, limit: number): PullViewT[] {
   }));
 }
 
-export function buildView(db: Db, positions: Positions, meId: string): WorkspaceViewT {
+function normalizeRole(role: string | null | undefined): "developer" | "research" | "qa" | "review" | "docs" | "planner" {
+  if (!role) return "developer";
+  const r = role.toLowerCase();
+  if (r.includes("plan") || r.includes("command") || r.includes("orchestrat") || r.includes("lead")) return "planner";
+  if (r.includes("research") || r.includes("specialist") || r.includes("brand") || r.includes("menu")) return "research";
+  if (r.includes("qa") || r.includes("test")) return "qa";
+  if (r.includes("review")) return "review";
+  if (r.includes("doc")) return "docs";
+  return "developer";
+}
+
+export function buildView(db: Db, positions: Positions, meId: string, hive?: HiveManager): WorkspaceViewT {
   const projects = db.prepare("SELECT * FROM projects ORDER BY id").all() as any[];
   const users = db.prepare("SELECT * FROM users ORDER BY rowid").all() as any[];
   const machines = db.prepare("SELECT * FROM machines").all() as any[];
@@ -199,7 +211,7 @@ export function buildView(db: Db, positions: Positions, meId: string): Workspace
         toolCalls: a.tool_calls ?? (taskRow ? 1 : 0),
         cwd: a.folder ?? null,
         model: a.model ?? null,
-        role: a.role,
+        role: normalizeRole(a.role),
         status: a.status,
         zone: "idle",
         slot: 0,
@@ -223,11 +235,20 @@ export function buildView(db: Db, positions: Positions, meId: string): Workspace
     // zone + stable slots: sort by id within each zone (contract invariant #3)
     const byZone = new Map<string, AgentViewT[]>();
     for (const av of views) {
-      av.zone = zoneFor({
-        status: av.status,
-        waitingOn: av.waitingOn,
-        hasLiveDelegation: false,
-      });
+      const isCollab = hive ? hive.isAgentCollaborating(av.id) : false;
+      if (isCollab) {
+        av.zone = "collaborating";
+        const partnerName = hive?.getCollaborationPartner(av.id);
+        if (partnerName) {
+          av.waitingOn = partnerName;
+        }
+      } else {
+        av.zone = zoneFor({
+          status: av.status,
+          waitingOn: av.waitingOn,
+          hasLiveDelegation: false,
+        });
+      }
       if (av.zone === "needs_human" && av.zoneAnchor === null && av.waitingOn?.startsWith("human: ")) {
         const waitingName = av.waitingOn.slice("human: ".length);
         const owner = users.find((u) => u.name === waitingName);
@@ -289,7 +310,8 @@ export function buildView(db: Db, positions: Positions, meId: string): Workspace
       // review and consent are all inert below two — surfacing them would be
       // furniture for something you can't do.
       collaborationAvailable:
-        new Set(roomMachines.filter((m) => m.online).map((m) => m.ownerId)).size >= 2,
+        new Set(roomMachines.filter((m) => m.online).map((m) => m.ownerId)).size >= 2 ||
+        (hive ? hive.hasAnyCollaboration() : false),
       // Only project-scoped memories reach the browser: an agent's private
       // working notes are for that agent's own recall, not a team display.
       memories: recentMemories(db, p.id, 30).filter((m) => m.scope === "project"),

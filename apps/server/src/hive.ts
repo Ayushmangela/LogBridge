@@ -68,11 +68,18 @@ export interface HiveRegistry {
 
 export interface HiveEvent {
   ts: string;
-  kind: "spawn" | "message" | "routed" | "task" | "board" | "memory";
+  kind: "spawn" | "message" | "routed" | "task" | "board" | "memory" | "meeting";
   agentId?: string;
   from?: string;
   to?: string;
   data?: any;
+}
+
+export interface ActiveMeeting {
+  partnerId: string;
+  partnerName: string;
+  expiresAt: number;
+  reason: string;
 }
 
 const PROTOCOL_MD = `# Hive Protocol
@@ -126,11 +133,126 @@ export class HiveManager {
   private _root: string;
   private routerTimer: NodeJS.Timeout | null = null;
   private onEventCallback?: (event: HiveEvent) => void;
+  private activeMeetings = new Map<string, ActiveMeeting>();
 
   constructor(rootDir: string, onEvent?: (event: HiveEvent) => void) {
     this._root = rootDir;
     this.onEventCallback = onEvent;
     this.initHive();
+  }
+
+  setMeeting(agentA: string, agentB: string, durationMs = 45000, reason = "Conference"): void {
+    const reg = this.getRegistry();
+    const nameA = reg.agents[agentA]?.name || agentA;
+    const nameB = reg.agents[agentB]?.name || agentB;
+    const expiresAt = Date.now() + durationMs;
+
+    this.activeMeetings.set(agentA, {
+      partnerId: agentB,
+      partnerName: nameB,
+      expiresAt,
+      reason,
+    });
+    this.activeMeetings.set(agentB, {
+      partnerId: agentA,
+      partnerName: nameA,
+      expiresAt,
+      reason,
+    });
+
+    this.emitEvent({
+      ts: new Date().toISOString(),
+      kind: "meeting",
+      from: agentA,
+      to: agentB,
+      data: { action: "start", reason, durationMs },
+    });
+  }
+
+  endMeeting(agentA: string, agentB?: string): void {
+    const meetingA = this.activeMeetings.get(agentA);
+    const partner = agentB || meetingA?.partnerId;
+    this.activeMeetings.delete(agentA);
+    if (partner) {
+      this.activeMeetings.delete(partner);
+    }
+    this.emitEvent({
+      ts: new Date().toISOString(),
+      kind: "meeting",
+      from: agentA,
+      to: partner,
+      data: { action: "end" },
+    });
+  }
+
+  cleanExpiredMeetings(): boolean {
+    const now = Date.now();
+    let changed = false;
+    for (const [id, m] of this.activeMeetings.entries()) {
+      if (m.expiresAt <= now) {
+        this.activeMeetings.delete(id);
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.emitEvent({
+        ts: new Date().toISOString(),
+        kind: "meeting",
+        data: { action: "expired" },
+      });
+    }
+    return changed;
+  }
+
+  isAgentCollaborating(agentId: string): boolean {
+    const m = this.activeMeetings.get(agentId);
+    if (!m) return false;
+    if (m.expiresAt <= Date.now()) {
+      this.activeMeetings.delete(agentId);
+      return false;
+    }
+    return true;
+  }
+
+  getCollaborationPartner(agentId: string): string | null {
+    if (!this.isAgentCollaborating(agentId)) return null;
+    const m = this.activeMeetings.get(agentId);
+    return m ? m.partnerName : null;
+  }
+
+  getCollaborationPartnerId(agentId: string): string | null {
+    if (!this.isAgentCollaborating(agentId)) return null;
+    const m = this.activeMeetings.get(agentId);
+    return m ? m.partnerId : null;
+  }
+
+  hasAnyCollaboration(): boolean {
+    const now = Date.now();
+    for (const [_, m] of this.activeMeetings.entries()) {
+      if (m.expiresAt > now) return true;
+    }
+    return false;
+  }
+
+  getActiveMeetings(): Array<{ agentA: string; agentB: string; partnerName: string; remainingMs: number; reason: string }> {
+    const now = Date.now();
+    const result: Array<{ agentA: string; agentB: string; partnerName: string; remainingMs: number; reason: string }> = [];
+    const seen = new Set<string>();
+
+    for (const [id, m] of this.activeMeetings.entries()) {
+      if (m.expiresAt <= now) continue;
+      const pairKey = [id, m.partnerId].sort().join("<->");
+      if (seen.has(pairKey)) continue;
+      seen.add(pairKey);
+      result.push({
+        agentA: id,
+        agentB: m.partnerId,
+        partnerName: m.partnerName,
+        remainingMs: m.expiresAt - now,
+        reason: m.reason,
+      });
+    }
+    return result;
   }
 
   root(): string {
@@ -405,6 +527,21 @@ export class HiveManager {
       }
     }
 
+    const isInterAgent = msg.from && msg.to && msg.from !== "user" && msg.to !== "broadcast";
+    if (isInterAgent) {
+      for (const targetId of targetIds) {
+        if (targetId !== msg.from) {
+          if (["request", "query", "propose"].includes(msg.act)) {
+            this.setMeeting(msg.from, targetId, 45000, msg.subject || "Collaboration");
+          } else if (["done", "agree"].includes(msg.act)) {
+            this.setMeeting(msg.from, targetId, 12000, msg.subject || "Review wrap-up");
+          } else if (msg.act === "inform") {
+            this.setMeeting(msg.from, targetId, 25000, msg.subject || "Status sync");
+          }
+        }
+      }
+    }
+
     this.emitEvent({
       ts: new Date().toISOString(),
       kind: "message",
@@ -415,6 +552,7 @@ export class HiveManager {
   }
 
   routeOnce(): number {
+    this.cleanExpiredMeetings();
     const reg = this.getRegistry();
     let routedCount = 0;
 

@@ -132,5 +132,36 @@ describe("HiveManager", () => {
     expect(bobMessagesAfter.inbox[0].subject).toBe("Need User Profile API");
     expect(bobMessagesAfter.inbox[0].from).toBe("agt_a");
     expect(bobMessagesAfter.inbox[0].act).toBe("request");
+
+    // Both agents are now automatically in a visual meeting room collaboration!
+    expect(hive.isAgentCollaborating("agt_a")).toBe(true);
+    expect(hive.isAgentCollaborating("agt_b")).toBe(true);
+    expect(hive.getCollaborationPartner("agt_a")).toBe("Bob");
+    expect(hive.getCollaborationPartner("agt_b")).toBe("Alice");
+    expect(hive.hasAnyCollaboration()).toBe(true);
+  });
+
+  test("manages explicit visual meetings and expiration", () => {
+    hive.registerAgent({ id: "agt_1", name: "Commander", role: "Leader" });
+    hive.registerAgent({ id: "agt_2", name: "Designer", role: "UI" });
+
+    expect(hive.isAgentCollaborating("agt_1")).toBe(false);
+    expect(hive.hasAnyCollaboration()).toBe(false);
+
+    // Call meeting with 100ms duration
+    hive.setMeeting("agt_1", "agt_2", 100, "Design Review");
+    expect(hive.isAgentCollaborating("agt_1")).toBe(true);
+    expect(hive.isAgentCollaborating("agt_2")).toBe(true);
+    expect(hive.hasAnyCollaboration()).toBe(true);
+
+    const active = hive.getActiveMeetings();
+    expect(active.length).toBe(1);
+    expect(active[0].reason).toBe("Design Review");
+
+    // End meeting explicitly
+    hive.endMeeting("agt_1");
+    expect(hive.isAgentCollaborating("agt_1")).toBe(false);
+    expect(hive.isAgentCollaborating("agt_2")).toBe(false);
+    expect(hive.hasAnyCollaboration()).toBe(false);
   });
 });

@@ -8,6 +8,7 @@ import {
 import { acceptPlan, orchestrate, resolveDelegationConsent, sendTaskOffer, type NodeSockets } from "./nodeGateway.js";
 import { planPrompt } from "./plan.js";
 import { buildView, Positions } from "./view.js";
+import type { HiveManager } from "./hive.js";
 
 // `@agent-name the rest of the message` — see M4-KICKOFF.md. The "spec" this
 // produces is deliberately dumb: the literal text after the mention, no
@@ -33,11 +34,12 @@ export function registerGateway(
   db: Db,
   positions: Positions,
   browserSockets: Set<WebSocket>,
-  nodeSockets: NodeSockets
+  nodeSockets: NodeSockets,
+  hive?: HiveManager
 ): { broadcastView: () => void; broadcastChat: (chat: ChatMessageT) => void } {
   const broadcastView = () => {
     if (browserSockets.size === 0) return;
-    const msg = { type: "view" as const, view: buildView(db, positions, "you") };
+    const msg = { type: "view" as const, view: buildView(db, positions, "you", hive) };
     const parsed = ServerMessage.safeParse(msg);
     if (!parsed.success) {
       app.log.error({ err: parsed.error }, "view failed contract validation — not sent");
@@ -88,7 +90,7 @@ export function registerGateway(
     socket.send(
       JSON.stringify({
         type: "view",
-        view: buildView(db, positions, "you"),
+        view: buildView(db, positions, "you", hive),
       })
     );
 

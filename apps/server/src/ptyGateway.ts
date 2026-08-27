@@ -233,31 +233,33 @@ export function registerPtyGateway(app: FastifyInstance, db: Db, hive?: HiveMana
           };
           sessions.set(ptyId, session);
 
+          const currentSession = session;
+
           // If fallback to shell, write initial banner into scrollback
           if (!isCli) {
             const banner = formatBanner(title, ver, desc, cwd, accent);
-            session.scrollback += banner;
+            currentSession.scrollback += banner;
           }
 
           // If agent has prior outputs/events, replay them cleanly
           if (agentId) {
             const history = getAgentOutput(db, agentId, 100);
             if (history.output && history.output.length > 0) {
-              session.scrollback += `\r\n\x1b[2m─── agent history (${history.output.length} lines) ───\x1b[0m\r\n`;
+              currentSession.scrollback += `\r\n\x1b[2m─── agent history (${history.output.length} lines) ───\x1b[0m\r\n`;
               for (const line of history.output) {
-                session.scrollback += `${line}\r\n`;
+                currentSession.scrollback += `${line}\r\n`;
               }
-              session.scrollback += `\x1b[2m──────────────────────────────────────────\x1b[0m\r\n\r\n`;
+              currentSession.scrollback += `\x1b[2m──────────────────────────────────────────\x1b[0m\r\n\r\n`;
             }
           }
 
           proc.onData((data: string) => {
-            if (session.scrollback.length > 200_000) {
-              session.scrollback = session.scrollback.slice(-100_000);
+            if (currentSession.scrollback.length > 200_000) {
+              currentSession.scrollback = currentSession.scrollback.slice(-100_000);
             }
-            session.scrollback += data;
+            currentSession.scrollback += data;
             const payload = JSON.stringify({ type: "data", ptyId, data });
-            for (const client of session.clients) {
+            for (const client of currentSession.clients) {
               if (client.readyState === client.OPEN) {
                 client.send(payload);
               }
@@ -266,9 +268,9 @@ export function registerPtyGateway(app: FastifyInstance, db: Db, hive?: HiveMana
 
           proc.onExit(({ exitCode, signal }) => {
             const exitMsg = `\r\n\x1b[2m─ process exited (code ${exitCode}${signal ? `, signal ${signal}` : ""}) ─\x1b[0m\r\n`;
-            session.scrollback += exitMsg;
+            currentSession.scrollback += exitMsg;
             const payload = JSON.stringify({ type: "exit", ptyId, exitCode, signal });
-            for (const client of session.clients) {
+            for (const client of currentSession.clients) {
               if (client.readyState === client.OPEN) {
                 client.send(payload);
               }
