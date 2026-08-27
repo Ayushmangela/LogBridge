@@ -18,24 +18,29 @@
        Nothing lives on the right.
        =================================================================== */
     :root {
-      --bg:          #f4f6fb;
-      --surface:     #ffffff;
-      --surface-2:   #fafbfe;
-      --border:      #e7e9f2;
-      --border-soft: #eef0f7;
-      --text:        #171a2b;
-      --text-dim:    #6b7288;
-      --text-faint:  #9aa0b4;
-      --accent:      #5b5ef0;
-      --accent-soft: #eeeffe;
-      --green:       #22c55e;
+      --bg:          #080c14;
+      --surface:     #0f172a;
+      --surface-2:   #172033;
+      --surface-3:   #202d46;
+      --border:      rgba(255, 255, 255, 0.08);
+      --border-soft: rgba(255, 255, 255, 0.05);
+      --border-hover:rgba(255, 255, 255, 0.16);
+      --text:        #f8fafc;
+      --text-dim:    #94a3b8;
+      --text-faint:  #64748b;
+      --accent:      #6366f1;
+      --accent-soft: rgba(99, 102, 241, 0.14);
+      --accent-hover:rgba(99, 102, 241, 0.25);
+      --green:       #10b981;
+      --green-soft:  rgba(16, 185, 129, 0.15);
       --orange:      #f59e0b;
-      --blue:        #3b82f6;
-      --purple:      #8b5cf6;
-      --gray:        #b3b8c8;
+      --blue:        #38bdf8;
+      --purple:      #a855f7;
+      --gray:        #475569;
       --red:         #ef4444;
-      --shadow:      0 1px 2px rgba(23,26,43,.04), 0 4px 16px rgba(23,26,43,.05);
-      --sidebar-w:   264px;
+      --shadow:      0 4px 20px -2px rgba(0,0,0,0.5), 0 2px 6px -1px rgba(0,0,0,0.4);
+      --shadow-lg:   0 20px 48px -10px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.08);
+      --sidebar-w:   268px;
     }
     * { margin:0; padding:0; box-sizing:border-box; }
     body {
@@ -43,8 +48,9 @@
       font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
       -webkit-font-smoothing: antialiased;
     }
-    ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-thumb { background: #d9dde8; border-radius: 4px; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
     ::-webkit-scrollbar-track { background: transparent; }
 
     .app { position: fixed; inset: 0; display: flex; }
@@ -53,7 +59,8 @@
     .side {
       width: var(--sidebar-w); flex-shrink: 0; background: var(--surface);
       border-right: 1px solid var(--border); display: flex; flex-direction: column;
-      transition: width .2s cubic-bezier(.4,0,.2,1);
+      transition: width .22s cubic-bezier(.4,0,.2,1);
+      box-shadow: 2px 0 18px rgba(0,0,0,0.3); z-index: 100;
     }
     .side.collapsed { width: 74px; }
     .side.collapsed .hide-collapsed { display: none !important; }
@@ -62,31 +69,43 @@
     .app.no-sidebar .side { display: none !important; }
 
     .brand {
-      display: flex; align-items: center; gap: 11px; padding: 17px 18px;
+      display: flex; align-items: center; gap: 11px; padding: 16px 18px;
       border-bottom: 1px solid var(--border-soft); flex-shrink: 0;
     }
     .brand-mark {
       width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
-      background: var(--accent); color: #fff; font-weight: 800; font-size: 14px;
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      color: #fff; font-weight: 800; font-size: 14px;
       display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 2px 8px rgba(91,94,240,.3);
+      box-shadow: 0 0 20px -2px rgba(99,102,241,0.5);
     }
-    .brand-name { font-size: 16px; font-weight: 750; letter-spacing: -.3px; white-space: nowrap; }
+    .brand-name {
+      font-size: 16px; font-weight: 750; letter-spacing: -.3px; white-space: nowrap;
+      background: linear-gradient(180deg, #ffffff 0%, #cbd5e1 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
 
-    .nav { padding: 11px 12px; display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+    .nav { padding: 11px 12px; display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; }
     .nav-item {
-      display: flex; align-items: center; gap: 12px; padding: 10px 13px;
+      display: flex; align-items: center; gap: 12px; padding: 9px 13px;
       border-radius: 9px; border: none; background: none; cursor: pointer;
-      font-family: inherit; font-size: 14px; font-weight: 550; color: var(--text-dim);
-      transition: all .14s; width: 100%; text-align: left; white-space: nowrap;
+      font-family: inherit; font-size: 13.5px; font-weight: 550; color: var(--text-dim);
+      transition: all .16s ease; width: 100%; text-align: left; white-space: nowrap;
+      position: relative;
     }
-    .nav-item svg { width: 19px; height: 19px; flex-shrink: 0; stroke: currentColor; fill: none; stroke-width: 1.8; }
-    .nav-item:hover { background: var(--surface-2); color: var(--text); }
-    .nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+    .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; stroke: currentColor; fill: none; stroke-width: 1.8; }
+    .nav-item:hover { background: rgba(255, 255, 255, 0.05); color: var(--text); }
+    .nav-item.active { background: var(--accent-soft); color: #c7d2fe; font-weight: 650; }
+    .nav-item.active::before {
+      content: ''; position: absolute; left: 0; top: 6px; bottom: 6px; width: 3px;
+      background: var(--accent); border-radius: 0 3px 3px 0;
+      box-shadow: 0 0 10px var(--accent);
+    }
     .nav-item .count {
       margin-left: auto; background: var(--accent); color: #fff; font-size: 10px;
       font-weight: 800; min-width: 18px; height: 18px; border-radius: 9px;
       display: none; align-items: center; justify-content: center; padding: 0 5px;
+      box-shadow: 0 0 8px rgba(99,102,241,0.5);
     }
     .nav-item .count.show { display: flex; }
 
@@ -95,41 +114,43 @@
       display: flex; align-items: center; justify-content: space-between;
       padding: 15px 18px 8px;
     }
-    .roster-title { font-size: 11px; font-weight: 750; letter-spacing: .7px; color: var(--text-faint); text-transform: uppercase; }
+    .roster-title { font-size: 10.5px; font-weight: 750; letter-spacing: .7px; color: var(--text-faint); text-transform: uppercase; }
     .roster-add {
       width: 20px; height: 20px; border: none; background: none; cursor: pointer;
       color: var(--text-faint); font-size: 17px; line-height: 1; border-radius: 5px;
+      transition: all .15s;
     }
-    .roster-add:hover { background: var(--surface-2); color: var(--accent); }
+    .roster-add:hover { background: rgba(255,255,255,0.08); color: var(--accent); }
     .roster-list { padding: 0 10px 6px; }
     .roster-row {
       display: flex; align-items: center; gap: 11px; padding: 7px 8px;
       border-radius: 9px; cursor: pointer; transition: background .14s;
     }
-    .roster-row:hover { background: var(--surface-2); }
+    .roster-row:hover { background: rgba(255, 255, 255, 0.05); }
     .av {
       width: 32px; height: 32px; border-radius: 9px; flex-shrink: 0;
       display: flex; align-items: center; justify-content: center;
       font-size: 13px; font-weight: 700; color: #fff; letter-spacing: -.3px;
     }
-    .av.bot { background: #eef1f8; font-size: 15px; }
+    .av.bot { background: rgba(255,255,255,0.08); font-size: 15px; border: 1px solid var(--border); }
     .r-main { flex: 1; min-width: 0; }
     .r-name { font-size: 13.5px; font-weight: 650; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .r-sub  { font-size: 11.5px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
     .r-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--gray); }
-    .r-dot.working, .r-dot.online { background: var(--green); }
-    .r-dot.needs_input { background: var(--orange); }
-    .r-dot.reviewing   { background: var(--blue); }
-    .r-dot.blocked     { background: var(--purple); }
-    .r-dot.failed      { background: var(--red); }
+    .r-dot.working, .r-dot.online { background: var(--green); box-shadow: 0 0 6px rgba(16,185,129,0.7); }
+    .r-dot.needs_input { background: var(--orange); box-shadow: 0 0 6px rgba(245,158,11,0.7); }
+    .r-dot.reviewing   { background: var(--blue); box-shadow: 0 0 6px rgba(56,189,248,0.7); }
+    .r-dot.blocked     { background: var(--purple); box-shadow: 0 0 6px rgba(168,85,247,0.7); }
+    .r-dot.failed      { background: var(--red); box-shadow: 0 0 6px rgba(239,68,68,0.7); }
 
     .side-foot { border-top: 1px solid var(--border-soft); padding: 10px 12px; flex-shrink: 0; }
     .collapse-btn {
       display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 13px;
       border: none; background: none; border-radius: 9px; cursor: pointer;
       font-family: inherit; font-size: 13px; font-weight: 550; color: var(--text-dim);
+      transition: background .15s;
     }
-    .collapse-btn:hover { background: var(--surface-2); color: var(--text); }
+    .collapse-btn:hover { background: rgba(255, 255, 255, 0.05); color: var(--text); }
     .collapse-btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; transition: transform .2s; }
     .side.collapsed .collapse-btn svg { transform: rotate(180deg); }
 
@@ -137,79 +158,82 @@
     .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 
     .topbar {
-      height: 62px; flex-shrink: 0; background: var(--surface);
+      height: 58px; flex-shrink: 0; background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
       border-bottom: 1px solid var(--border); display: flex; align-items: center;
-      gap: 14px; padding: 0 20px;
+      gap: 14px; padding: 0 20px; z-index: 90;
     }
     .ws-pick {
-      display: flex; align-items: center; gap: 9px; padding: 8px 14px;
-      border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
-      font-size: 13.5px; font-weight: 600; cursor: pointer; color: var(--text);
-      font-family: inherit;
+      display: flex; align-items: center; gap: 8px; padding: 7px 13px;
+      border: 1px solid var(--border); border-radius: 8px; background: rgba(255, 255, 255, 0.03);
+      font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text);
+      font-family: inherit; transition: all .15s ease;
     }
-    .ws-pick:hover { background: var(--surface-2); }
+    .ws-pick:hover { background: rgba(255, 255, 255, 0.07); border-color: var(--border-hover); }
     .top-right { margin-left: auto; display: flex; align-items: center; gap: 11px; }
     .online-pill {
-      display: flex; align-items: center; gap: 7px; padding: 7px 14px;
-      border: 1px solid var(--border); border-radius: 20px; font-size: 12.5px; font-weight: 600;
+      display: flex; align-items: center; gap: 7px; padding: 6px 13px;
+      border: 1px solid rgba(16, 185, 129, 0.25); background: rgba(16, 185, 129, 0.08);
+      border-radius: 20px; font-size: 12px; font-weight: 600; color: #34d399;
     }
-    .online-pill .d { width: 7px; height: 7px; border-radius: 50%; background: var(--gray); }
-    .online-pill .d.on { background: var(--green); }
+    .online-pill .d { width: 7px; height: 7px; border-radius: 50%; background: var(--gray); transition: background .2s; }
+    .online-pill .d.on { background: var(--green); box-shadow: 0 0 8px #10b981; }
     .me {
-      display: flex; align-items: center; gap: 9px; padding: 5px 9px 5px 5px;
-      border-radius: 10px; cursor: pointer;
+      display: flex; align-items: center; gap: 9px; padding: 5px 10px 5px 6px;
+      border-radius: 9px; cursor: pointer; transition: background .15s ease;
+      border: 1px solid transparent;
     }
-    .me:hover { background: var(--surface-2); }
-    .me-name { font-size: 13px; font-weight: 650; line-height: 1.25; }
+    .me:hover { background: rgba(255, 255, 255, 0.05); border-color: var(--border); }
+    .me-name { font-size: 13px; font-weight: 650; line-height: 1.25; color: var(--text); }
     .me-state { font-size: 11px; color: var(--green); font-weight: 550; }
 
     /* ---- content region: one view at a time ---- */
-    .content { flex: 1; min-height: 0; padding: 16px 18px 0; display: flex; flex-direction: column; }
+    .content { flex: 1; min-height: 0; padding: 14px 18px 0; display: flex; flex-direction: column; }
     .view { display: none; flex: 1; min-height: 0; flex-direction: column; }
     .view.active { display: flex; }
 
     /* the office card */
     .office-card {
       flex: 1; min-height: 0; position: relative; border-radius: 14px;
-      border: 1px solid var(--border); background: #cfd6e4; overflow: hidden;
-      box-shadow: var(--shadow);
+      border: 1px solid var(--border); background: #070a12; overflow: hidden;
+      box-shadow: var(--shadow-lg);
     }
     #canvas-container { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
     canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
-    .floor-tag {
-      position: absolute; top: 12px; left: 12px; z-index: 30;
-      background: var(--surface); border: 1px solid var(--border); border-radius: 9px;
-      padding: 7px 13px; font-size: 12.5px; font-weight: 650; box-shadow: var(--shadow);
-      display: flex; align-items: center; gap: 7px;
+
+    /* Floating Top Command Island */
+    .office-hud-top {
+      position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 50;
+      display: flex; align-items: center; gap: 11px; padding: 6px 16px;
+      background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 30px;
+      box-shadow: 0 10px 30px -5px rgba(0,0,0,0.6), 0 0 15px rgba(99,102,241,0.15);
+      color: var(--text); font-size: 12px; font-weight: 600;
+      animation: fadeInDown .22s cubic-bezier(.2,0,0,1);
     }
-    .zone-tag {
-      position: absolute; top: 12px; right: 12px; z-index: 30;
-      background: var(--surface); border: 1px solid var(--border); border-radius: 9px;
-      padding: 7px 13px; font-size: 12px; font-weight: 600; box-shadow: var(--shadow);
-      color: var(--text-dim);
+    .hud-chip { display: flex; align-items: center; gap: 6px; }
+    .hud-divider { width: 1px; height: 14px; background: rgba(255, 255, 255, 0.12); }
+    .hud-chip kbd {
+      background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 4px; padding: 1px 5px; font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; font-weight: 700; color: #cbd5e1;
     }
-    .zone-tag b { color: var(--accent); font-weight: 700; }
-    .zoom-controls {
-      position: absolute; right: 12px; bottom: 12px; z-index: 30;
-      display: flex; flex-direction: column; gap: 5px;
+    /* Floating Zoom Controls Dock */
+    .zoom-controls-dock {
+      position: absolute; right: 14px; bottom: 14px; z-index: 50;
+      display: flex; flex-direction: column; gap: 3px; padding: 3px;
+      background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px;
+      box-shadow: 0 10px 26px rgba(0,0,0,0.5);
     }
     .zoom-btn {
-      width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border);
-      background: var(--surface); color: var(--text-dim); cursor: pointer;
-      font-size: 15px; font-weight: 700; box-shadow: var(--shadow); font-family: inherit;
+      width: 32px; height: 32px; border-radius: 7px; border: none;
+      background: transparent; color: var(--text-dim); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; font-family: inherit;
+      transition: all .15s ease;
     }
-    .zoom-btn:hover { color: var(--accent); border-color: var(--accent); }
-    .move-hint {
-      position: absolute; left: 12px; bottom: 12px; z-index: 30;
-      background: var(--surface); border: 1px solid var(--border); border-radius: 20px;
-      padding: 6px 13px; font-size: 11px; color: var(--text-faint);
-      display: flex; align-items: center; gap: 6px; box-shadow: var(--shadow);
-    }
-    .move-hint kbd {
-      background: var(--surface-2); border: 1px solid var(--border); border-bottom-width: 2px;
-      border-radius: 4px; padding: 1px 5px; font-family: 'JetBrains Mono', monospace;
-      font-size: 10px; font-weight: 700; color: var(--text-dim);
-    }
+    .zoom-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
 
     /* ---- bottom strip ---- */
     .strip {
@@ -223,9 +247,9 @@
       display: flex; flex-direction: column;
     }
     .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 11px; }
-    .card-title { font-size: 13.5px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .card-title { font-size: 13.5px; font-weight: 700; display: flex; align-items: center; gap: 8px; color: var(--text); }
     .card-link { font-size: 12px; color: var(--accent); font-weight: 600; cursor: pointer; background: none; border: none; font-family: inherit; }
-    .card-link:hover { text-decoration: underline; }
+    .card-link:hover { text-decoration: underline; color: #818cf8; }
 
     .task-id { font-size: 12px; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', monospace; }
     /* ---- Command Center (one agent) ---- */
@@ -739,37 +763,48 @@
 
     /* inspector, floated over the office */
     .inspector {
-      position: absolute; left: 12px; bottom: 54px; z-index: 40; width: 290px;
-      background: var(--surface); border: 1px solid var(--border); border-radius: 13px;
-      padding: 15px; box-shadow: 0 8px 30px rgba(23,26,43,.13); display: none;
+      position: absolute; left: 14px; bottom: 54px; z-index: 40; width: 310px;
+      background: rgba(15, 23, 42, 0.94); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 14px;
+      padding: 16px; box-shadow: 0 12px 36px rgba(0,0,0,0.6); display: none;
+      color: var(--text);
     }
     .inspector.open { display: block; }
-    .inspector-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
-    .inspector-name { font-weight: 700; font-size: 14px; }
-    .inspector-close { background: none; border: none; color: var(--text-faint); font-size: 19px;
-                       cursor: pointer; line-height: 1; }
+    .inspector-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+    .inspector-name { font-weight: 750; font-size: 15px; color: var(--text); }
+    .inspector-close {
+      background: rgba(255, 255, 255, 0.08); border: none; color: var(--text-dim); font-size: 14px;
+      cursor: pointer; width: 24px; height: 24px; border-radius: 6px; display: flex;
+      align-items: center; justify-content: center; transition: all .15s;
+    }
+    .inspector-close:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
     .inspector-badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 10.5px; font-weight: 700; }
-    .badge-working { background: #e9f9ef; color: #15803d; }
-    .badge-idle    { background: #f1f3f8; color: var(--text-faint); }
-    .badge-blocked { background: #f3eeff; color: #6d28d9; }
-    .badge-needs   { background: #fef4e2; color: #b45309; }
+    .badge-working { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .badge-idle    { background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.25); }
+    .badge-blocked { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); }
+    .badge-needs   { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
     /* agent head popup (phase 3): glanceable card anchored above sprite */
     .agent-popup {
-      position: absolute; z-index: 45; width: 176px; max-width: 186px;
-      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-      padding: 9px 11px; box-shadow: 0 6px 20px rgba(23,26,43,.14);
+      position: absolute; z-index: 45; width: 186px; max-width: 196px;
+      background: rgba(15, 23, 42, 0.94); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px;
+      padding: 10px 12px; box-shadow: 0 10px 28px rgba(0,0,0,0.6);
       display: none; pointer-events: auto;
     }
     .agent-popup.open { display: block; }
-    .ap-name { font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .ap-status { font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--text-faint); margin-top: 2px; }
+    .ap-name { font-weight: 750; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ap-status { font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--accent); margin-top: 2px; }
     .ap-task { font-size: 11.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 5px; }
     .ap-note { font-size: 11px; color: var(--text-faint); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
-    .ap-summon-row { margin-top: 7px; display: flex; align-items: center; gap: 6px; }
-    .ap-summon-btn { font: inherit; font-size: 11.5px; font-weight: 650; padding: 5px 10px; border-radius: 7px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: #fff; }
-    .ap-summon-btn:hover { filter: brightness(1.07); }
-    .ap-summon-btn.dismiss { background: var(--surface); color: var(--text-dim); border-color: var(--border); }
-    .ap-summon-btn.dismiss:hover { border-color: var(--red); color: var(--red); }
+    .ap-summon-row { margin-top: 8px; display: flex; align-items: center; gap: 6px; }
+    .ap-summon-btn {
+      font: inherit; font-size: 11.5px; font-weight: 650; padding: 5px 11px; border-radius: 7px;
+      cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: #fff;
+      box-shadow: 0 2px 8px rgba(99,102,241,0.35); transition: all .14s ease;
+    }
+    .ap-summon-btn:hover { filter: brightness(1.1); box-shadow: 0 4px 12px rgba(99,102,241,0.5); }
+    .ap-summon-btn.dismiss { background: rgba(255,255,255,0.06); color: var(--text-dim); border-color: var(--border); box-shadow: none; }
+    .ap-summon-btn.dismiss:hover { border-color: var(--red); color: var(--red); background: rgba(239,68,68,0.1); }
     /* ---- Hive Tasks Kanban Board ---- */
     .kanban-wrapper { display: flex; flex-direction: column; height: 100%; min-height: 480px; gap: 12px; }
     .kanban-topbar { display: flex; justify-content: space-between; align-items: center; padding: 4px 2px; }
@@ -963,28 +998,48 @@
       <section class="view active" id="view-office">
         <div class="office-card">
           <div id="canvas-container"><canvas id="canvas"></canvas></div>
-          <div class="floor-tag">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg>
-            Floor 1
+          
+          <!-- Unified Floating Top Command Island -->
+          <div class="office-hud-top">
+            <div class="hud-chip">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg>
+              <span>Floor 1</span>
+            </div>
+            <div class="hud-divider"></div>
+            <div class="hud-chip">
+              <span style="font-size:12.5px;">📍</span>
+              <span>Zone: <b id="zone-stat" style="color:var(--accent);font-weight:700;">—</b></span>
+            </div>
+            <div class="hud-divider"></div>
+            <div class="hud-chip">
+              <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
+              <span style="opacity:0.65;font-size:11px;margin-right:2px;">move</span>
+              <kbd>Shift</kbd>
+              <span style="opacity:0.65;font-size:11px;margin-right:2px;">run</span>
+              <kbd>M</kbd>
+              <span style="opacity:0.65;font-size:11px;">mic</span>
+            </div>
           </div>
-          <div class="zone-tag">Zone <b id="zone-stat">—</b></div>
-          <div class="move-hint"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · click an agent</div>
-          <div class="zoom-controls">
-            <button class="zoom-btn" onclick="adjustZoom(0.15)">+</button>
-            <button class="zoom-btn" onclick="adjustZoom(-0.15)">−</button>
-            <button class="zoom-btn" onclick="resetZoom()" style="font-size:11px;">1:1</button>
+
+          <!-- Floating Zoom Controls Dock -->
+          <div class="zoom-controls-dock">
+            <button class="zoom-btn" onclick="adjustZoom(0.15)" title="Zoom in (or Scroll Up)">+</button>
+            <button class="zoom-btn" onclick="resetZoom()" title="Reset to 1:1" style="font-size:10.5px;">1:1</button>
+            <button class="zoom-btn" onclick="adjustZoom(-0.15)" title="Zoom out (or Scroll Down)">−</button>
           </div>
-          <div id="office-legend" style="position:absolute;bottom:12px;left:12px;z-index:120;display:flex;flex-direction:column;gap:6px;background:rgba(255,255,255,.88);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:11px;color:var(--text-dim);">
+
+          <!-- Glassmorphic Layer Legend -->
+          <div id="office-legend" style="position:absolute;bottom:14px;left:14px;z-index:120;display:flex;flex-direction:column;gap:6px;background:rgba(15,23,42,0.88);border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-radius:11px;padding:9px 13px;font-size:11px;color:#94a3b8;box-shadow:0 8px 24px rgba(0,0,0,0.5);">
             <div style="display:flex;gap:10px;flex-wrap:wrap;max-width:340px;" id="legend-chips"></div>
-            <div style="display:flex;gap:8px;border-top:1px solid var(--border-soft);padding-top:7px;">
-              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="flt-agents" checked> Agents</label>
-              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="flt-humans" checked> People</label>
-              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="flt-bubbles" checked> Task bubbles</label>
+            <div style="display:flex;gap:10px;border-top:1px solid rgba(255,255,255,0.08);padding-top:7px;">
+              <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" id="flt-agents" checked> Agents</label>
+              <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" id="flt-humans" checked> People</label>
+              <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" id="flt-bubbles" checked> Task bubbles</label>
             </div>
           </div>
 
           <!-- Spatial Private Room Comms Bar (Gather.town style) -->
-          <div id="room-comms-bar" style="display:none;position:absolute;bottom:14px;left:50%;transform:translateX(-50%);background:rgba(15, 23, 42, 0.94);border:1.5px solid var(--accent);border-radius:14px;box-shadow:0 12px 36px rgba(0,0,0,0.5);backdrop-filter:blur(12px);z-index:900;padding:12px 18px;min-width:380px;max-width:90%;flex-direction:column;gap:8px;">
+          <div id="room-comms-bar" style="display:none;position:absolute;bottom:14px;left:50%;transform:translateX(-50%);background:rgba(15, 23, 42, 0.92);border:1.5px solid rgba(99, 102, 241, 0.4);border-radius:14px;box-shadow:0 16px 40px -10px rgba(0,0,0,0.7), 0 0 20px -4px rgba(99,102,241,0.25);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);z-index:900;padding:12px 18px;min-width:390px;max-width:90%;flex-direction:column;gap:9px;">
             <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
               <div style="display:flex;align-items:center;gap:8px;">
                 <span id="room-comms-icon" style="font-size:18px;">🔒</span>
@@ -1006,7 +1061,7 @@
                   <div class="mic-bar" style="width:3px;height:8px;background:#4ade80;border-radius:1px;transition:height 0.05s;"></div>
                   <div class="mic-bar" style="width:3px;height:6px;background:#4ade80;border-radius:1px;transition:height 0.05s;"></div>
                 </div>
-                <button onclick="leavePrivateRoom()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#cbd5e1;padding:5px 10px;border-radius:7px;font-size:11.5px;cursor:pointer;">
+                <button onclick="leavePrivateRoom()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#cbd5e1;padding:5px 11px;border-radius:7px;font-size:11.5px;font-weight:550;cursor:pointer;transition:all .15s;">
                   Step Out
                 </button>
               </div>
@@ -1016,9 +1071,9 @@
             <div id="room-comms-messages" style="display:flex;flex-direction:column;gap:4px;max-height:85px;overflow-y:auto;font-size:12px;color:#e2e8f0;padding:2px 0;"></div>
 
             <!-- In-room talk input -->
-            <form onsubmit="sendRoomMessage(event)" style="display:flex;gap:6px;margin-top:2px;">
-              <input id="room-comms-input" type="text" placeholder="Say something to people in this room... (Press Enter)" style="flex:1;padding:7px 12px;border-radius:7px;border:1px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.08);color:#fff;font:inherit;font-size:12px;outline:none;" />
-              <button type="submit" style="background:var(--accent);color:#fff;border:none;border-radius:7px;padding:7px 13px;font-size:12px;font-weight:600;cursor:pointer;">
+            <form onsubmit="sendRoomMessage(event)" style="display:flex;gap:7px;margin-top:2px;">
+              <input id="room-comms-input" type="text" placeholder="Say something to people in this room... (Press Enter)" style="flex:1;padding:7px 12px;border-radius:7px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#fff;font:inherit;font-size:12px;outline:none;" />
+              <button type="submit" style="background:linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);color:#fff;border:none;border-radius:7px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;box-shadow:0 0 12px rgba(99,102,241,0.4);">
                 Talk 💬
               </button>
             </form>
@@ -1133,18 +1188,18 @@
               </div>
             </div>
             <div style="display:flex;gap:8px;align-items:center">
-              <button id="cc-meet-btn" class="ap-summon-btn" style="background:#8b5cf6;border-color:#7c3aed;color:#fff;" onclick="openMeetingPrompt()">🤝 Meet with...</button>
+              <button id="cc-meet-btn" class="ap-summon-btn" style="background:linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);border:none;color:#fff;box-shadow:0 0 12px rgba(139,92,246,0.35);" onclick="openMeetingPrompt()">🤝 Meet with...</button>
               <button id="cc-summon-btn" class="ap-summon-btn" style="display:none">Call here</button>
               <span id="cc-summon-err" style="font-size:11px;color:var(--red);display:none;max-width:160px;line-height:1.3"></span>
               <button class="card-link" onclick="setView('office')">← Office Floor</button>
             </div>
           </div>
-          <div id="cc-manage" style="display:flex;gap:6px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--border-soft);align-items:center">
+          <div id="cc-manage" style="display:flex;gap:6px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--border-soft);align-items:center;background:rgba(255,255,255,0.02);">
             <button class="cc-tab" onclick="openEditAgent()">Edit</button>
             <button class="cc-tab" onclick="openNoteDialog()">Note</button>
             <button class="cc-tab" id="cc-pause-btn" onclick="togglePause()">Pause</button>
             <button class="cc-tab" onclick="retireAgent()">Retire</button>
-            <button class="cc-tab" style="color:var(--red);border-color:#fecaca" onclick="deleteAgent()">Delete</button>
+            <button class="cc-tab" style="color:var(--red);border-color:rgba(239,68,68,0.3);background:rgba(239,68,68,0.08);" onclick="deleteAgent()">Delete</button>
             <span id="cc-manage-err" style="font-size:11px;color:var(--red);display:none;margin-left:6px"></span>
           </div>
 
@@ -2568,23 +2623,25 @@
               📋 <b>${p.taskCount}</b> Tasks
             </div>
             ${p.commanderName ? `
-              <div style="background:#fef3c7;border:1px solid #fde68a;color:#92400e;padding:4px 10px;border-radius:7px;font-weight:600;">
+              <div style="background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);color:#fbbf24;padding:4px 10px;border-radius:7px;font-weight:600;">
                 👑 ${escapeHtml(p.commanderName)}
               </div>
             ` : ''}
           </div>
 
-          <div style="display:flex;gap:8px;margin-top:auto;padding-top:6px;border-top:1px solid var(--border-soft);">
+          <div style="display:flex;gap:8px;margin-top:auto;padding-top:8px;border-top:1px solid var(--border-soft);">
             <button class="primary" style="flex:1;padding:8px 14px;font-weight:600;${isActive ? '' : 'background:#4f46e5;border-color:#4338ca;'}" onclick="selectProject('${p.id}')">
               ${isActive ? 'Open Office →' : 'Enter Office →'}
             </button>
             ${p.id !== 'prj_demo' ? `
-              <button class="cc-tab" style="color:var(--red);border-color:#fecaca;padding:8px 12px;" onclick="deleteProjectPrompt('${p.id}', '${escapeHtml(p.name)}')">
+              <button class="cc-tab" style="color:var(--red);border-color:rgba(239,68,68,0.3);background:rgba(239,68,68,0.08);padding:8px 12px;" onclick="deleteProjectPrompt('${p.id}', '${escapeHtml(p.name)}')">
                 Delete
               </button>
             ` : ''}
           </div>
         `;
+        card.onmouseenter = () => { card.style.transform = 'translateY(-2px)'; card.style.borderColor = 'var(--accent)'; };
+        card.onmouseleave = () => { card.style.transform = 'none'; card.style.borderColor = isActive ? 'var(--accent)' : 'var(--border)'; };
         grid.appendChild(card);
       }
 
@@ -6107,14 +6164,14 @@
       label.style.fontWeight = '700';
 
       const padX = 10, padY = 5;
-      const w = Math.max(label.width + padX * 2, 40);
+      const w = Math.max(label.width + padX * 2, 42);
       const h = label.height + padY * 2;
       const lift = 46;
 
       bg.clear();
-      bg.beginFill(0x4338ca, 0.95);
-      bg.lineStyle(1.5, 0x818cf8, 0.9);
-      bg.drawRoundedRect(-w / 2, -lift - h / 2, w, h, 7);
+      bg.beginFill(0x1e1b4b, 0.95);
+      bg.lineStyle(1.5, 0x6366f1, 0.95);
+      bg.drawRoundedRect(-w / 2, -lift - h / 2, w, h, 8);
       bg.moveTo(-4, -lift + h / 2);
       bg.lineTo(0, -lift + h / 2 + 5);
       bg.lineTo(4, -lift + h / 2);
