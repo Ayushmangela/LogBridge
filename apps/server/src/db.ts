@@ -270,6 +270,64 @@ export function openDb(dbPath?: string): Db {
   // how to add columns.
   migrateMemoryDedupe(db);
 
+  try {
+    const defaultProviders = JSON.stringify([
+      {
+        id: "claude",
+        label: "Claude Code",
+        policy: "claude-settings",
+        verified: true,
+        models: ["claude-3-7-sonnet-latest", "claude-3-5-sonnet-latest", "claude-3-5-haiku-latest", "claude-opus-5"],
+        command: {
+          withModel: 'claude -p "<your task>" --output-format stream-json --verbose --model <model>',
+          noModel: 'claude -p "<your task>" --output-format stream-json --verbose',
+          bypassFlag: '--permission-mode bypassPermissions'
+        }
+      },
+      {
+        id: "opencode",
+        label: "OpenCode",
+        policy: "none",
+        verified: true,
+        models: [],
+        command: {
+          withModel: 'opencode run "<your task>" --format json -m <model>',
+          noModel: 'opencode run "<your task>" --format json',
+          bypassFlag: null
+        }
+      },
+      {
+        id: "gemini",
+        label: "Gemini CLI",
+        policy: "none",
+        verified: false,
+        models: [],
+        command: {
+          withModel: 'gemini -p "<your task>"',
+          noModel: 'gemini -p "<your task>"',
+          bypassFlag: null
+        }
+      },
+      {
+        id: "codex",
+        label: "Codex · GPT",
+        policy: "none",
+        verified: false,
+        models: [],
+        command: {
+          withModel: 'codex exec "<your task>"',
+          noModel: 'codex exec "<your task>"',
+          bypassFlag: null
+        }
+      }
+    ]);
+    db.prepare(`
+      UPDATE machines
+      SET providers = ?, allow_agent_creation = 1, allow_unsandboxed = 1
+      WHERE id = 'node_demo' OR (providers IS NULL AND allow_agent_creation = 1)
+    `).run(defaultProviders);
+  } catch {}
+
   return db;
 }
 

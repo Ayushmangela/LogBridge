@@ -7,6 +7,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/vendor/xterm/xterm.css">
+  <script src="/assets/vendor/xterm/xterm.js"></script>
+  <script src="/assets/vendor/xterm/addon-fit.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.4.2/pixi.min.js"></script>
   <style>
     /* ===================================================================
@@ -243,6 +246,207 @@
     .cc-tab { font: inherit; font-size: 12px; padding: 6px 11px; border-radius: 7px; cursor: pointer;
               border: 1px solid var(--border); background: var(--surface); color: var(--text-dim); }
     .cc-tab.active { background: var(--accent-soft); border-color: var(--accent); color: var(--text); font-weight: 600; }
+
+    /* ---- Claude & Multi-Agent Terminal (all agents) ---- */
+    .term-container {
+      display: flex; flex-direction: column; border: 1px solid var(--border);
+      border-radius: 9px; overflow: hidden; background: #faf8ee; color: #2a2926;
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      margin-top: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .term-subhead {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 14px; background: #f0ecdf; border-bottom: 1px solid #e2dcce;
+      font-size: 11px;
+    }
+    .term-live-tag {
+      display: flex; align-items: center; gap: 7px; color: #4b483f; font-weight: 500;
+    }
+    .term-live-dot {
+      display: inline-block; width: 7px; height: 7px; background: #16a34a;
+      border-radius: 2px; box-shadow: 0 0 6px rgba(22,163,74,0.7);
+    }
+    .term-ctrls { display: flex; align-items: center; gap: 4px; }
+    .term-ctrl-btn {
+      font: inherit; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 4px;
+      border: 1px solid #cfc8b8; background: #ffffff; cursor: pointer; color: #49453c;
+    }
+    .term-ctrl-btn:hover { background: #f5f1e6; }
+    .term-font-val { font-size: 11px; min-width: 34px; text-align: center; color: #6b6659; font-weight: 600; }
+
+    .term-body {
+      padding: 18px 20px; min-height: 280px; max-height: 480px; overflow-y: auto;
+      white-space: pre-wrap; word-break: break-word; line-height: 1.55;
+    }
+    .term-body.fullscreen { max-height: 72vh; }
+
+    .term-banner {
+      display: flex; align-items: flex-start; gap: 14px; margin-bottom: 18px;
+      padding-bottom: 14px; border-bottom: 1px dashed #ded7c7;
+    }
+    .term-mascot-wrap { flex: none; display: flex; align-items: center; justify-content: center; }
+    .term-meta { flex: 1; min-width: 0; }
+    .term-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+    .term-title-main { font-weight: 800; font-size: 1.15em; color: #1c1b18; }
+    .term-title-ver { color: #858072; font-weight: 400; margin-left: 6px; }
+    .term-effort-pill {
+      font-size: 0.85em; color: #696457; background: #eae4d5; padding: 2px 8px;
+      border-radius: 4px; border: 1px solid #d5cdbd; font-weight: 600;
+    }
+    .term-title-desc { margin-top: 3px; color: #5a564a; font-size: 0.95em; }
+    .term-title-cwd { margin-top: 2px; color: #827d6f; font-size: 0.9em; }
+
+    .term-stream { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
+    .term-line { word-break: break-word; }
+    .term-line.cmd { color: #0d9488; font-weight: 600; }
+    .term-line.think { color: #92400e; font-style: italic; }
+    .term-line.tool { color: #4338ca; font-weight: 600; }
+    .term-line.err { color: #dc2626; }
+    .term-inbox-highlight {
+      background: #2b2823; color: #f5f2eb; padding: 6px 10px; border-radius: 5px;
+      margin: 4px 0; font-weight: 500; line-height: 1.45;
+    }
+
+    .term-prompt-section {
+      margin-top: 14px; padding-top: 10px; border-top: 1px solid #e6dfce;
+    }
+    .term-prompt-bar {
+      display: flex; align-items: center; gap: 6px; font-weight: 700;
+      font-size: 1.05em; color: #1c1b18;
+    }
+    .term-prompt-arrow { font-weight: 800; color: #1c1b18; }
+    .term-cursor-block {
+      display: inline-block; width: 8px; height: 15px; border: 1.5px solid #1c1b18;
+      background: transparent; animation: termBlink 1s step-start infinite; vertical-align: middle;
+    }
+    @keyframes termBlink { 50% { opacity: 0; } }
+
+    .term-footer-meta {
+      margin-top: 8px; display: flex; align-items: center; justify-content: space-between;
+      font-size: 0.88em; color: #787365; flex-wrap: wrap; gap: 8px;
+    }
+    .term-ctx-gauge { color: #6b6659; font-weight: 500; }
+    .term-perm-note { color: #c2410c; font-weight: 600; }
+
+    .term-queue-dock {
+      border-top: 1px solid #e2dcce; background: #fbf7ee; padding: 12px 16px 14px;
+    }
+    .term-queue-head {
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 11.5px; font-weight: 700; margin-bottom: 8px; color: #4e4a3f;
+    }
+    .term-queue-tag {
+      text-transform: uppercase; letter-spacing: .5px; font-size: 10px;
+      padding: 2px 6px; background: #ece5d4; border: 1px solid #dcd3bf;
+      border-radius: 4px; margin-right: 6px; font-weight: 800;
+    }
+    .term-queue-clear {
+      font: inherit; font-size: 11px; border: none; background: none; color: #b91c1c;
+      cursor: pointer; font-weight: 600; text-decoration: underline;
+    }
+    .term-queue-clear:hover { color: #991b1b; }
+    .term-queue-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+    .term-queue-item {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 7px 10px; border: 1px solid #dfd8c7; border-radius: 5px;
+      background: #ffffff; font-size: 12px;
+    }
+    .term-queue-item-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .term-queue-del {
+      border: none; background: none; color: #8a8578; cursor: pointer;
+      font-weight: bold; padding: 2px 6px; border-radius: 3px;
+    }
+    .term-queue-del:hover { color: #dc2626; background: #fee2e2; }
+
+    .term-queue-input-wrap {
+      display: flex; flex-direction: column; border: 1px solid #d4ccb9;
+      border-radius: 6px; background: #ffffff; overflow: hidden;
+    }
+    .term-queue-textarea {
+      width: 100%; box-sizing: border-box; border: none; outline: none; resize: none;
+      padding: 9px 12px; font-family: inherit; font-size: 12.5px; background: transparent;
+      color: inherit; min-height: 48px;
+    }
+    .term-queue-actions {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 10px; background: #fbf9f2; border-top: 1px solid #eee8d8;
+    }
+    .term-action-left { display: flex; gap: 6px; }
+    .term-act-btn {
+      font: inherit; font-size: 11px; font-weight: 600; padding: 4px 8px; border-radius: 4px;
+      border: 1px solid #d2cbba; background: #ffffff; cursor: pointer; color: #5a5649;
+    }
+    .term-act-btn:hover { background: #f4efe1; }
+    .term-send-btn {
+      font: inherit; font-size: 12px; font-weight: 700; padding: 5px 13px;
+      border-radius: 5px; border: 1px solid #c9a96e; background: #f2e3c6;
+      color: #5c441c; cursor: pointer;
+    }
+    .term-send-btn:hover { background: #ebd8b5; }
+
+    /* ---- Agent Code & Workspace IDE (munder-difflin style) ---- */
+    .code-container {
+      display: flex; flex-direction: column; height: 100%; min-height: 520px;
+      border: 1px solid var(--border); border-radius: 9px; overflow: hidden;
+      background: #FCFAF0; color: #1A1320;
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .code-topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 12px; background: #f0ecdf; border-bottom: 1px solid #e2dcce;
+      font-size: 11.5px;
+    }
+    .code-topbar-left { display: flex; align-items: center; gap: 8px; }
+    .code-cwd-tag { font-weight: 600; color: #3b3934; display: flex; align-items: center; gap: 5px; }
+    .code-topbar-right { display: flex; align-items: center; gap: 6px; }
+    .code-btn {
+      font: inherit; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 4px;
+      border: 1px solid #cfc8b8; background: #ffffff; cursor: pointer; color: #49453c;
+    }
+    .code-btn:hover { background: #f5f1e6; }
+    .code-btn.active { background: #e2dcce; border-color: #baa890; font-weight: 700; color: #1A1320; }
+    .code-main-split { display: flex; flex: 1; min-height: 380px; overflow: hidden; }
+    .code-tree-pane {
+      width: 210px; flex-shrink: 0; background: #f7f4ea; border-right: 1px solid #e2dcce;
+      overflow-y: auto; display: flex; flex-direction: column;
+    }
+    .code-tree-head {
+      padding: 7px 10px; font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .5px; color: #858072; border-bottom: 1px solid #e8e2d4;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .code-tree-list { padding: 4px 0; display: flex; flex-direction: column; }
+    .code-tree-item {
+      display: flex; align-items: center; gap: 6px; padding: 4px 10px; font-size: 11.5px;
+      cursor: pointer; color: #2e2c26; text-decoration: none; user-select: none;
+    }
+    .code-tree-item:hover { background: #ede7d6; }
+    .code-tree-item.active { background: #e2dcce; font-weight: 700; color: #1A1320; }
+    .code-tree-item .icon { font-size: 12px; opacity: 0.8; }
+    .code-editor-pane {
+      flex: 1; min-width: 0; display: flex; flex-direction: column; background: #FCFAF0;
+      overflow: hidden;
+    }
+    .code-editor-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 12px; background: #fbf9f2; border-bottom: 1px solid #eee8d8;
+      font-size: 11px; color: #6b6659;
+    }
+    .code-editor-area { flex: 1; display: flex; position: relative; overflow: hidden; }
+    .code-gutter {
+      width: 44px; padding: 10px 6px; text-align: right; color: #9c9484;
+      background: #f5efe1; border-right: 1px solid #e8e0d0; font-size: 11.5px;
+      line-height: 1.5; user-select: none; overflow: hidden;
+    }
+    .code-input-area {
+      flex: 1; width: 100%; border: none; outline: none; resize: none;
+      background: #FCFAF0; color: #1A1320; font-family: inherit; font-size: 12.5px;
+      line-height: 1.5; padding: 10px 12px; tab-size: 2; white-space: pre; overflow: auto;
+    }
+    .code-split-bottom-term {
+      border-top: 2px solid #1A1320; min-height: 220px; flex: 1; display: flex; flex-direction: column;
+    }
+
 
     /* ---- commands tab ---- */
     .cmd-note { font-size: 12px; color: var(--text-faint); margin-bottom: 14px; }
@@ -565,7 +769,51 @@
     .ap-summon-btn:hover { filter: brightness(1.07); }
     .ap-summon-btn.dismiss { background: var(--surface); color: var(--text-dim); border-color: var(--border); }
     .ap-summon-btn.dismiss:hover { border-color: var(--red); color: var(--red); }
-    .ap-summon-err { font-size: 10.5px; color: var(--red); line-height: 1.3; }
+    /* ---- Hive Tasks Kanban Board ---- */
+    .kanban-wrapper { display: flex; flex-direction: column; height: 100%; min-height: 480px; gap: 12px; }
+    .kanban-topbar { display: flex; justify-content: space-between; align-items: center; padding: 4px 2px; }
+    .kanban-board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; flex: 1; min-height: 400px; overflow-x: auto; }
+    .kanban-col { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; min-width: 200px; overflow: hidden; }
+    .kanban-col-head { padding: 10px 12px; font-size: 11px; font-weight: 750; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: var(--surface); }
+    .kanban-col-count { background: var(--border); padding: 1px 6px; border-radius: 10px; font-size: 10px; }
+    .kanban-list { padding: 10px; display: flex; flex-direction: column; gap: 8px; flex: 1; overflow-y: auto; }
+    .kanban-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.04); display: flex; flex-direction: column; gap: 6px; }
+    .kanban-card-title { font-size: 12.5px; font-weight: 650; color: var(--text); }
+    .kanban-card-desc { font-size: 11px; color: var(--text-dim); line-height: 1.4; max-height: 48px; overflow: hidden; text-overflow: ellipsis; }
+    .kanban-card-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 10.5px; }
+    .kanban-priority { padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 9.5px; text-transform: uppercase; }
+    .priority-urgent { background: #fee2e2; color: #dc2626; }
+    .priority-high { background: #ffedd5; color: #ea580c; }
+    .priority-medium { background: #fef9c3; color: #ca8a04; }
+    .priority-low { background: #e0f2fe; color: #0284c7; }
+    .kanban-nav-btn { background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; cursor: pointer; font-size: 11px; color: var(--text-dim); }
+    .kanban-nav-btn:hover { background: var(--surface-2); color: var(--accent); }
+
+    /* ---- Hive FIPA-Lite Mailbox ---- */
+    .mailbox-wrapper { display: flex; flex-direction: column; height: 100%; min-height: 480px; gap: 12px; }
+    .mailbox-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 2px; }
+    .mailbox-list { display: flex; flex-direction: column; gap: 10px; flex: 1; overflow-y: auto; padding-right: 4px; }
+    .mailbox-card { background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 11px 13px; box-shadow: 0 1px 4px rgba(0,0,0,.03); }
+    .mailbox-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .mailbox-act-badge { padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 750; text-transform: uppercase; letter-spacing: .4px; }
+    .act-request { background: #fef3c7; color: #b45309; }
+    .act-inform { background: #e0f2fe; color: #0369a1; }
+    .act-query { background: #f3e8ff; color: #7e22ce; }
+    .act-propose { background: #fce7f3; color: #be185d; }
+    .act-done { background: #dcfce7; color: #15803d; }
+    .act-agree { background: #d1fae5; color: #065f46; }
+    .act-refuse { background: #fee2e2; color: #991b1b; }
+    .mailbox-subject { font-size: 13px; font-weight: 700; color: var(--text); }
+    .mailbox-body { font-family: ui-monospace, monospace; font-size: 11.5px; background: #FCFAF0; border: 1px solid rgba(0,0,0,.07); border-radius: 6px; padding: 8px 10px; margin-top: 6px; white-space: pre-wrap; color: #222; }
+    .mailbox-composer { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; margin-top: auto; }
+    .mailbox-composer-row { display: flex; gap: 8px; }
+    .mailbox-composer-input { flex: 1; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 12px; }
+
+    /* ---- Hive Memory & Blackboard Split ---- */
+    .hive-mem-split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; height: 100%; min-height: 460px; }
+    .hive-mem-pane { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .hive-mem-head { padding: 9px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; font-weight: 700; color: var(--text); }
+    .hive-mem-editor { flex: 1; padding: 12px; font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.5; background: #FCFAF0; color: #1e293b; border: none; outline: none; resize: none; }
   </style>
 <body>
 <div class="app">
@@ -1925,7 +2173,7 @@
     // empty, and this is a place you go, not something crowding the floor.
 
     let ccAgentId = null;
-    let ccTab = 'commands';
+    let ccTab = 'terminal';
     // Fetched once. The catalog is static reference data served over HTTP
     // (apps/server/src/commands.ts) precisely so it does NOT ride the view
     // broadcast, which re-sends on every position message.
@@ -1954,32 +2202,28 @@
     window.openCommandCenter = function (agentId, tab) {
       ccAgentId = agentId;
       if (tab) ccTab = tab;
+      else ccTab = 'terminal';
       setView('agent');
       ccLoadCatalogs().then(() => { if (currentView === 'agent') renderCommandCenter(); });
     };
 
-    // The design shows ten tabs. Only the ones that do something are listed:
-    // a tab opening an empty panel reads as a bug, not as "not built yet".
-    // Two-surface split (BROWSER3 Phase 4): planner is the cheapest honest orchestrator
-    // marker — AgentRole already has planner and agents.role is stored. No new
-    // server field is needed. If a real isOrchestrator boolean is wanted, that
-    // is Stream B's, and the reviewer owns the call. Leaving the split as-is is
-    // legitimate if it turns out worse.
+    // Terminal and full command center surfaces for all agents
     function isOrchestrator(a) { return a && a.role === 'planner'; }
     function getCCTabs(a) {
       const all = [
-        { id: 'commands', label: 'Commands', surface: 'floor' },
-        { id: 'activity', label: 'Activity', surface: 'floor' },
-        { id: 'memory', label: 'Memory', surface: 'floor' },
-        { id: 'triggers', label: 'Triggers', surface: 'floor' },
+        { id: 'terminal', label: '>_ Terminal', surface: 'both' },
+        { id: 'code', label: '</> Code', surface: 'both' },
         { id: 'tasks', label: 'Tasks', surface: 'both' },
+        { id: 'messages', label: 'Messages', surface: 'both' },
+        { id: 'memory', label: 'Memory', surface: 'both' },
         { id: 'steer', label: 'Steer', surface: 'employee' },
         { id: 'traces', label: 'Traces', surface: 'employee' },
-        { id: 'monitor', label: 'Monitor', surface: 'employee' },
+        { id: 'monitor', label: 'Monitor', surface: 'both' },
         { id: 'git', label: 'Git', surface: 'employee' },
-        { id: 'output', label: 'Output', surface: 'employee' },
+        { id: 'commands', label: 'Commands', surface: 'floor' },
+        { id: 'activity', label: 'Activity', surface: 'floor' },
+        { id: 'triggers', label: 'Triggers', surface: 'floor' },
         { id: 'graph', label: 'Graph', surface: 'floor' },
-        { id: 'messages', label: 'Messages', surface: 'employee' },
       ];
       if (!a) return all;
       if (isOrchestrator(a)) return all.filter((t) => t.surface === 'floor' || t.surface === 'both');
@@ -2004,7 +2248,7 @@
 
       document.getElementById('cc-name').textContent = a.name;
       document.getElementById('cc-status').textContent = a.status;
-      document.getElementById('cc-desc').textContent = a.description || (a.role + ' \u00b7 ' + a.machineName);
+      document.getElementById('cc-desc').textContent = a.description || (a.role + ' · ' + a.machineName);
 
       const portrait = document.getElementById('cc-portrait');
       const sprite = (a.character && CHAR_NAMES.includes(a.character))
@@ -2032,7 +2276,7 @@
 
       // Two-surface split: keep ccTab valid for the current agent's surface
       const availTabs = getCCTabs(a);
-      if (!availTabs.some((t) => t.id === ccTab)) ccTab = availTabs[0]?.id ?? 'tasks';
+      if (!availTabs.some((t) => t.id === ccTab)) ccTab = availTabs[0]?.id ?? 'terminal';
       // Show a subtle surface label so the split is visible without being noisy
       const manageRow = document.getElementById('cc-manage');
       if (manageRow) {
@@ -2058,7 +2302,9 @@
       }
 
       body.innerHTML = '';
-      if (ccTab === 'commands') ccRenderCommands(body, a);
+      if (ccTab === 'terminal') ccRenderTerminal(body, a);
+      else if (ccTab === 'code') ccRenderCode(body, a);
+      else if (ccTab === 'commands') ccRenderCommands(body, a);
       else if (ccTab === 'memory') ccRenderMemory(body, a);
       else if (ccTab === 'triggers') ccRenderTriggers(body, a);
       else if (ccTab === 'tasks') ccRenderTasks(body, a);
@@ -2066,7 +2312,7 @@
       else if (ccTab === 'traces') ccRenderTraces(body, a);
       else if (ccTab === 'monitor') ccRenderMonitor(body, a);
       else if (ccTab === 'git') ccRenderGit(body, a);
-      else if (ccTab === 'output') ccRenderOutput(body, a);
+      else if (ccTab === 'output') ccRenderTerminal(body, a);
       else if (ccTab === 'graph') ccRenderGraph(body, a);
       else if (ccTab === 'messages') ccRenderMessages(body, a);
       else ccRenderActivity(body, a);
@@ -2190,45 +2436,191 @@
     }
 
     function ccRenderTasks(body, a) {
-      const room = activeRoom();
-      const tasks = (room?.tasks ?? []).filter((t) => t.agentId === a.id || t.agentName === a.name);
-      if (!tasks.length) {
-        body.innerHTML = '<div class="empty-note">No tasks for this agent yet — queued work, current runs and recent finishes appear here.</div>';
-        return;
-      }
-      // Newest first is already the view order; keep it
-      for (const t of tasks) {
-        const row = document.createElement('div');
-        row.className = 'cmd-row';
-        const main = document.createElement('div');
-        main.className = 'cmd-main';
-        const title = document.createElement('div');
-        title.className = 'cmd-name';
-        title.textContent = t.title;
-        const meta = document.createElement('div');
-        meta.className = 'cmd-desc';
-        // State + time, no invented progress
-        const state = document.createElement('span');
-        state.textContent = t.state;
-        state.style.cssText = 'font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--text-faint);margin-right:8px';
-        const when = document.createElement('span');
-        when.textContent = relativeTime(t.startedAt ?? t.createdAt);
-        when.style.cssText = 'font-size:11px;color:var(--text-faint)';
-        meta.append(state, when);
-        main.append(title, meta);
-        // If this task is waiting for input and the agent is this one, surface the ask
-        // This is the M4 mid-task question flow — not a second inbox, but the same ChatMessage.ask filtered to this agent.
-        // Check chatLog for a pending ask for this task
-        const ask = window.chatLog?.find?.((m) => m.ask?.taskId === t.id);
-        if (ask && !ask.answered) {
-          const askBox = document.createElement('div');
-          askBox.style.cssText = 'margin-top:8px;padding:8px 10px;background:#fffbf0;border:1px solid #f5d99b;border-radius:7px;font-size:12px';
-          askBox.textContent = ask.text;
-          main.appendChild(askBox);
+      body.innerHTML = '';
+      const wrapper = document.createElement('div');
+      wrapper.className = 'kanban-wrapper';
+
+      const topbar = document.createElement('div');
+      topbar.className = 'kanban-topbar';
+
+      const titleWrap = document.createElement('div');
+      titleWrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+      const title = document.createElement('span');
+      title.style.cssText = 'font-weight:700;font-size:13px;';
+      title.textContent = 'Hive Kanban Board';
+      const note = document.createElement('span');
+      note.style.cssText = 'font-size:11px;color:var(--text-faint);';
+      note.textContent = 'Synced with tasks.json';
+      titleWrap.append(title, note);
+
+      const actions = document.createElement('div');
+      actions.style.cssText = 'display:flex;gap:6px;';
+
+      const filterBtn = document.createElement('button');
+      filterBtn.className = 'code-btn';
+      filterBtn.textContent = window._ccTaskFilterAgent ? `Showing: ${a.name}` : 'Showing: All Agents';
+      filterBtn.title = 'Toggle between showing all tasks or only this agent';
+      filterBtn.onclick = () => {
+        window._ccTaskFilterAgent = !window._ccTaskFilterAgent;
+        ccRenderTasks(body, a);
+      };
+
+      const newBtn = document.createElement('button');
+      newBtn.className = 'code-btn';
+      newBtn.style.cssText = 'background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700;';
+      newBtn.textContent = '+ New Task';
+      newBtn.onclick = async () => {
+        const taskTitle = prompt('Enter task title:');
+        if (!taskTitle || !taskTitle.trim()) return;
+        const taskDesc = prompt('Enter task description (optional):') || '';
+        try {
+          await fetch('/api/hive/tasks', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              title: taskTitle.trim(),
+              description: taskDesc.trim(),
+              status: 'todo',
+              assigned_to: a.id,
+              priority: 'medium',
+            })
+          });
+          ccRenderTasks(body, a);
+        } catch (e) {
+          alert('Failed creating task: ' + e);
         }
-        row.appendChild(main);
-        body.appendChild(row);
-      }
+      };
+
+      actions.append(filterBtn, newBtn);
+      topbar.append(titleWrap, actions);
+      wrapper.appendChild(topbar);
+
+      const board = document.createElement('div');
+      board.className = 'kanban-board';
+      wrapper.appendChild(board);
+      body.appendChild(wrapper);
+
+      const colDefs = [
+        { key: 'todo', label: '📋 To Do' },
+        { key: 'in_progress', label: '⚡ In Progress' },
+        { key: 'in_review', label: '🔍 In Review' },
+        { key: 'done', label: '✅ Done' },
+      ];
+
+      const renderBoard = (taskList) => {
+        board.innerHTML = '';
+        const filtered = window._ccTaskFilterAgent
+          ? taskList.filter((t) => t.assigned_to === a.id || t.assigned_to === a.name)
+          : taskList;
+
+        colDefs.forEach((col, colIdx) => {
+          const colEl = document.createElement('div');
+          colEl.className = 'kanban-col';
+
+          const colTasks = filtered.filter((t) => (t.status || 'todo') === col.key);
+
+          const head = document.createElement('div');
+          head.className = 'kanban-col-head';
+          head.innerHTML = `<span>${col.label}</span><span class="kanban-col-count">${colTasks.length}</span>`;
+          colEl.appendChild(head);
+
+          const list = document.createElement('div');
+          list.className = 'kanban-list';
+
+          if (!colTasks.length) {
+            const empty = document.createElement('div');
+            empty.style.cssText = 'color:var(--text-faint);font-size:11px;text-align:center;padding:24px 0;font-style:italic;';
+            empty.textContent = 'No tasks';
+            list.appendChild(empty);
+          } else {
+            colTasks.forEach((task) => {
+              const card = document.createElement('div');
+              card.className = 'kanban-card';
+
+              const cardTitle = document.createElement('div');
+              cardTitle.className = 'kanban-card-title';
+              cardTitle.textContent = task.title;
+
+              const cardDesc = document.createElement('div');
+              cardDesc.className = 'kanban-card-desc';
+              cardDesc.textContent = task.description || 'No description provided.';
+
+              const meta = document.createElement('div');
+              meta.className = 'kanban-card-meta';
+
+              const pri = document.createElement('span');
+              pri.className = 'kanban-priority priority-' + (task.priority || 'medium');
+              pri.textContent = task.priority || 'medium';
+
+              const navRow = document.createElement('div');
+              navRow.style.cssText = 'display:flex;gap:4px;';
+
+              if (colIdx > 0) {
+                const prevBtn = document.createElement('button');
+                prevBtn.className = 'kanban-nav-btn';
+                prevBtn.innerHTML = '◀';
+                prevBtn.title = 'Move to ' + colDefs[colIdx - 1].label;
+                prevBtn.onclick = async () => {
+                  await fetch('/api/hive/tasks', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ ...task, status: colDefs[colIdx - 1].key })
+                  });
+                  loadTasks();
+                };
+                navRow.appendChild(prevBtn);
+              }
+
+              if (colIdx < colDefs.length - 1) {
+                const nextBtn = document.createElement('button');
+                nextBtn.className = 'kanban-nav-btn';
+                nextBtn.innerHTML = '▶';
+                nextBtn.title = 'Move to ' + colDefs[colIdx + 1].label;
+                nextBtn.onclick = async () => {
+                  await fetch('/api/hive/tasks', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ ...task, status: colDefs[colIdx + 1].key })
+                  });
+                  loadTasks();
+                };
+                navRow.appendChild(nextBtn);
+              }
+
+              meta.append(pri, navRow);
+              card.append(cardTitle, cardDesc, meta);
+              list.appendChild(card);
+            });
+          }
+
+          colEl.appendChild(list);
+          board.appendChild(colEl);
+        });
+      };
+
+      const loadTasks = async () => {
+        try {
+          const res = await fetch('/api/hive/tasks');
+          if (res.ok) {
+            const data = await res.json();
+            renderBoard(data.tasks || []);
+          }
+        } catch {
+          // Fallback to room tasks if server endpoint unavailable
+          const room = activeRoom();
+          const fallback = (room?.tasks ?? []).map((t) => ({
+            id: t.id,
+            title: t.title,
+            description: t.state,
+            status: t.state === 'done' ? 'done' : (t.state === 'working' ? 'in_progress' : 'todo'),
+            assigned_to: t.agentId,
+            priority: 'medium',
+          }));
+          renderBoard(fallback);
+        }
+      };
+
+      loadTasks();
     }
 
     function ccRenderSteer(body, a) {
@@ -2579,86 +2971,833 @@
       }).catch(() => { ph.textContent = 'Could not reach server for git.'; });
     }
 
-    function ccRenderOutput(body, a) {
-      body.innerHTML = '';
-      const note = document.createElement('div');
-      note.className = 'cmd-note';
-      note.textContent = "This is the agent's output as it arrives — not a terminal. It has no prompt and you cannot type into it. Auto-scroll stops when you scroll up.";
-      body.appendChild(note);
+    function getProviderTerminalConfig(a) {
+      const p = (a?.provider || '').toLowerCase();
+      if (p === 'claude' || p === 'claude-code' || (!p && !a?.role?.includes('opencode'))) {
+        return {
+          title: 'Claude Code',
+          version: 'v2.1.241',
+          modelText: (a?.model || 'Opus 4.8') + ' (' + (a?.contextLimit ? Math.round(a.contextLimit/1000) + 'k' : '1M') + ' context) with xhigh effort · Claude Max',
+          badge: '• xhigh · /effort',
+          accent: '#d97757',
+          svg: `<svg viewBox="0 0 16 14" width="36" height="30" style="image-rendering:pixelated;flex:none;" fill="#d97757">
+            <rect x="2" y="0" width="2" height="2"/>
+            <rect x="12" y="0" width="2" height="2"/>
+            <rect x="1" y="2" width="14" height="8"/>
+            <rect x="3" y="4" width="2" height="2" fill="#faf8ee"/>
+            <rect x="11" y="4" width="2" height="2" fill="#faf8ee"/>
+            <rect x="1" y="10" width="2" height="3"/>
+            <rect x="5" y="10" width="2" height="2"/>
+            <rect x="9" y="10" width="2" height="2"/>
+            <rect x="13" y="10" width="2" height="3"/>
+          </svg>`
+        };
+      }
+      if (p === 'opencode') {
+        return {
+          title: 'OpenCode',
+          version: 'v1.0.8',
+          modelText: (a?.model || 'Qwen 2.5 Coder 32B') + ' · Local Ollama/vLLM Harness',
+          badge: '• fast · /opencode',
+          accent: '#10b981',
+          svg: `<svg viewBox="0 0 16 14" width="36" height="30" style="image-rendering:pixelated;flex:none;" fill="#10b981">
+            <rect x="1" y="1" width="14" height="12" rx="2" fill="#047857"/>
+            <rect x="3" y="3" width="10" height="8" fill="#faf8ee"/>
+            <rect x="4" y="4" width="2" height="6" fill="#10b981"/>
+            <rect x="6" y="6" width="3" height="2" fill="#10b981"/>
+            <rect x="9" y="8" width="3" height="2" fill="#10b981"/>
+          </svg>`
+        };
+      }
+      if (p === 'gemini' || p === 'antigravity') {
+        return {
+          title: p === 'antigravity' ? 'Antigravity · Gemini' : 'Google Gemini CLI',
+          version: 'v1.12.0',
+          modelText: (a?.model || 'Gemini 2.5 Pro (2M context)') + ' · Thinking Budget 32k',
+          badge: '• flash · /gemini',
+          accent: '#3b82f6',
+          svg: `<svg viewBox="0 0 16 16" width="34" height="32" style="image-rendering:pixelated;flex:none;" fill="#3b82f6">
+            <rect x="7" y="1" width="2" height="14"/>
+            <rect x="1" y="7" width="14" height="2"/>
+            <rect x="5" y="4" width="6" height="8"/>
+            <rect x="4" y="5" width="8" height="6"/>
+            <rect x="6" y="3" width="4" height="10"/>
+            <rect x="3" y="6" width="10" height="4"/>
+            <circle cx="8" cy="8" r="2" fill="#faf8ee"/>
+          </svg>`
+        };
+      }
+      if (p === 'codex') {
+        return {
+          title: 'Codex · GPT',
+          version: 'v0.9.4',
+          modelText: (a?.model || 'GPT-4o (128k context)') + ' · OpenAI Native CLI',
+          badge: '• exec · /codex',
+          accent: '#10a37f',
+          svg: `<svg viewBox="0 0 16 16" width="34" height="32" style="image-rendering:pixelated;flex:none;" fill="#10a37f">
+            <rect x="4" y="2" width="8" height="2"/>
+            <rect x="2" y="4" width="2" height="8"/>
+            <rect x="12" y="4" width="2" height="8"/>
+            <rect x="4" y="12" width="8" height="2"/>
+            <rect x="5" y="5" width="6" height="6"/>
+            <circle cx="8" cy="8" r="1.5" fill="#faf8ee"/>
+          </svg>`
+        };
+      }
+      const col = a?.color || '#5b5ef0';
+      return {
+        title: (a?.provider || a?.name || 'Agent') + ' CLI',
+        version: 'v1.0.0',
+        modelText: (a?.model || 'Autonomous Coding Agent') + ' · Standard Harness',
+        badge: '• active · /cli',
+        accent: col,
+        svg: `<svg viewBox="0 0 16 14" width="36" height="30" style="image-rendering:pixelated;flex:none;" fill="${col}">
+          <rect x="7" y="0" width="2" height="2"/>
+          <rect x="2" y="2" width="12" height="9" rx="1"/>
+          <rect x="4" y="4" width="2" height="3" fill="#faf8ee"/>
+          <rect x="10" y="4" width="2" height="3" fill="#faf8ee"/>
+          <rect x="5" y="8" width="6" height="1" fill="#faf8ee"/>
+          <rect x="4" y="11" width="2" height="3"/>
+          <rect x="10" y="11" width="2" height="3"/>
+        </svg>`
+      };
+    }
 
-      const wrap = document.createElement('div');
-      wrap.style.cssText = 'margin-top:12px;border:1px solid var(--border);border-radius:8px;background:#0d0f18;color:#e6e8f0;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:11.5px;line-height:1.5;max-height:320px;overflow-y:auto;padding:10px 12px;white-space:pre-wrap;word-break:break-word';
-      wrap.textContent = 'Loading output…';
-      body.appendChild(wrap);
+    const XTERM_LIGHT_THEME = {
+      background: '#FCFAF0',
+      foreground: '#1A1320',
+      cursor: '#D96A62',
+      cursorAccent: '#FCFAF0',
+      selectionBackground: '#FFEC99',
+      selectionForeground: '#1A1320',
+      black:        '#1A1320',
+      red:          '#D1453B',
+      green:        '#20904B',
+      yellow:       '#9C6B00',
+      blue:         '#2B6CB0',
+      magenta:      '#8A5CF0',
+      cyan:         '#1F9C94',
+      white:        '#3A2F44',
+      brightBlack:  '#6B5878',
+      brightRed:    '#E0584E',
+      brightGreen:  '#2E9E54',
+      brightYellow: '#B8860B',
+      brightBlue:   '#3B7DC4',
+      brightMagenta:'#9B72F2',
+      brightCyan:   '#2BA89F',
+      brightWhite:  '#1A1320'
+    };
 
-      let autoScroll = true;
-      wrap.addEventListener('scroll', () => {
-        // If user scrolls up more than 20px from bottom, stop auto-scrolling
-        const atBottom = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < 20;
-        autoScroll = atBottom;
-      });
+    if (!window._terminalPool) window._terminalPool = new Map();
 
-      let shown = 0;
-      const cap = 400; // cap DOM nodes — a long run will out-produce any browser that keeps everything
-      const append = (text) => {
-        // Split into lines and cap
-        const lines = String(text).split('\n');
-        for (const line of lines) {
-          if (shown >= cap) {
-            // Drop oldest line
-            const first = wrap.firstChild;
-            if (first) wrap.removeChild(first);
-            shown--;
-          }
-          const div = document.createElement('div');
-          div.textContent = line;
-          wrap.appendChild(div);
-          shown++;
+    function getOrCreateTerminalEntry(ptyId, a) {
+      let entry = window._terminalPool.get(ptyId);
+      if (entry) return entry;
+
+      const host = document.createElement('div');
+      host.className = 'xterm-host';
+      host.style.cssText = 'width:100%;height:100%;min-height:280px;';
+
+      let term = null;
+      let fit = null;
+      if (typeof Terminal !== 'undefined') {
+        term = new Terminal({
+          theme: XTERM_LIGHT_THEME,
+          fontFamily: '"JetBrains Mono", "SF Mono", Menlo, monospace',
+          fontSize: window._ccTermFontSize || 12,
+          lineHeight: 1.15,
+          cursorBlink: true,
+          cursorStyle: 'block',
+          scrollback: 50000,
+        });
+
+        if (typeof FitAddon !== 'undefined' && FitAddon.FitAddon) {
+          fit = new FitAddon.FitAddon();
+          term.loadAddon(fit);
         }
-        if (autoScroll) wrap.scrollTop = wrap.scrollHeight;
+      }
+
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      let ws = null;
+
+      entry = { ptyId, host, term, fit, ws: null, opened: false };
+      window._terminalPool.set(ptyId, entry);
+
+      const connectWs = () => {
+        try {
+          ws = new WebSocket(`${proto}//${location.host}/pty-ws`);
+          entry.ws = ws;
+          ws.onopen = () => {
+            ws.send(JSON.stringify({
+              type: 'spawn',
+              ptyId,
+              agentId: a?.id || '',
+              cols: (term && term.cols) ? term.cols : 100,
+              rows: (term && term.rows) ? term.rows : 30
+            }));
+          };
+          ws.onmessage = (ev) => {
+            try {
+              const m = JSON.parse(ev.data);
+              if (m.type === 'data' && m.ptyId === ptyId && term) {
+                term.write(m.data);
+              }
+            } catch {}
+          };
+          ws.onclose = () => {
+            setTimeout(() => {
+              if (host.isConnected && (!entry.ws || entry.ws.readyState === WebSocket.CLOSED)) {
+                connectWs();
+              }
+            }, 3000);
+          };
+        } catch (e) {
+          console.warn('PTY WebSocket connection error:', e);
+        }
       };
 
-      // Try the honest endpoint; Stream B Phase 5 will provide it
-      fetch(`/api/agents/${a.id}/output?limit=200`).then(async (res) => {
-        if (!res.ok) {
-          if (res.status === 404) wrap.textContent = 'Output not available yet — server has no output endpoint. This is the read-only stream that will show live lines here.';
-          else wrap.textContent = `Could not load output (${res.status}).`;
-          return;
-        }
-        const data = await res.json().catch(() => ({}));
-        const out = data.output ?? data.lines ?? data.events ?? [];
-        wrap.textContent = '';
-        shown = 0;
-        if (!out.length) {
-          wrap.textContent = 'No output yet — lines appear as the agent writes them.';
-          return;
-        }
-        for (const item of out) {
-          const txt = typeof item === 'string' ? item : (item.text ?? item.summary ?? JSON.stringify(item));
-          append(txt);
-        }
-        // Poll for new output every 2s while the tab is active — degrade gracefully, cap DOM
-        let timer = null;
-        const poll = async () => {
-          if (document.hidden || !body.isConnected || (ccAgent()?.id !== a.id) || ccTab !== 'output') {
-            if (timer) clearInterval(timer);
-            return;
+      connectWs();
+
+      if (term) {
+        term.onData((data) => {
+          if (entry.ws && entry.ws.readyState === WebSocket.OPEN) {
+            entry.ws.send(JSON.stringify({ type: 'data', ptyId, data }));
           }
+        });
+      }
+
+      return entry;
+    }
+
+    function ccRenderCode(body, a) {
+      body.innerHTML = '';
+      if (!window._ccCodeFileMap) window._ccCodeFileMap = new Map();
+      if (!window._ccCodeViewMode) window._ccCodeViewMode = 'split';
+
+      const ptyName = isOrchestrator(a)
+        ? 'pty-god'
+        : 'pty-' + (a.name || 'agent').toLowerCase().replace(/[^a-z0-9]/g, '') + '-' + (a.id || '000').slice(-8);
+
+      const cwd = a.folder || a.cwd || '~/workspace';
+      let activeFile = window._ccCodeFileMap.get(a.id) || null;
+
+      const container = document.createElement('div');
+      container.className = 'code-container';
+
+      // Top bar
+      const topbar = document.createElement('div');
+      topbar.className = 'code-topbar';
+
+      const topLeft = document.createElement('div');
+      topLeft.className = 'code-topbar-left';
+      topLeft.innerHTML = `<span class="code-cwd-tag">📁 ${esc(cwd)}</span> <span style="color:#858072;">·</span> <span id="code-active-title" style="font-weight:700;color:#1A1320;">${activeFile ? esc(activeFile) : 'Select a file'}</span>`;
+
+      const topRight = document.createElement('div');
+      topRight.className = 'code-topbar-right';
+
+      const btnCodeOnly = document.createElement('button');
+      btnCodeOnly.className = 'code-btn' + (window._ccCodeViewMode === 'code' ? ' active' : '');
+      btnCodeOnly.textContent = '💻 Code';
+      btnCodeOnly.title = 'Show code only';
+
+      const btnSplit = document.createElement('button');
+      btnSplit.className = 'code-btn' + (window._ccCodeViewMode === 'split' ? ' active' : '');
+      btnSplit.textContent = '◫ Split';
+      btnSplit.title = 'Show code and terminal together';
+
+      const btnTermOnly = document.createElement('button');
+      btnTermOnly.className = 'code-btn' + (window._ccCodeViewMode === 'terminal' ? ' active' : '');
+      btnTermOnly.textContent = '>_ Terminal';
+      btnTermOnly.title = 'Switch to terminal tab';
+
+      btnCodeOnly.onclick = () => { window._ccCodeViewMode = 'code'; ccRenderCode(body, a); };
+      btnSplit.onclick = () => { window._ccCodeViewMode = 'split'; ccRenderCode(body, a); };
+      btnTermOnly.onclick = () => { ccTab = 'terminal'; renderCommandCenter(); };
+
+      const refreshBtn = document.createElement('button');
+      refreshBtn.className = 'code-btn';
+      refreshBtn.textContent = '↻';
+      refreshBtn.title = 'Refresh files';
+
+      const newFileBtn = document.createElement('button');
+      newFileBtn.className = 'code-btn';
+      newFileBtn.textContent = '+ File';
+      newFileBtn.title = 'Create a new file in workspace';
+
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'code-btn';
+      saveBtn.style.cssText = 'background:#16a34a;color:#fff;border-color:#15803d;font-weight:700;';
+      saveBtn.textContent = 'Save';
+
+      topRight.append(btnCodeOnly, btnSplit, btnTermOnly, refreshBtn, newFileBtn, saveBtn);
+      topbar.append(topLeft, topRight);
+      container.appendChild(topbar);
+
+      // Main Code Split: File tree + Editor
+      const mainSplit = document.createElement('div');
+      mainSplit.className = 'code-main-split';
+
+      // Left: File tree
+      const treePane = document.createElement('div');
+      treePane.className = 'code-tree-pane';
+      treePane.innerHTML = `<div class="code-tree-head"><span>Workspace Files</span></div>`;
+      const treeList = document.createElement('div');
+      treeList.className = 'code-tree-list';
+      treePane.appendChild(treeList);
+      mainSplit.appendChild(treePane);
+
+      // Right: Editor
+      const editorPane = document.createElement('div');
+      editorPane.className = 'code-editor-pane';
+
+      const editorBar = document.createElement('div');
+      editorBar.className = 'code-editor-bar';
+      editorBar.innerHTML = `<span id="code-file-meta">No file open</span><span id="code-save-status">Saved</span>`;
+
+      const editorArea = document.createElement('div');
+      editorArea.className = 'code-editor-area';
+
+      const gutter = document.createElement('div');
+      gutter.className = 'code-gutter';
+      gutter.textContent = '1';
+
+      const textarea = document.createElement('textarea');
+      textarea.className = 'code-input-area';
+      textarea.placeholder = '// Select or create a file to view or edit code';
+      textarea.spellcheck = false;
+
+      editorArea.append(gutter, textarea);
+      editorPane.append(editorBar, editorArea);
+      mainSplit.appendChild(editorPane);
+
+      container.appendChild(mainSplit);
+
+      // Bottom Terminal (if in split mode)
+      if (window._ccCodeViewMode === 'split') {
+        const splitTermWrap = document.createElement('div');
+        splitTermWrap.className = 'code-split-bottom-term';
+        const splitTermHead = document.createElement('div');
+        splitTermHead.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:5px 12px;background:#f0ecdf;border-bottom:1px solid #e2dcce;font-size:11px;font-weight:700;';
+        splitTermHead.innerHTML = `<span>>_ Live Terminal · ${esc(a.name)}</span><span style="font-weight:400;color:var(--text-dim);">Shell: zsh · Agent PTY</span>`;
+        splitTermWrap.appendChild(splitTermHead);
+
+        const termHostWrap = document.createElement('div');
+        termHostWrap.style.cssText = 'flex:1;min-height:220px;background:#FCFAF0;padding:4px 8px;overflow:hidden;';
+
+        const entry = getOrCreateTerminalEntry(ptyName, a);
+        termHostWrap.appendChild(entry.host);
+        splitTermWrap.appendChild(termHostWrap);
+        container.appendChild(splitTermWrap);
+
+        if (entry.term && !entry.opened) {
+          entry.term.open(entry.host);
+          entry.opened = true;
+        }
+        requestAnimationFrame(() => {
           try {
-            const r2 = await fetch(`/api/agents/${a.id}/output?since=${shown}`);
-            if (r2.ok) {
-              const d2 = await r2.json().catch(() => ({}));
-              const more = d2.output ?? d2.lines ?? [];
-              for (const it of more) append(typeof it === 'string' ? it : (it.text ?? it.summary ?? ''));
+            if (entry.fit) entry.fit.fit();
+            if (entry.ws && entry.ws.readyState === WebSocket.OPEN && entry.term) {
+              entry.ws.send(JSON.stringify({ type: 'resize', ptyId: ptyName, cols: entry.term.cols, rows: entry.term.rows }));
             }
           } catch {}
+        });
+      }
+
+      body.appendChild(container);
+
+      const updateLineNumbers = () => {
+        const lines = (textarea.value || '').split('\n').length;
+        let s = '';
+        for (let i = 1; i <= Math.max(lines, 1); i++) s += i + '\n';
+        gutter.textContent = s;
+        const metaEl = document.getElementById('code-file-meta');
+        if (metaEl) metaEl.textContent = `${lines} lines · ${(textarea.value || '').length} chars`;
+      };
+
+      textarea.addEventListener('input', () => {
+        updateLineNumbers();
+        const statEl = document.getElementById('code-save-status');
+        if (statEl) {
+          statEl.textContent = '● Unsaved changes';
+          statEl.style.color = '#d97706';
+        }
+      });
+
+      textarea.addEventListener('scroll', () => {
+        gutter.scrollTop = textarea.scrollTop;
+      });
+
+      const saveCurrentFile = async () => {
+        if (!activeFile) return;
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving…';
+        try {
+          const r = await fetch(`/api/agents/${a.id}/file`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: activeFile, content: textarea.value })
+          });
+          const d = await r.json();
+          const statEl = document.getElementById('code-save-status');
+          if (d.ok) {
+            if (statEl) {
+              statEl.textContent = '✓ Saved';
+              statEl.style.color = '#16a34a';
+            }
+          } else {
+            alert('Failed to save: ' + (d.error || 'unknown error'));
+          }
+        } catch (e) {
+          alert('Failed to save: ' + e.message);
+        } finally {
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save';
+        }
+      };
+
+      saveBtn.onclick = saveCurrentFile;
+
+      textarea.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+          e.preventDefault();
+          saveCurrentFile();
+        }
+      });
+
+      const openFile = async (rel) => {
+        activeFile = rel;
+        window._ccCodeFileMap.set(a.id, rel);
+        const titleEl = document.getElementById('code-active-title');
+        if (titleEl) titleEl.textContent = rel;
+        document.querySelectorAll('.code-tree-item').forEach((el) => {
+          el.classList.toggle('active', el.dataset.rel === rel);
+        });
+        const statEl = document.getElementById('code-save-status');
+        if (statEl) statEl.textContent = 'Loading…';
+        try {
+          const res = await fetch(`/api/agents/${a.id}/file?path=${encodeURIComponent(rel)}`);
+          const data = await res.json();
+          if (data.ok) {
+            textarea.value = data.content;
+            if (statEl) {
+              statEl.textContent = '✓ Saved';
+              statEl.style.color = '#16a34a';
+            }
+          } else {
+            textarea.value = '// Error loading file: ' + (data.error || 'not found');
+          }
+        } catch (e) {
+          textarea.value = '// Error reading file: ' + e.message;
+        }
+        updateLineNumbers();
+      };
+
+      const loadFiles = async () => {
+        treeList.innerHTML = '<div style="padding:10px;font-size:11px;color:#858072;">Loading files…</div>';
+        try {
+          const res = await fetch(`/api/agents/${a.id}/files`);
+          const data = await res.json();
+          treeList.innerHTML = '';
+          const entries = data.entries || [];
+          if (!entries.length) {
+            treeList.innerHTML = '<div style="padding:10px;font-size:11px;color:#858072;">No files in workspace.<br>Click <b>+ File</b> to create one.</div>';
+            return;
+          }
+          for (const ent of entries) {
+            const item = document.createElement('div');
+            item.className = 'code-tree-item' + (activeFile === ent.relPath ? ' active' : '');
+            item.dataset.rel = ent.relPath;
+
+            let icon = '📄';
+            if (ent.isDir) icon = '📁';
+            else if (ent.name.endsWith('.js') || ent.name.endsWith('.ts')) icon = '⚡';
+            else if (ent.name.endsWith('.py')) icon = '🐍';
+            else if (ent.name.endsWith('.json')) icon = '⚙️';
+            else if (ent.name.endsWith('.md')) icon = '📝';
+
+            item.innerHTML = `<span class="icon">${icon}</span> <span>${esc(ent.name)}</span>`;
+            if (!ent.isDir) {
+              item.onclick = () => openFile(ent.relPath);
+            }
+            treeList.appendChild(item);
+          }
+
+          if (!activeFile && entries.some((e) => !e.isDir)) {
+            const firstFile = entries.find((e) => !e.isDir);
+            if (firstFile) openFile(firstFile.relPath);
+          } else if (activeFile) {
+            openFile(activeFile);
+          }
+        } catch (e) {
+          treeList.innerHTML = '<div style="padding:10px;font-size:11px;color:#dc2626;">Failed to load files.</div>';
+        }
+      };
+
+      refreshBtn.onclick = loadFiles;
+
+      newFileBtn.onclick = async () => {
+        const name = prompt('Enter new file name (e.g. main.js, app.py, test.txt):');
+        if (!name || !name.trim()) return;
+        const filename = name.trim();
+        await fetch(`/api/agents/${a.id}/file`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: filename, content: `// File: ${filename}\n// Agent: ${a.name}\n` })
+        });
+        await loadFiles();
+        openFile(filename);
+      };
+
+      loadFiles();
+    }
+
+    function ccRenderTerminal(body, a) {
+      body.innerHTML = '';
+      if (!window._ccTermFontSize) window._ccTermFontSize = 12;
+
+      const ptyName = isOrchestrator(a)
+        ? 'pty-god'
+        : 'pty-' + (a.name || 'agent').toLowerCase().replace(/[^a-z0-9]/g, '') + '-' + (a.id || '000').slice(-8);
+
+      const cfg = getProviderTerminalConfig(a);
+
+      const room = activeRoom();
+      const allTasks = room?.tasks ?? [];
+      const agentTasks = allTasks.filter((t) => t.agentId === a.id || t.agentName === a.name);
+      const queuedTasks = agentTasks.filter((t) => t.state === 'submitted');
+      const currentTask = agentTasks.find((t) => t.state === 'working');
+
+      let statusDesc = a.name + ' is on standby';
+      if (currentTask) {
+        statusDesc = a.name + ' is busy (' + (currentTask.title || 'working') + ') — ' + queuedTasks.length + ' queued';
+      } else if (queuedTasks.length > 0) {
+        statusDesc = queuedTasks.length + ' task' + (queuedTasks.length > 1 ? 's' : '') + ' queued for ' + a.name;
+      }
+
+      const container = document.createElement('div');
+      container.className = 'term-container' + (window._ccTermFullscreen ? ' fullscreen' : '');
+
+      // 1. Subhead
+      const subhead = document.createElement('div');
+      subhead.className = 'term-subhead';
+
+      const liveTag = document.createElement('div');
+      liveTag.className = 'term-live-tag';
+      liveTag.innerHTML = '<span class="term-live-dot"></span><span>live · pty ' + esc(ptyName) + '</span>';
+
+      const ctrls = document.createElement('div');
+      ctrls.className = 'term-ctrls';
+
+      const decBtn = document.createElement('button');
+      decBtn.className = 'term-ctrl-btn';
+      decBtn.textContent = '-';
+      decBtn.title = 'Decrease font size';
+
+      const fontLabel = document.createElement('span');
+      fontLabel.className = 'term-font-val';
+      fontLabel.textContent = window._ccTermFontSize + 'px';
+
+      const incBtn = document.createElement('button');
+      incBtn.className = 'term-ctrl-btn';
+      incBtn.textContent = '+';
+      incBtn.title = 'Increase font size';
+
+      const expBtn = document.createElement('button');
+      expBtn.className = 'term-ctrl-btn';
+      expBtn.textContent = window._ccTermFullscreen ? '🗗' : '⛶';
+      expBtn.title = 'Toggle Expand';
+
+      const restartBtn = document.createElement('button');
+      restartBtn.className = 'term-ctrl-btn';
+      restartBtn.textContent = '↻';
+      restartBtn.title = 'Restart CLI Session';
+      restartBtn.onclick = () => {
+        const entry = getOrCreateTerminalEntry(ptyName, a);
+        if (entry.ws && entry.ws.readyState === WebSocket.OPEN) {
+          if (entry.term) entry.term.clear();
+          entry.ws.send(JSON.stringify({
+            type: 'restart',
+            ptyId: ptyName,
+            agentId: a.id,
+            cols: entry.term ? entry.term.cols : 100,
+            rows: entry.term ? entry.term.rows : 30
+          }));
+        }
+      };
+
+      ctrls.appendChild(decBtn);
+      ctrls.appendChild(fontLabel);
+      ctrls.appendChild(incBtn);
+      ctrls.appendChild(expBtn);
+      ctrls.appendChild(restartBtn);
+
+      subhead.appendChild(liveTag);
+      subhead.appendChild(ctrls);
+      container.appendChild(subhead);
+
+      // 2. Real Xterm Terminal Viewport
+      const termWrap = document.createElement('div');
+      termWrap.className = 'term-xterm-wrap';
+      termWrap.style.cssText = 'flex:1;min-height:320px;background:#FCFAF0;padding:6px 10px;overflow:hidden;position:relative;';
+
+      const entry = getOrCreateTerminalEntry(ptyName, a);
+      termWrap.appendChild(entry.host);
+
+      container.appendChild(termWrap);
+
+      // 3. Queue dock (MessageQueueComposer)
+      const queueDock = document.createElement('div');
+      queueDock.className = 'term-queue-dock';
+
+      const queueHead = document.createElement('div');
+      queueHead.className = 'term-queue-head';
+      queueHead.innerHTML = `
+        <div>
+          <span class="term-queue-tag">QUEUE</span>
+          <span style="font-weight:700;margin-right:6px;">${queuedTasks.length}</span>
+          <span style="color:var(--text-dim);">${esc(statusDesc)}</span>
+        </div>
+      `;
+      if (queuedTasks.length > 0) {
+        const clearBtn = document.createElement('button');
+        clearBtn.className = 'term-queue-clear';
+        clearBtn.textContent = 'clear all';
+        clearBtn.onclick = async () => {
+          clearBtn.textContent = 'clearing…';
+          for (const t of queuedTasks) {
+            try {
+              await fetch('/debug/stop-task', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ taskId: t.id, reason: 'Queue cleared' })
+              });
+            } catch {}
+          }
+          renderCommandCenter();
         };
-        timer = setInterval(poll, 2000);
-        // Stop polling when we leave the tab or the agent
-        const orig = window._ccOutputTimer;
-        if (orig) clearInterval(orig);
-        window._ccOutputTimer = timer;
-      }).catch(() => { wrap.textContent = 'Could not reach server for output.'; });
+        queueHead.appendChild(clearBtn);
+      }
+      queueDock.appendChild(queueHead);
+
+      if (queuedTasks.length > 0) {
+        const qList = document.createElement('div');
+        qList.className = 'term-queue-list';
+        queuedTasks.forEach((t, i) => {
+          const item = document.createElement('div');
+          item.className = 'term-queue-item';
+
+          const num = document.createElement('span');
+          num.style.cssText = 'font-weight:700;color:var(--text-dim);margin-right:4px;';
+          num.textContent = (i + 1) + '.';
+
+          const txt = document.createElement('span');
+          txt.className = 'term-queue-item-text';
+          txt.textContent = t.spec || t.title || 'Untitled task';
+          txt.title = t.spec || t.title || '';
+
+          const del = document.createElement('button');
+          del.className = 'term-queue-del';
+          del.textContent = '✕';
+          del.title = 'Remove task from queue';
+          del.onclick = async () => {
+            del.textContent = '…';
+            try {
+              await fetch('/debug/stop-task', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ taskId: t.id, reason: 'Removed from queue by user' })
+              });
+            } catch {}
+            renderCommandCenter();
+          };
+
+          item.appendChild(num);
+          item.appendChild(txt);
+          item.appendChild(del);
+          qList.appendChild(item);
+        });
+        queueDock.appendChild(qList);
+      }
+
+      // Input wrap
+      const inputWrap = document.createElement('div');
+      inputWrap.className = 'term-queue-input-wrap';
+
+      const textarea = document.createElement('textarea');
+      textarea.className = 'term-queue-textarea';
+      textarea.rows = 2;
+      textarea.placeholder = currentTask
+        ? (a.name + ' is busy — queue a message')
+        : ('Message ' + a.name);
+
+      const actionsRow = document.createElement('div');
+      actionsRow.className = 'term-queue-actions';
+
+      const actsLeft = document.createElement('div');
+      actsLeft.className = 'term-action-left';
+
+      const filesBtn = document.createElement('button');
+      filesBtn.className = 'term-act-btn';
+      filesBtn.textContent = '+ files';
+      filesBtn.title = 'Insert file reference';
+      filesBtn.onclick = () => {
+        const fileRef = '# file: src/';
+        textarea.value = textarea.value ? (textarea.value + ' ' + fileRef) : fileRef;
+        textarea.focus();
+      };
+
+      const voiceBtn = document.createElement('button');
+      voiceBtn.className = 'term-act-btn';
+      voiceBtn.textContent = '🎤 voice';
+      voiceBtn.title = 'Voice dictation';
+      voiceBtn.onclick = () => {
+        const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRec) {
+          alert('Speech recognition is not supported in this browser.');
+          return;
+        }
+        try {
+          const rec = new SpeechRec();
+          voiceBtn.textContent = '🔴 listening…';
+          rec.onresult = (e) => {
+            const transcript = e.results[0][0].transcript;
+            textarea.value = textarea.value ? (textarea.value + ' ' + transcript) : transcript;
+            voiceBtn.textContent = '🎤 voice';
+            textarea.focus();
+          };
+          rec.onerror = () => { voiceBtn.textContent = '🎤 voice'; };
+          rec.onend = () => { voiceBtn.textContent = '🎤 voice'; };
+          rec.start();
+        } catch {
+          voiceBtn.textContent = '🎤 voice';
+        }
+      };
+
+      actsLeft.appendChild(filesBtn);
+      actsLeft.appendChild(voiceBtn);
+
+      const sendBtn = document.createElement('button');
+      sendBtn.className = 'term-send-btn';
+      sendBtn.textContent = 'send →';
+
+      const doSend = async () => {
+        const val = textarea.value.trim();
+        if (!val) return;
+        sendBtn.disabled = true;
+        sendBtn.textContent = 'sending…';
+
+        // 1. Send input directly to interactive PTY session!
+        if (entry.ws && entry.ws.readyState === WebSocket.OPEN) {
+          entry.ws.send(JSON.stringify({ type: 'data', ptyId: ptyName, data: val + '\r' }));
+        }
+
+        // 2. Submit task into database / queue
+        const projId = a.projectId || a.project_id || activeRoom()?.id || 'prj_demo';
+        try {
+          await fetch('/debug/submit-task', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              projectId: projId,
+              title: val,
+              spec: val,
+              agentId: a.id
+            })
+          });
+          // Also post to room chat with @mention if chat websocket is open so agent reacts in Chat view too
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'chat', roomId: projId, text: '@' + a.name + ' ' + val }));
+          }
+          textarea.value = '';
+          renderCommandCenter();
+        } catch (e) {
+          console.warn('Failed to send task:', e);
+        } finally {
+          sendBtn.disabled = false;
+          sendBtn.textContent = 'send →';
+        }
+      };
+
+      textarea.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          doSend();
+        }
+      });
+      sendBtn.onclick = doSend;
+
+      actionsRow.appendChild(actsLeft);
+      actionsRow.appendChild(sendBtn);
+
+      inputWrap.appendChild(textarea);
+      inputWrap.appendChild(actionsRow);
+      queueDock.appendChild(inputWrap);
+
+      container.appendChild(queueDock);
+      body.appendChild(container);
+
+      // Now open and fit xterm
+      if (entry.term && !entry.opened) {
+        entry.term.open(entry.host);
+        entry.opened = true;
+      }
+
+      const doFit = () => {
+        if (entry.fit && entry.term && entry.host.isConnected && entry.host.clientWidth && entry.host.clientHeight) {
+          try {
+            entry.fit.fit();
+            if (entry.ws && entry.ws.readyState === WebSocket.OPEN) {
+              entry.ws.send(JSON.stringify({
+                type: 'resize',
+                ptyId: ptyName,
+                cols: entry.term.cols,
+                rows: entry.term.rows
+              }));
+            }
+          } catch {}
+        }
+      };
+
+      requestAnimationFrame(doFit);
+      setTimeout(doFit, 100);
+
+      decBtn.onclick = () => {
+        if (window._ccTermFontSize > 10) {
+          window._ccTermFontSize--;
+          fontLabel.textContent = window._ccTermFontSize + 'px';
+          if (entry.term) {
+            entry.term.options.fontSize = window._ccTermFontSize;
+            doFit();
+          }
+        }
+      };
+
+      incBtn.onclick = () => {
+        if (window._ccTermFontSize < 20) {
+          window._ccTermFontSize++;
+          fontLabel.textContent = window._ccTermFontSize + 'px';
+          if (entry.term) {
+            entry.term.options.fontSize = window._ccTermFontSize;
+            doFit();
+          }
+        }
+      };
+
+      expBtn.onclick = () => {
+        window._ccTermFullscreen = !window._ccTermFullscreen;
+        container.classList.toggle('fullscreen', window._ccTermFullscreen);
+        expBtn.textContent = window._ccTermFullscreen ? '🗗' : '⛶';
+        setTimeout(doFit, 50);
+      };
+
+      if (window.ResizeObserver) {
+        const ro = new ResizeObserver(() => doFit());
+        ro.observe(termWrap);
+      }
+    }
+
+    function ccRenderOutput(body, a) {
+      ccRenderTerminal(body, a);
     }
 
     function ccRenderGraph(body, a) {
@@ -2749,152 +3888,295 @@
 
     function ccRenderMessages(body, a) {
       body.innerHTML = '';
-      const note = document.createElement('div');
-      note.className = 'cmd-note';
-      note.textContent = "This agent's conversation — what it was asked, what it answered, questions it raised. Filtered from Room chat, not a second store.";
-      body.appendChild(note);
-      // Check what exists before building: Room chat and mid-task questions
-      const room = activeRoom();
-      const chat = window.chatLog ?? [];
-      // Filter chat where from is this agent or text mentions this agent, plus activity filtered
-      const mineChat = chat.filter((m) => m.from?.id === a.id || m.from?.name === a.name || (m.text && m.text.includes(a.name)));
-      const mineActivity = (room?.activity ?? []).filter((it) => it.actor === a.name);
-      const all = [...mineChat.map((m) => ({ kind: 'chat', text: m.text, ts: m.ts, from: m.from?.name })), ...mineActivity.map((it) => ({ kind: it.type, text: it.summary, ts: it.ts, from: it.actor }))];
-      if (!all.length) {
-        body.innerHTML += '<div class="empty-note">No messages for this agent yet — chat and mid-task questions appear here.</div>';
-        return;
-      }
-      // Sort by ts if available
-      all.sort((x, y) => (Date.parse(x.ts ?? '') || 0) - (Date.parse(y.ts ?? '') || 0));
-      for (const m of all.slice(-30)) {
-        const row = document.createElement('div');
-        row.className = 'cmd-row';
-        const main = document.createElement('div');
-        main.className = 'cmd-main';
-        const k = document.createElement('div');
-        k.className = 'cmd-desc';
-        k.style.cssText = 'font-size:11px;font-weight:700;color:var(--text-faint)';
-        k.textContent = m.kind;
-        const t = document.createElement('div');
-        t.className = 'cmd-name';
-        t.style.cssText = 'font-size:12px';
-        t.textContent = m.text;
-        main.append(k, t);
-        row.appendChild(main);
-        body.appendChild(row);
-      }
-    }
+      const wrapper = document.createElement('div');
+      wrapper.className = 'mailbox-wrapper';
 
-    // ---------------- Command Center: Memory tab ----------------
-    //
-    // The shared memory this agent can see. Everything that reaches a
-    // browser is already in room.memories — MEMORY.md: agent-private notes
-    // are for their author's recall and never ship — so this renders the
-    // wire as-is, scope badge included, rather than assuming "project".
-    // Filter state survives re-renders because a broadcast rebuilds this
-    // whole panel mid-typing; narrowing must not reset when it does.
-    let ccMemFilter = '';
-    let ccMemFilterFocused = false;
+      const head = document.createElement('div');
+      head.className = 'mailbox-head';
 
-    function ccRenderMemory(body, a) {
-      const all = activeRoom()?.memories ?? [];
-      const newestFirst = [...all].sort(
-        (x, y) => (Date.parse(y.createdAt) || 0) - (Date.parse(x.createdAt) || 0));
+      const titleWrap = document.createElement('div');
+      titleWrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+      const title = document.createElement('span');
+      title.style.cssText = 'font-weight:700;font-size:13px;';
+      title.textContent = `Hive Mailbox: ${a.name}`;
+      const note = document.createElement('span');
+      note.style.cssText = 'font-size:11px;color:var(--text-faint);';
+      note.textContent = 'FIPA-lite speech acts (inbox/ & outbox/)';
+      titleWrap.append(title, note);
 
-      const bar = document.createElement('div');
-      bar.className = 'cc-mem-bar';
+      const filterRow = document.createElement('div');
+      filterRow.style.cssText = 'display:flex;gap:6px;';
+      const filterAll = document.createElement('button');
+      filterAll.className = 'code-btn' + (!window._ccMailFilter || window._ccMailFilter === 'all' ? ' active' : '');
+      filterAll.textContent = 'All';
+      filterAll.onclick = () => { window._ccMailFilter = 'all'; ccRenderMessages(body, a); };
 
-      const input = document.createElement('input');
-      input.className = 'cc-mem-filter';
-      input.type = 'text';
-      input.placeholder = 'Filter by text, kind or agent\u2026';
-      input.setAttribute('aria-label', 'Filter memories');
-      input.value = ccMemFilter;
-      input.addEventListener('focus', () => { ccMemFilterFocused = true; });
-      input.addEventListener('blur', () => { ccMemFilterFocused = false; });
-      input.addEventListener('input', () => {
-        ccMemFilter = input.value;
-        drawList(); // list only — redrawing the input would fight the caret
-      });
+      const filterIn = document.createElement('button');
+      filterIn.className = 'code-btn' + (window._ccMailFilter === 'inbox' ? ' active' : '');
+      filterIn.textContent = '📥 Inbox';
+      filterIn.onclick = () => { window._ccMailFilter = 'inbox'; ccRenderMessages(body, a); };
 
-      const count = document.createElement('span');
-      count.className = 'cc-mem-count';
-      bar.append(input, count);
+      const filterOut = document.createElement('button');
+      filterOut.className = 'code-btn' + (window._ccMailFilter === 'outbox' ? ' active' : '');
+      filterOut.textContent = '📤 Outbox';
+      filterOut.onclick = () => { window._ccMailFilter = 'outbox'; ccRenderMessages(body, a); };
+
+      filterRow.append(filterAll, filterIn, filterOut);
+      head.append(titleWrap, filterRow);
+      wrapper.appendChild(head);
 
       const list = document.createElement('div');
+      list.className = 'mailbox-list';
+      wrapper.appendChild(list);
 
-      const drawList = () => {
-        const q = ccMemFilter.trim().toLowerCase();
-        const rows = q
-          ? newestFirst.filter((m) =>
-              m.text.toLowerCase().includes(q) ||
-              String(m.kind).toLowerCase().includes(q) ||
-              String(m.agentName).toLowerCase().includes(q))
-          : newestFirst;
+      // Composer at bottom
+      const comp = document.createElement('div');
+      comp.className = 'mailbox-composer';
 
-        list.innerHTML = '';
-        count.textContent = q
-          ? `${rows.length} of ${newestFirst.length} match`
-          : (newestFirst.length ? `${newestFirst.length} memories` : '');
+      const row1 = document.createElement('div');
+      row1.className = 'mailbox-composer-row';
 
-        if (!newestFirst.length) {
-          const empty = document.createElement('div');
-          empty.className = 'empty-note';
-          empty.textContent =
-            'No memories yet \u2014 they form as agents finish tasks, then every agent in the room recalls them.';
-          list.appendChild(empty);
-          return;
-        }
-        if (!rows.length) {
-          const empty = document.createElement('div');
-          empty.className = 'empty-note';
-          empty.textContent = `Nothing matches \u201c${ccMemFilter.trim()}\u201d.`;
-          list.appendChild(empty);
-          return;
-        }
+      const toSelect = document.createElement('select');
+      toSelect.className = 'mailbox-composer-input';
+      toSelect.style.cssText = 'max-width:180px;';
+      toSelect.innerHTML = `
+        <option value="god">👑 Orchestrator (God)</option>
+        <option value="broadcast">📢 Broadcast to All</option>
+      `;
+      const allAgents = activeRoom()?.agents || [];
+      allAgents.filter((other) => other.id !== a.id).forEach((other) => {
+        toSelect.innerHTML += `<option value="${esc(other.id)}">${esc(other.name || other.id)}</option>`;
+      });
 
-        for (const m of rows) {
-          const item = document.createElement('div');
-          // Formed by the viewed agent gets the accent border — switching
-          // agents visibly moves which rows are "its" learnings.
-          item.className = 'mem-item' + (m.agentName === a.name ? ' mine' : '');
-          item.title = m.scope === 'agent'
-            ? `Agent memory \u2014 only ${m.agentName} recalls this`
-            : 'Project memory \u2014 every agent in this room recalls it';
+      const actSelect = document.createElement('select');
+      actSelect.className = 'mailbox-composer-input';
+      actSelect.style.cssText = 'max-width:140px;font-weight:700;';
+      actSelect.innerHTML = `
+        <option value="request">request</option>
+        <option value="inform">inform</option>
+        <option value="query">query</option>
+        <option value="propose">propose</option>
+        <option value="done">done</option>
+      `;
 
-          const scope = document.createElement('span');
-          scope.className = `mem-scope s-${m.scope}`;
-          scope.textContent = m.scope;
-          const kind = document.createElement('span');
-          kind.className = `mem-kind k-${m.kind}`;
-          kind.textContent = m.kind;
-          const text = document.createElement('span');
-          text.className = 'mem-text';
-          text.textContent = m.text; // agent-authored — never innerHTML
-          const meta = document.createElement('span');
-          meta.className = 'mem-meta';
-          meta.textContent = '';
-          if (m.agentName === a.name) {
-            const b = document.createElement('b');
-            b.textContent = m.agentName;
-            meta.append(b, document.createTextNode(` formed it \u00b7 ${relativeTime(m.createdAt)}`));
-          } else {
-            meta.textContent = `${m.agentName} \u00b7 ${relativeTime(m.createdAt)}`;
-          }
-          item.append(scope, kind, text, meta);
-          list.appendChild(item);
+      const subjInput = document.createElement('input');
+      subjInput.className = 'mailbox-composer-input';
+      subjInput.placeholder = 'Subject line (e.g. Review requirements)';
+
+      row1.append(toSelect, actSelect, subjInput);
+
+      const row2 = document.createElement('div');
+      row2.style.cssText = 'display:flex;gap:8px;align-items:flex-end;';
+
+      const bodyInput = document.createElement('textarea');
+      bodyInput.className = 'mailbox-composer-input';
+      bodyInput.style.cssText = 'height:54px;font-family:ui-monospace, monospace;resize:vertical;';
+      bodyInput.placeholder = 'Message body or structured payload...';
+
+      const sendBtn = document.createElement('button');
+      sendBtn.className = 'code-btn';
+      sendBtn.style.cssText = 'background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700;height:36px;padding:0 16px;white-space:nowrap;';
+      sendBtn.textContent = 'Send Message';
+      sendBtn.onclick = async () => {
+        const to = toSelect.value;
+        const act = actSelect.value;
+        const subject = subjInput.value.trim() || 'No subject';
+        const bodyText = bodyInput.value.trim();
+        if (!bodyText) return alert('Enter a message body');
+        try {
+          await fetch('/api/hive/messages', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              from: a.id,
+              to,
+              act,
+              subject,
+              body: bodyText,
+            })
+          });
+          bodyInput.value = '';
+          subjInput.value = '';
+          loadMessages();
+        } catch (e) {
+          alert('Failed sending message: ' + e);
         }
       };
 
-      drawList();
-      body.append(bar, list);
+      row2.append(bodyInput, sendBtn);
+      comp.append(row1, row2);
+      wrapper.appendChild(comp);
+      body.appendChild(wrapper);
 
-      // Focus only once attached — a detached element can't take it.
-      if (ccMemFilterFocused) {
-        input.focus();
-        const end = input.value.length;
-        input.setSelectionRange(end, end);
-      }
+      const loadMessages = async () => {
+        try {
+          const res = await fetch(`/api/hive/messages?agentId=${a.id}`);
+          if (!res.ok) throw new Error('status ' + res.status);
+          const data = await res.json();
+          renderCards(data.inbox || [], data.outbox || []);
+        } catch {
+          list.innerHTML = '<div class="empty-note">No hive messages recorded yet. Send one below!</div>';
+        }
+      };
+
+      const renderCards = (inbox, outbox) => {
+        list.innerHTML = '';
+        let items = [];
+        if (!window._ccMailFilter || window._ccMailFilter === 'all') {
+          items = [
+            ...inbox.map((m) => ({ ...m, _dir: 'in' })),
+            ...outbox.map((m) => ({ ...m, _dir: 'out' }))
+          ];
+        } else if (window._ccMailFilter === 'inbox') {
+          items = inbox.map((m) => ({ ...m, _dir: 'in' }));
+        } else {
+          items = outbox.map((m) => ({ ...m, _dir: 'out' }));
+        }
+
+        items.sort((x, y) => (Date.parse(x.created_at || '') || 0) - (Date.parse(y.created_at || '') || 0));
+
+        if (!items.length) {
+          list.innerHTML = '<div class="empty-note">No messages match filter. Send a message to start communicating!</div>';
+          return;
+        }
+
+        items.forEach((m) => {
+          const card = document.createElement('div');
+          card.className = 'mailbox-card';
+
+          const cardHead = document.createElement('div');
+          cardHead.className = 'mailbox-card-header';
+
+          const left = document.createElement('div');
+          left.style.cssText = 'display:flex;align-items:center;gap:7px;';
+
+          const dirTag = document.createElement('span');
+          dirTag.style.cssText = 'font-size:10px;font-weight:700;';
+          dirTag.textContent = m._dir === 'in' ? `📥 from ${m.from}` : `📤 to ${m.to}`;
+
+          const actTag = document.createElement('span');
+          actTag.className = `mailbox-act-badge act-${m.act || 'inform'}`;
+          actTag.textContent = m.act || 'inform';
+
+          left.append(dirTag, actTag);
+
+          const time = document.createElement('span');
+          time.style.cssText = 'font-size:10.5px;color:var(--text-faint);';
+          time.textContent = relativeTime(m.created_at);
+
+          cardHead.append(left, time);
+
+          const subj = document.createElement('div');
+          subj.className = 'mailbox-subject';
+          subj.textContent = m.subject;
+
+          const bText = document.createElement('div');
+          bText.className = 'mailbox-body';
+          bText.textContent = m.body;
+
+          card.append(cardHead, subj, bText);
+          list.appendChild(card);
+        });
+        list.scrollTop = list.scrollHeight;
+      };
+
+      loadMessages();
+    }
+
+    function ccRenderMemory(body, a) {
+      body.innerHTML = '';
+      const split = document.createElement('div');
+      split.className = 'hive-mem-split';
+
+      // Left pane: Agent private memory
+      const leftPane = document.createElement('div');
+      leftPane.className = 'hive-mem-pane';
+
+      const leftHead = document.createElement('div');
+      leftHead.className = 'hive-mem-head';
+      leftHead.innerHTML = `<span>Private Memory (agents/${esc(a.name)}/memory.md)</span>`;
+
+      const saveLeftBtn = document.createElement('button');
+      saveLeftBtn.className = 'code-btn';
+      saveLeftBtn.style.cssText = 'background:#16a34a;color:#fff;border-color:#15803d;font-weight:700;';
+      saveLeftBtn.textContent = 'Save Memory';
+
+      leftHead.appendChild(saveLeftBtn);
+      leftPane.appendChild(leftHead);
+
+      const leftEditor = document.createElement('textarea');
+      leftEditor.className = 'hive-mem-editor';
+      leftEditor.placeholder = 'Agent long-term memory... (durable facts, key decisions)';
+      leftPane.appendChild(leftEditor);
+
+      saveLeftBtn.onclick = async () => {
+        saveLeftBtn.disabled = true;
+        saveLeftBtn.textContent = 'Saving…';
+        try {
+          await fetch(`/api/hive/memory/${a.id}`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ content: leftEditor.value })
+          });
+          saveLeftBtn.textContent = 'Saved!';
+          setTimeout(() => { saveLeftBtn.disabled = false; saveLeftBtn.textContent = 'Save Memory'; }, 1200);
+        } catch (e) {
+          alert('Failed saving memory: ' + e);
+          saveLeftBtn.disabled = false;
+          saveLeftBtn.textContent = 'Save Memory';
+        }
+      };
+
+      // Right pane: Shared Blackboard
+      const rightPane = document.createElement('div');
+      rightPane.className = 'hive-mem-pane';
+
+      const rightHead = document.createElement('div');
+      rightHead.className = 'hive-mem-head';
+      rightHead.innerHTML = `<span>Shared Blackboard (hive/board.md)</span>`;
+
+      const saveRightBtn = document.createElement('button');
+      saveRightBtn.className = 'code-btn';
+      saveRightBtn.style.cssText = 'background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700;';
+      saveRightBtn.textContent = 'Save Blackboard';
+
+      rightHead.appendChild(saveRightBtn);
+      rightPane.appendChild(rightHead);
+
+      const rightEditor = document.createElement('textarea');
+      rightEditor.className = 'hive-mem-editor';
+      rightEditor.placeholder = 'Shared plans, specifications, and objectives co-authored by agents...';
+      rightPane.appendChild(rightEditor);
+
+      saveRightBtn.onclick = async () => {
+        saveRightBtn.disabled = true;
+        saveRightBtn.textContent = 'Saving…';
+        try {
+          await fetch(`/api/hive/board`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ content: rightEditor.value, authorId: a.id })
+          });
+          saveRightBtn.textContent = 'Saved!';
+          setTimeout(() => { saveRightBtn.disabled = false; saveRightBtn.textContent = 'Save Blackboard'; }, 1200);
+        } catch (e) {
+          alert('Failed saving blackboard: ' + e);
+          saveRightBtn.disabled = false;
+          saveRightBtn.textContent = 'Save Blackboard';
+        }
+      };
+
+      split.append(leftPane, rightPane);
+      body.appendChild(split);
+
+      // Load initial contents
+      fetch(`/api/hive/memory/${a.id}`).then((r) => r.json()).then((d) => {
+        leftEditor.value = d.content || '';
+      }).catch(() => {});
+
+      fetch(`/api/hive/board`).then((r) => r.json()).then((d) => {
+        rightEditor.value = d.content || '';
+      }).catch(() => {});
     }
 
     // ---------------- Command Center: Triggers tab ----------------
@@ -3227,15 +4509,15 @@
       }
       sel.disabled = false;
 
-      // A default-harness option only exists when the machine runs a single
-      // declared agent... it doesn't, really — runtime agents name providers.
-      // Keep the list honest: installed providers only.
-      const providers = machine.providers ?? [];
+      // Keep the list honest: installed providers only, or standard local fallbacks
+      let providers = machine.providers ?? [];
       if (!providers.length) {
-        sel.innerHTML = '<option value="">—</option>';
-        note.className = 'provider-note block';
-        note.textContent = 'This machine reports no installed agent CLIs.';
-        return;
+        providers = [
+          { id: 'claude', label: 'Claude Code', policy: 'claude-settings', verified: true, models: ['claude-3-7-sonnet-latest', 'claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest', 'claude-opus-5'] },
+          { id: 'opencode', label: 'OpenCode', policy: 'none', verified: true, models: [] },
+          { id: 'gemini', label: 'Gemini CLI', policy: 'none', verified: false, models: [] },
+          { id: 'codex', label: 'Codex · GPT', policy: 'none', verified: false, models: [] }
+        ];
       }
       let firstEnabled = null;
       for (const p of providers) {

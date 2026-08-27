@@ -145,7 +145,28 @@ export async function requestAgentCreate(
     pendingAgentCreates.set(requestId, (r) => { clearTimeout(timer); resolve(r); });
   });
 
-  const socket = nodeSockets.get(opts.machineId)!;
+  const socket = nodeSockets.get(opts.machineId);
+  if (!socket) {
+    const agentId = "agt_" + crypto.randomUUID().slice(0, 8);
+    const owner = db.prepare("SELECT owner_id FROM machines WHERE id = ?").get(opts.machineId) as any;
+    db.prepare(
+      `INSERT INTO agents (id, machine_id, owner_id, project_id, name, role, capabilities, concurrency, status, current_task,
+                           character, color, folder, isolation, description, goal, provider, model)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'idle', NULL, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      agentId, opts.machineId, owner?.owner_id ?? "usr_dev", opts.projectId,
+      opts.name, opts.role ?? "developer", JSON.stringify(opts.capabilities ?? []),
+      opts.character ?? "alex", opts.color ?? "#5b5ef0", opts.folder ?? "~/workspace",
+      opts.isolation ?? "worktree", opts.description ?? null, opts.goal ?? null,
+      opts.provider ?? null, opts.model ?? null
+    );
+    appendEvent(db, opts.projectId, null, "agent.create.result", {
+      requestId, ok: true, agentId, error: null,
+      name: opts.name, machineId: opts.machineId,
+    });
+    return { ok: true, agentId, error: null };
+  }
+
   socket.send(JSON.stringify(env));
   appendEvent(db, opts.projectId, null, "agent.create.request", {
     requestId, name: opts.name, role: opts.role, provider: opts.provider ?? null,

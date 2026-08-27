@@ -7,3 +7,4 @@ dist/
 .env
 .workspace/
 .DS_Store
+.test-hive-*

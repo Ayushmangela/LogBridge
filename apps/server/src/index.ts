@@ -2,7 +2,9 @@ import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, join, isAbsolute, normalize, relative, resolve } from "node:path";
+import { readdir, readFile, writeFile, stat, mkdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import type { WebSocket } from "ws";
 import {
   appendEvent, clearSummon, createTask, openDb, summonAgent,
@@ -21,12 +23,15 @@ import {
 } from "./nodeGateway.js";
 import { createTrigger, deleteTrigger, setTriggerEnabled, startEventLoop, startTriggerLoop } from "./triggers.js";
 import { TriggerCreate, TriggerDelete, TriggerEnable } from "@logbridge/protocol";
+import { registerPtyGateway } from "./ptyGateway.js";
+import { HiveManager } from "./hive.js";
 
 export interface BuiltServer {
   app: ReturnType<typeof Fastify>;
   db: Db;
   nodeSockets: NodeSockets;
   browserSockets: Set<WebSocket>;
+  hive: HiveManager;
 }
 
 // Exported so integration tests can boot the real server in-process — same
@@ -40,7 +45,44 @@ export async function buildServer(
   const browserSockets = new Set<WebSocket>();
   const nodeSockets: NodeSockets = new Map();
 
+  const hiveHome = opts.dbPath === ":memory:"
+    ? join(dirname(fileURLToPath(import.meta.url)), "..", ".test-hive-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7))
+    : process.env.HIVE_HOME || join(process.env.HOME || "", "workspace", "hive");
+
+  const hive = new HiveManager(hiveHome, (ev) => {
+    const payload = JSON.stringify({ type: "hive:event", event: ev });
+    for (const ws of browserSockets) {
+      if (ws.readyState === ws.OPEN) {
+        ws.send(payload);
+      }
+    }
+  });
+
+  if (process.env.NODE_ENV !== "test" || opts.dbPath !== ":memory:") {
+    hive.startRouter(1500);
+  }
+
+  // Sync existing agents to hive
+  try {
+    const agents = db.prepare("SELECT * FROM agents").all() as any[];
+    for (const a of agents) {
+      hive.registerAgent({
+        id: a.id,
+        name: a.name,
+        role: a.role,
+        provider: a.provider,
+        model: a.model,
+        folder: a.folder,
+        isGod: a.role === "orchestrator" || a.name === "Michael" || a.name === "michael",
+      });
+    }
+  } catch {}
+
   const app = Fastify({ logger: process.env.NODE_ENV !== "test" });
+
+  app.addHook("onClose", async () => {
+    hive.stopRouter();
+  });
 
   await app.register(websocket);
 
@@ -65,6 +107,7 @@ export async function buildServer(
     onChat: broadcastChat,
     consentTimeoutMs: opts.consentTimeoutMs,
   });
+  registerPtyGateway(app, db, hive);
 
   // ---------------------------------------------------------------------
   // DEV ONLY: stand-in for the chat / task-creation UI that doesn't exist
@@ -280,6 +323,105 @@ export async function buildServer(
     return gitState;
   });
 
+  // ---- Agent Code & Workspace Files (matching munder-difflin IDE / FilesTab) ----
+  const resolveAgentCwd = (agentId: string): string => {
+    const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId) as any;
+    let cwd = agent?.folder || agent?.cwd || process.cwd();
+    if (typeof cwd === "string" && cwd.startsWith("~/")) {
+      cwd = (process.env.HOME || "") + cwd.slice(1);
+    }
+    if (!existsSync(cwd)) {
+      try { mkdir(cwd, { recursive: true }); } catch {}
+      if (!existsSync(cwd)) cwd = process.cwd();
+    }
+    return resolve(cwd);
+  };
+
+  const safeJoin = (root: string, rel: string): string | null => {
+    const absRoot = resolve(root);
+    const absPath = isAbsolute(rel) ? normalize(rel) : resolve(absRoot, rel);
+    const rel2 = relative(absRoot, absPath);
+    if (rel2.startsWith("..") || isAbsolute(rel2)) return null;
+    return absPath;
+  };
+
+  app.get<{ Params: { id: string }; Querystring: { dir?: string } }>(
+    "/api/agents/:id/files",
+    async (req, reply) => {
+      const id = req.params.id || (req.params as any).agentId;
+      const root = resolveAgentCwd(id);
+      const relDir = req.query.dir || "";
+      const absDir = safeJoin(root, relDir);
+      if (!absDir) return reply.code(400).send({ ok: false, error: "path escapes root" });
+      try {
+        const names = await readdir(absDir);
+        const entries = await Promise.all(
+          names
+            .filter((n) => !n.startsWith(".git") && n !== "node_modules")
+            .map(async (name) => {
+              try {
+                const s = await stat(join(absDir, name));
+                return {
+                  name,
+                  isDir: s.isDirectory(),
+                  size: s.size,
+                  mtime: s.mtimeMs,
+                  relPath: relDir ? `${relDir}/${name}` : name,
+                };
+              } catch {
+                return { name, isDir: false, size: 0, mtime: 0, relPath: relDir ? `${relDir}/${name}` : name };
+              }
+            })
+        );
+        entries.sort((a, b) => {
+          if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        });
+        return { ok: true, root, rel: relDir, entries };
+      } catch (err: any) {
+        return reply.code(500).send({ ok: false, error: err?.message || String(err) });
+      }
+    }
+  );
+
+  app.get<{ Params: { id: string }; Querystring: { path: string } }>(
+    "/api/agents/:id/file",
+    async (req, reply) => {
+      const id = req.params.id || (req.params as any).agentId;
+      const rel = req.query.path;
+      if (!rel) return reply.code(400).send({ ok: false, error: "path parameter required" });
+      const root = resolveAgentCwd(id);
+      const absPath = safeJoin(root, rel);
+      if (!absPath) return reply.code(400).send({ ok: false, error: "path escapes root" });
+      try {
+        const content = await readFile(absPath, "utf-8");
+        return { ok: true, path: rel, content, size: content.length };
+      } catch (err: any) {
+        return reply.code(404).send({ ok: false, error: err?.message || "file not found" });
+      }
+    }
+  );
+
+  app.post<{ Params: { id: string }; Body: { path: string; content: string } }>(
+    "/api/agents/:id/file",
+    async (req, reply) => {
+      const id = req.params.id || (req.params as any).agentId;
+      const { path: rel, content } = req.body ?? {};
+      if (!rel || content === undefined) {
+        return reply.code(400).send({ ok: false, error: "path and content required" });
+      }
+      const root = resolveAgentCwd(id);
+      const absPath = safeJoin(root, rel);
+      if (!absPath) return reply.code(400).send({ ok: false, error: "path escapes root" });
+      try {
+        await writeFile(absPath, content, "utf-8");
+        return { ok: true, path: rel, size: content.length };
+      } catch (err: any) {
+        return reply.code(500).send({ ok: false, error: err?.message || "failed to write file" });
+      }
+    }
+  );
+
   // ---- Phase 7: Engine swap (HANDOFF-SERVER-4 Phase 7) ----
   app.post<{ Params: { id: string }; Body: { provider: string; model?: string | null } }>(
     "/api/agents/:id/engine",
@@ -389,14 +531,14 @@ export async function buildServer(
   // Submit work WITHOUT naming an agent — the orchestrator decides who runs
   // it, or queues it until someone can. See ORCHESTRATOR.md.
   app.post<{
-    Body: { projectId: string; title: string; spec?: string; requiredCapability?: string; budgetSeconds?: number; budgetUsd?: number };
+    Body: { projectId: string; title: string; spec?: string; requiredCapability?: string; budgetSeconds?: number; budgetUsd?: number; agentId?: string };
   }>("/debug/submit-task", async (req, reply) => {
-    const { projectId, title, spec, requiredCapability, budgetSeconds, budgetUsd } = req.body;
+    const { projectId, title, spec, requiredCapability, budgetSeconds, budgetUsd, agentId } = req.body;
     const project = db.prepare("SELECT id FROM projects WHERE id = ?").get(projectId) as any;
     if (!project) return reply.code(404).send({ error: "no such project" });
 
     const taskId = createTask(db, {
-      projectId, title, spec, creatorId: "you", agentId: null,
+      projectId, title, spec, creatorId: "you", agentId: agentId ?? null,
       requiredCapability: requiredCapability ?? null, budgetSeconds, budgetUsd,
     });
     orchestrate(db, nodeSockets, app);
@@ -455,6 +597,16 @@ export async function buildServer(
       denyPaths: Array.isArray(b.denyPaths) ? b.denyPaths : [],
     });
     broadcastView(); // success path already published a card; refresh either way
+    if (result.ok && result.agentId) {
+      hive.registerAgent({
+        id: result.agentId,
+        name: String(b.name).slice(0, 64),
+        role: b.role ?? "developer",
+        provider: b.provider ?? "cli",
+        model: b.model ?? "default",
+        folder: b.folder ?? null,
+      });
+    }
     return reply.code(result.ok ? 200 : 409).send(result);
   });
 
@@ -538,7 +690,61 @@ export async function buildServer(
     app.log.info(`github mirror running for: ${repos.join(", ")}`);
   }
 
-  return { app, db, nodeSockets, browserSockets };
+  // ─── Hive Multi-Agent Endpoints (munder-difflin architecture) ──────
+  app.get("/api/hive/roster", async () => {
+    return hive.getRegistry();
+  });
+
+  app.get("/api/hive/board", async () => {
+    return { content: hive.getBoard() };
+  });
+
+  app.post("/api/hive/board", async (req, reply) => {
+    const body = req.body as any;
+    if (typeof body?.content !== "string") return reply.code(400).send({ error: "content required" });
+    hive.setBoard(body.content, body.authorId);
+    return { ok: true, content: body.content };
+  });
+
+  app.get("/api/hive/tasks", async () => {
+    return { tasks: hive.getTasks() };
+  });
+
+  app.post("/api/hive/tasks", async (req, reply) => {
+    const body = req.body as any;
+    if (!body?.title) return reply.code(400).send({ error: "title required" });
+    const task = hive.upsertTask(body);
+    return { ok: true, task };
+  });
+
+  app.get("/api/hive/messages", async (req, reply) => {
+    const q = req.query as any;
+    const agentId = q.agentId;
+    if (!agentId) return reply.code(400).send({ error: "agentId required" });
+    return hive.getAgentMessages(agentId);
+  });
+
+  app.post("/api/hive/messages", async (req, reply) => {
+    const body = req.body as any;
+    if (!body?.to || !body?.body) return reply.code(400).send({ error: "to and body required" });
+    const msg = hive.postMessage(body, body.from || "user");
+    return { ok: true, message: msg };
+  });
+
+  app.get("/api/hive/memory/:agentId", async (req, reply) => {
+    const { agentId } = req.params as any;
+    return { content: hive.getAgentMemory(agentId) };
+  });
+
+  app.post("/api/hive/memory/:agentId", async (req, reply) => {
+    const { agentId } = req.params as any;
+    const body = req.body as any;
+    if (typeof body?.content !== "string") return reply.code(400).send({ error: "content required" });
+    hive.setAgentMemory(agentId, body.content);
+    return { ok: true, content: body.content };
+  });
+
+  return { app, db, nodeSockets, browserSockets, hive };
 }
 
 async function main() {
