@@ -874,7 +874,7 @@
   <!-- ================= main ================= -->
   <div class="main">
     <header class="topbar">
-      <button class="ws-pick">
+      <button class="ws-pick" onclick="setView('projects')" title="Switch Project Workspace">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
         <span id="ws-name">Workspace</span>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
@@ -1073,19 +1073,20 @@
         </div>
       </section>
 
-      <!-- ===== projects (temp) ===== -->
+      <!-- ===== projects ===== -->
       <section class="view" id="view-projects">
         <div class="panel-card">
-          <div class="panel-head"><div class="panel-h1">Projects</div>
-            <div class="panel-sub">One room per repository</div></div>
-          <div class="panel-body">
-            <div id="projects-list"></div>
-            <div class="section-label">Managing projects</div>
-            <div class="temp"><b>Not built yet</b>
-              Rooms exist in the database but there is no UI to create or configure one, and
-              nothing reads a repository yet. The GitHub mirror is M6 in <code>PHASES.md</code>:
-              rooms from repos, tasks from issues, PR and CI state on the board.
+          <div class="panel-head" style="display:flex;justify-content:space-between;align-items:center;padding:18px 24px;border-bottom:1px solid var(--border-soft);">
+            <div>
+              <div class="panel-h1">Project Workspaces</div>
+              <div class="panel-sub">Select an office workspace or launch a new autonomous initiative with a Central Commander</div>
             </div>
+            <button class="primary" style="display:inline-flex;align-items:center;gap:8px;padding:9px 18px;font-weight:600;background:var(--accent);" onclick="openCreateProjectModal()">
+              <span style="font-size:16px;line-height:1;">+</span> Create New Project
+            </button>
+          </div>
+          <div class="panel-body" style="padding:24px;">
+            <div id="projects-grid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(320px, 1fr));gap:20px;"></div>
           </div>
         </div>
       </section>
@@ -1324,6 +1325,34 @@
     <div class="dialog-actions">
       <button class="btn-ghost" id="na-cancel">Cancel</button>
       <button class="btn-primary" id="na-save">Save note</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="create-project-modal">
+  <div class="modal" style="width:480px;max-width:92vw;">
+    <h2 style="font-size:18px;font-weight:700;margin:0 0 6px;">Create New Project</h2>
+    <div class="sub" style="font-size:12.5px;color:var(--text-dim);margin-bottom:18px;line-height:1.4;">
+      Launches a dedicated project workspace. <b>Exactly ONE Central Commander agent</b> will be spawned to direct missions, analyze requirements, and orchestrate the team.
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="field">
+        <label for="cp-name" style="font-size:12px;font-weight:600;display:block;margin-bottom:5px;">Project Name</label>
+        <input id="cp-name" type="text" placeholder="e.g. Nike Global Flagship" oninput="updateCommanderPlaceholder()" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font:inherit;background:var(--surface);">
+      </div>
+      <div class="field">
+        <label for="cp-folder" style="font-size:12px;font-weight:600;display:block;margin-bottom:5px;">Working Directory / Folder</label>
+        <input id="cp-folder" type="text" placeholder="e.g. ~/project_test/nike" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font:inherit;background:var(--surface);">
+      </div>
+      <div class="field">
+        <label for="cp-commander" style="font-size:12px;font-weight:600;display:block;margin-bottom:5px;">Central Commander Agent Name</label>
+        <input id="cp-commander" type="text" placeholder="e.g. nike-commander" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font:inherit;background:var(--surface);">
+      </div>
+      <div id="cp-err" style="color:var(--red);font-size:12px;display:none;padding:8px 12px;border-radius:6px;background:#fef2f2;border:1px solid #fecaca;"></div>
+      <div class="dialog-actions" style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px;">
+        <button class="btn-ghost" onclick="closeCreateProjectModal()">Cancel</button>
+        <button class="btn-primary" id="cp-submit-btn" onclick="submitCreateProject()">Launch Project →</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1743,18 +1772,37 @@
 
     // Tell the server which room we're looking at. Until it knows, it can't
     // scope chat — and it deliberately sends none rather than guessing.
+    let activeProjectId = localStorage.getItem("logbridge_active_project") || null;
     let announcedRoom = null;
+
+    function activeRoom() {
+      if (!latestView || !latestView.rooms.length) return null;
+      if (activeProjectId) {
+        const found = latestView.rooms.find((r) => r.id === activeProjectId);
+        if (found) return found;
+      }
+      return latestView.rooms[0];
+    }
+
+    function selectProject(projectId) {
+      activeProjectId = projectId;
+      localStorage.setItem("logbridge_active_project", projectId);
+      announcedRoom = null;
+      announceRoom();
+      if (latestView) {
+        renderAlways(latestView);
+        renderView(latestView);
+      }
+      setView('office');
+    }
+
     function announceRoom() {
-      const room = latestView?.rooms?.[0];
+      const room = activeRoom();
       if (!room || !ws || ws.readyState !== WebSocket.OPEN) return;
       if (announcedRoom === room.id) return;
       announcedRoom = room.id;
       chatLog.length = 0; // history for the new room is about to arrive
       ws.send(JSON.stringify({ type: 'join', roomId: room.id }));
-    }
-
-    function activeRoom() {
-      return latestView && latestView.rooms.length ? latestView.rooms[0] : null;
     }
 
     // ---------------- office legend + filters (prompt 8b) ----------------
@@ -1817,7 +1865,7 @@
 
     // ---------------- Rendering: reconcile sprites against real state ----------------
     function renderView(view) {
-      const room = view.rooms[0];
+      const room = activeRoom() || view.rooms[0];
       if (!room) return;
 
       const seenAgents = new Set();
@@ -1972,7 +2020,10 @@
     // 'agent' is the Command Center for ONE agent. It has no nav item —
     // you reach it by clicking an agent, and leave via 'All agents'.
     const VIEWS = ['office', 'tasks', 'chat', 'projects', 'agents', 'memory', 'settings', 'agent'];
-    let currentView = 'office';
+    let currentView = activeProjectId ? 'office' : 'projects';
+    if (!activeProjectId) {
+      setTimeout(() => setView('projects'), 60);
+    }
     function stageEl() { return document.getElementById('canvas-container'); }
 
     window.setView = function (name) {
@@ -2002,7 +2053,7 @@
     };
 
     function renderCurrentView() {
-      const room = latestView?.rooms?.[0];
+      const room = activeRoom() || latestView?.rooms?.[0];
       if (!room) return;
       if (currentView === 'tasks')   renderBoard(room);
       if (currentView === 'chat')    renderChat();
@@ -2016,7 +2067,7 @@
     // Everything the sidebar and bottom strip show, refreshed on every
     // broadcast — they're always visible, so they can't wait for a tab click.
     function renderAlways(view) {
-      const room = view.rooms[0];
+      const room = activeRoom() || view.rooms[0];
       if (!room) return;
       document.getElementById('ws-name').textContent = room.name;
       renderLegend();
@@ -2158,15 +2209,199 @@
       }
     }
 
-    function renderProjects() {
-      const el = document.getElementById('projects-list');
-      el.innerHTML = '<div class="section-label" style="margin-top:0">Rooms</div>';
-      for (const r of latestView?.rooms ?? []) {
-        el.appendChild(rosterRow({
-          name: r.name, sub: `${r.agents.length} agents · ${r.tasks.length} tasks`, status: 'online',
+    function escapeHtml(s) {
+      if (!s) return "";
+      return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    async function renderProjects() {
+      const grid = document.getElementById('projects-grid');
+      if (!grid) return;
+      grid.innerHTML = '<div style="color:var(--text-faint);padding:12px;">Loading workspaces…</div>';
+
+      let projectList = [];
+      try {
+        const res = await fetch('/api/projects');
+        const data = await res.json();
+        projectList = data.projects || [];
+      } catch {
+        projectList = (latestView?.rooms || []).map(r => ({
+          id: r.id,
+          name: r.name,
+          gh_repo: r.gh_repo || r.name,
+          agentCount: r.agents.length,
+          taskCount: r.tasks.length,
+          commanderName: r.agents.find(a => a.role === 'planner' || a.name?.toLowerCase().includes('commander'))?.name,
         }));
       }
+
+      grid.innerHTML = '';
+
+      const ICONS = ['🏢', '🍔', '🏎️', '⚡', '🚀', '🛠️', '🌐', '📦'];
+
+      for (let i = 0; i < projectList.length; i++) {
+        const p = projectList[i];
+        const isActive = activeRoom()?.id === p.id;
+        const icon = ICONS[hashString(p.id) % ICONS.length];
+
+        const card = document.createElement('div');
+        card.style.cssText = `
+          background:var(--surface);
+          border:${isActive ? '2px solid var(--accent)' : '1px solid var(--border)'};
+          border-radius:14px;
+          padding:20px;
+          box-shadow:var(--shadow);
+          display:flex;
+          flex-direction:column;
+          gap:14px;
+          position:relative;
+          transition:transform .15s, box-shadow .15s;
+        `;
+
+        card.innerHTML = `
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div style="width:44px;height:44px;border-radius:10px;background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-size:22px;border:1px solid var(--border-soft);">
+                ${icon}
+              </div>
+              <div>
+                <div style="font-size:16px;font-weight:700;color:var(--text);">${escapeHtml(p.name)}</div>
+                <div style="font-size:12px;color:var(--text-faint);font-family:'JetBrains Mono',monospace;margin-top:2px;">${escapeHtml(p.gh_repo || p.id)}</div>
+              </div>
+            </div>
+            ${isActive ? '<span style="background:var(--accent-soft);color:var(--accent);font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:12px;border:1px solid var(--accent);">● ACTIVE</span>' : ''}
+          </div>
+
+          <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:12px;">
+            <div style="background:var(--surface-2);border:1px solid var(--border-soft);padding:4px 10px;border-radius:7px;color:var(--text-dim);">
+              👥 <b>${p.agentCount}</b> Agents
+            </div>
+            <div style="background:var(--surface-2);border:1px solid var(--border-soft);padding:4px 10px;border-radius:7px;color:var(--text-dim);">
+              📋 <b>${p.taskCount}</b> Tasks
+            </div>
+            ${p.commanderName ? `
+              <div style="background:#fef3c7;border:1px solid #fde68a;color:#92400e;padding:4px 10px;border-radius:7px;font-weight:600;">
+                👑 ${escapeHtml(p.commanderName)}
+              </div>
+            ` : ''}
+          </div>
+
+          <div style="display:flex;gap:8px;margin-top:auto;padding-top:6px;border-top:1px solid var(--border-soft);">
+            <button class="primary" style="flex:1;padding:8px 14px;font-weight:600;${isActive ? '' : 'background:#4f46e5;border-color:#4338ca;'}" onclick="selectProject('${p.id}')">
+              ${isActive ? 'Open Office →' : 'Enter Office →'}
+            </button>
+            ${p.id !== 'prj_demo' ? `
+              <button class="cc-tab" style="color:var(--red);border-color:#fecaca;padding:8px 12px;" onclick="deleteProjectPrompt('${p.id}', '${escapeHtml(p.name)}')">
+                Delete
+              </button>
+            ` : ''}
+          </div>
+        `;
+        grid.appendChild(card);
+      }
+
+      // Add "+ Create New Project" card in the grid
+      const addCard = document.createElement('div');
+      addCard.style.cssText = `
+        background:var(--surface);
+        border:2px dashed var(--border);
+        border-radius:14px;
+        padding:24px;
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        justify-content:center;
+        text-align:center;
+        cursor:pointer;
+        min-height:180px;
+        transition:border-color .15s, background .15s;
+      `;
+      addCard.onmouseenter = () => { addCard.style.borderColor = 'var(--accent)'; addCard.style.background = 'var(--surface-2)'; };
+      addCard.onmouseleave = () => { addCard.style.borderColor = 'var(--border)'; addCard.style.background = 'var(--surface)'; };
+      addCard.onclick = () => openCreateProjectModal();
+
+      addCard.innerHTML = `
+        <div style="width:48px;height:48px;border-radius:50%;background:var(--surface-2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--accent);margin-bottom:12px;">+</div>
+        <div style="font-size:15px;font-weight:700;color:var(--text);">Create New Project</div>
+        <div style="font-size:12px;color:var(--text-faint);margin-top:4px;max-width:220px;">Spawn a new workspace with a dedicated Central Commander agent</div>
+      `;
+      grid.appendChild(addCard);
     }
+
+    window.openCreateProjectModal = function () {
+      const modal = document.getElementById('create-project-modal');
+      if (!modal) return;
+      document.getElementById('cp-name').value = '';
+      document.getElementById('cp-folder').value = '';
+      document.getElementById('cp-commander').value = '';
+      const err = document.getElementById('cp-err');
+      if (err) { err.textContent = ''; err.style.display = 'none'; }
+      modal.classList.add('open');
+      setTimeout(() => document.getElementById('cp-name')?.focus(), 50);
+    };
+
+    window.closeCreateProjectModal = function () {
+      document.getElementById('create-project-modal')?.classList.remove('open');
+    };
+
+    window.updateCommanderPlaceholder = function () {
+      const val = document.getElementById('cp-name').value.trim();
+      const slug = val.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "project";
+      const cmdInput = document.getElementById('cp-commander');
+      if (cmdInput && !cmdInput.value) {
+        cmdInput.placeholder = `${slug}-commander`;
+      }
+      const folderInput = document.getElementById('cp-folder');
+      if (folderInput && !folderInput.value) {
+        folderInput.placeholder = `/Users/ayush/project_test/${slug}`;
+      }
+    };
+
+    window.submitCreateProject = async function () {
+      const name = document.getElementById('cp-name').value.trim();
+      const folder = document.getElementById('cp-folder').value.trim();
+      const commanderName = document.getElementById('cp-commander').value.trim();
+      const err = document.getElementById('cp-err');
+      const submitBtn = document.getElementById('cp-submit-btn');
+
+      if (!name) {
+        if (err) { err.textContent = 'Please enter a project name.'; err.style.display = 'block'; }
+        return;
+      }
+
+      if (submitBtn) { submitBtn.textContent = 'Launching…'; submitBtn.disabled = true; }
+      try {
+        const res = await fetch('/api/projects', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name, folder, commanderName }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || 'Failed to create project');
+        }
+        closeCreateProjectModal();
+        selectProject(data.project.id);
+      } catch (e) {
+        if (err) { err.textContent = e.message; err.style.display = 'block'; }
+      } finally {
+        if (submitBtn) { submitBtn.textContent = 'Launch Project →'; submitBtn.disabled = false; }
+      }
+    };
+
+    window.deleteProjectPrompt = async function (id, name) {
+      if (!confirm(`Are you sure you want to delete project "${name}" and all its agents and tasks?`)) return;
+      try {
+        await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+        if (activeProjectId === id) {
+          activeProjectId = null;
+          localStorage.removeItem('logbridge_active_project');
+        }
+        renderProjects();
+      } catch (e) {
+        alert('Failed to delete project: ' + e.message);
+      }
+    };
 
     // ---------------- Command Center (one agent) ----------------
     //

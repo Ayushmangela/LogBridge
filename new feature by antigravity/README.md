@@ -16,6 +16,7 @@ LogBridge has been upgraded by **Antigravity** with a next-generation autonomous
 | **6. Command Center & Code Workspace** | Split IDE workspace with file explorer, paper-palette code editor, and synchronized terminal. | [CODE_WORKSPACE.md](./CODE_WORKSPACE.md) |
 | **7. Central Commander Architecture** | Hierarchical leadership where a central Commander analyzes goals, posts plans, and delegates to employees. | [COMMANDER_ARCHITECTURE.md](./COMMANDER_ARCHITECTURE.md) |
 | **8. Visual Meeting Room Collab** | Pixel-art characters dynamically walk to the 🤝 Meeting Room when collaborating or messaging. | [MEETING_ROOM_COLLAB.md](./MEETING_ROOM_COLLAB.md) |
+| **9. Project Workspaces & Commander Provisioning** | Dedicated Project Launcher screen, strict project scoping, and auto-spawning of single Central Commander. | [PROJECT_WORKSPACES.md](./PROJECT_WORKSPACES.md) |
 
 ---
 

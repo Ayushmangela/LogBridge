@@ -4,7 +4,8 @@ import websocket from "@fastify/websocket";
 import { fileURLToPath } from "node:url";
 import { dirname, join, isAbsolute, normalize, relative, resolve } from "node:path";
 import { readdir, readFile, writeFile, stat, mkdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import type { WebSocket } from "ws";
 import {
   appendEvent, clearSummon, createTask, openDb, summonAgent,
@@ -767,6 +768,138 @@ export async function buildServer(
     }
     broadcastView();
     return { ok: true, meetings: hive.getActiveMeetings() };
+  });
+
+  // ─── Project Management Endpoints ─────────────────────────────────
+  app.get("/api/projects", async () => {
+    const projects = db.prepare("SELECT * FROM projects ORDER BY name").all() as any[];
+    const result = projects.map((p) => {
+      const agents = db.prepare("SELECT id, name, role FROM agents WHERE project_id = ? AND retired = 0").all(p.id) as any[];
+      const taskCount = (db.prepare("SELECT COUNT(*) as count FROM tasks WHERE project_id = ?").get(p.id) as any)?.count || 0;
+      const commander = agents.find((a) => a.role === "planner" || a.name?.toLowerCase().includes("commander"));
+      return {
+        id: p.id,
+        name: p.name || p.gh_repo || p.id,
+        gh_repo: p.gh_repo,
+        layout: p.layout || "office",
+        agentCount: agents.length,
+        taskCount,
+        commanderName: commander ? commander.name : null,
+        commanderId: commander ? commander.id : null,
+      };
+    });
+    return { projects: result };
+  });
+
+  app.post("/api/projects", async (req, reply) => {
+    const body = req.body as any;
+    const name = String(body?.name || "").trim();
+    if (!name) return reply.code(400).send({ error: "Project name is required" });
+
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "project";
+    const projectId = "prj_" + slug + "_" + randomBytes(3).toString("hex");
+
+    let folder = body.folder ? String(body.folder).trim() : "";
+    if (!folder) {
+      folder = join(process.env.HOME || "", "project_test", slug);
+    }
+    if (folder.startsWith("~/")) {
+      folder = join(process.env.HOME || "", folder.slice(2));
+    }
+    try {
+      if (!existsSync(folder)) {
+        mkdirSync(folder, { recursive: true });
+      }
+    } catch {}
+
+    // 1. Create project row
+    db.prepare("INSERT INTO projects (id, gh_repo, name, layout) VALUES (?, ?, ?, 'office')").run(
+      projectId,
+      slug,
+      name
+    );
+
+    // 2. Automatically spawn EXACTLY ONE Central Commander agent
+    const commanderId = "agt_" + randomBytes(4).toString("hex");
+    const commanderName = String(body?.commanderName || "").trim() || `${slug}-commander`;
+    const model = body.model || "qwen2.5-coder:32b";
+
+    const machineId = (db.prepare("SELECT id FROM machines WHERE online = 1 LIMIT 1").get() as any)?.id
+                   || (db.prepare("SELECT id FROM machines LIMIT 1").get() as any)?.id
+                   || "node_primary";
+    const ownerId = (db.prepare("SELECT id FROM users LIMIT 1").get() as any)?.id || "usr_ayush";
+
+    db.prepare(`
+      INSERT INTO agents (id, machine_id, owner_id, project_id, name, role, provider, model, folder, description, goal, character, status)
+      VALUES (?, ?, ?, ?, ?, 'planner', 'opencode', ?, ?, ?, ?, 'adam', 'idle')
+    `).run(
+      commanderId,
+      machineId,
+      ownerId,
+      projectId,
+      commanderName,
+      model,
+      folder,
+      `Central Operations Commander for ${name}`,
+      `Direct missions, analyze requirements, formulate architecture, and delegate to employee agents.`
+    );
+
+    // Register with Hive
+    hive.registerAgent({
+      id: commanderId,
+      name: commanderName,
+      role: "planner",
+      provider: "opencode",
+      model,
+      folder,
+      isGod: true,
+    });
+
+    // Invert directive: Write initial AGENTS.md in project folder
+    try {
+      const agentsMdPath = join(folder, "AGENTS.md");
+      const directive = `# SYSTEM DIRECTIVE: CENTRAL OPERATIONS COMMANDER\n\n` +
+        `You are **${commanderName}**, the Central Operations Commander for **${name}**.\n\n` +
+        `**CRITICAL OPERATIONAL CONSTRAINT**:\n` +
+        `- **DO NOT WRITE APPLICATION SOURCE CODE DIRECTLY.**\n` +
+        `- You are the Commander, NOT a worker bee.\n` +
+        `- Your mission is to analyze user requests, author master architecture on \`~/workspace/hive/board.md\`, log tasks on \`~/workspace/hive/tasks.json\`, and delegate missions to specialized subordinate employees.\n\n` +
+        `Stand ready for the operator's first directive!\n`;
+      writeFileSync(agentsMdPath, directive, "utf8");
+    } catch {}
+
+    broadcastView();
+
+    return {
+      ok: true,
+      project: {
+        id: projectId,
+        name,
+        slug,
+        folder,
+      },
+      commander: {
+        id: commanderId,
+        name: commanderName,
+        role: "planner",
+        folder,
+      },
+    };
+  });
+
+  app.delete("/api/projects/:id", async (req, reply) => {
+    const { id } = req.params as any;
+    const project = db.prepare("SELECT * FROM projects WHERE id = ?").get(id) as any;
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+
+    // Clean up tasks, agents, events for this project
+    db.prepare("DELETE FROM tasks WHERE project_id = ?").run(id);
+    db.prepare("DELETE FROM agents WHERE project_id = ?").run(id);
+    db.prepare("DELETE FROM events WHERE project_id = ?").run(id);
+    db.prepare("DELETE FROM projects WHERE id = ?").run(id);
+
+    broadcastView();
+    return { ok: true, deletedId: id };
   });
 
   return { app, db, nodeSockets, browserSockets, hive };
