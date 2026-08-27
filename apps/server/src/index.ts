@@ -604,7 +604,7 @@ export async function buildServer(
         role: b.role ?? "developer",
         provider: b.provider ?? "cli",
         model: b.model ?? "default",
-        folder: b.folder ?? null,
+        folder: b.folder ?? undefined,
       });
     }
     return reply.code(result.ok ? 200 : 409).send(result);

@@ -1,7 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "ws";
 import * as pty from "node-pty";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { execSync } from "node:child_process";
 import type { Db } from "./db.js";
 import { getAgentOutput } from "./db.js";
 
@@ -158,6 +160,35 @@ export function registerPtyGateway(app: FastifyInstance, db: Db, hive?: HiveMana
           }
           if (!existsSync(cwd)) cwd = process.cwd();
 
+          if (agent && cwd && existsSync(cwd) && hive) {
+            try {
+              const agentsMdPath = join(cwd, "AGENTS.md");
+              const isCommander = (agent.name && agent.name.toLowerCase().includes("commander")) ||
+                                  (agent.role && agent.role.toLowerCase().includes("commander")) ||
+                                  agent.isGod;
+              if (isCommander) {
+                const roster = hive.getRegistry();
+                const subordinates = Object.values(roster.agents || {}).filter((sub: any) => sub.id !== agentId);
+                const subList = subordinates.map((s: any) => `- **${s.name}** (ID: \`${s.id}\`, Role: ${s.role || "Specialist"})`).join("\n");
+
+                const content = `# SYSTEM DIRECTIVE: CENTRAL OPERATIONS COMMANDER\n\n` +
+                  `You are **${agent.name}**, the Central Operations Commander.\n\n` +
+                  `**CRITICAL OPERATIONAL CONSTRAINT**:\n` +
+                  `- **DO NOT WRITE SOURCE CODE DIRECTLY.**\n` +
+                  `- You are the Commander, NOT a worker bee. Your mission is to analyze requests, formulate architecture on \`~/workspace/hive/board.md\`, log tasks on \`~/workspace/hive/tasks.json\`, and delegate missions to your subordinate employees.\n\n` +
+                  `### YOUR SUBORDINATE EMPLOYEES:\n` +
+                  `${subList || "- No other agents registered yet."}\n\n` +
+                  `### HOW TO DELEGATE TASKS:\n` +
+                  `1. Write tasks to the Kanban ledger at \`~/workspace/hive/tasks.json\`.\n` +
+                  `2. Send delegation orders by writing a JSON message to your outbox at \`${hive.agentDir(agentId)}/outbox/<id>.json\`:\n` +
+                  `   \`{"from": "${agentId}", "to": "<employee-id>", "act": "request", "subject": "...", "body": "..."}\`\n` +
+                  `3. Wait for your employees to complete work and report back to your inbox at \`${hive.agentDir(agentId)}/inbox/\`.\n` +
+                  `4. Inspect their deliverables and issue final sign-off!\n`;
+                writeFileSync(agentsMdPath, content, "utf8");
+              }
+            } catch {}
+          }
+
           if (!exeCmd) {
             exeCmd = process.env.SHELL || (process.platform === "win32" ? "cmd.exe" : "/bin/zsh");
             exeArgs = [];
@@ -246,6 +277,7 @@ export function registerPtyGateway(app: FastifyInstance, db: Db, hive?: HiveMana
           });
         }
 
+        if (!session) return;
         attachedSession = session;
         session.clients.add(socket);
 

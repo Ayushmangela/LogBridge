@@ -14,6 +14,7 @@ LogBridge has been upgraded by **Antigravity** with a next-generation autonomous
 | **4. Interactive Tasks Kanban Board** | 4-column live Kanban board (`To Do`, `In Progress`, `In Review`, `Done`) synced to an on-disk ledger. | [KANBAN_BOARD.md](./KANBAN_BOARD.md) |
 | **5. Persistent Memory & Blackboard** | Dual-tier memory architecture with private agent memories (`memory.md`) and a shared blackboard (`board.md`). | [MEMORY_AND_BLACKBOARD.md](./MEMORY_AND_BLACKBOARD.md) |
 | **6. Command Center & Code Workspace** | Split IDE workspace with file explorer, paper-palette code editor, and synchronized terminal. | [CODE_WORKSPACE.md](./CODE_WORKSPACE.md) |
+| **7. Central Commander Architecture** | Hierarchical leadership where a central Commander analyzes goals, posts plans, and delegates to employees. | [COMMANDER_ARCHITECTURE.md](./COMMANDER_ARCHITECTURE.md) |
 
 ---
 
