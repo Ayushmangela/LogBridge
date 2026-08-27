@@ -288,6 +288,13 @@ export const ServerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("view"), view: WorkspaceView }),
   z.object({ type: z.literal("chat"), roomId: z.string(), msg: ChatMessage }),
   z.object({ type: z.literal("room_chat"), roomId: z.string(), msg: RoomChatMessage }),
+  z.object({
+    type: z.literal("webrtc_signal"),
+    roomId: z.string(),
+    fromUserId: z.string(),
+    targetUserId: z.string(),
+    signal: z.any(),
+  }),
 ]);
 
 export type ServerMessageT = z.infer<typeof ServerMessage>;
@@ -314,6 +321,13 @@ export const ClientMessage = z.discriminatedUnion("type", [
     zone: z.string(),
     text: z.string(),
     from: z.object({ id: z.string(), name: z.string(), avatar: z.number().optional() }).optional(),
+  }),
+  z.object({
+    type: z.literal("webrtc_signal"),
+    roomId: z.string(),
+    fromUserId: z.string().optional(),
+    targetUserId: z.string(),
+    signal: z.any(),
   }),
   z.object({
     type: z.literal("answer"),

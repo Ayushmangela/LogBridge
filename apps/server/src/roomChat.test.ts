@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { WebSocket } from "ws";
 import { buildServer } from "./index.js";
 import { Positions, buildView } from "./view.js";
 
@@ -65,5 +66,55 @@ describe("Room Chat & Auto-Project Membership Suite", () => {
     expect(bobHuman).toBeDefined();
     expect(bobHuman.presence).toBe("online");
     expect(bobHuman.position).toEqual({ x: 48, y: 22 });
+  });
+
+  test("webrtc_signal forwards message between peer sockets", async () => {
+    const server = await buildServer({ dbPath: ":memory:" });
+    await server.app.listen({ port: 0, host: "127.0.0.1" });
+    const address = server.app.server.address() as any;
+    const wsUrl = `ws://127.0.0.1:${address.port}/ws`;
+
+    server.db.prepare("INSERT INTO projects (id, name, gh_repo) VALUES (?, ?, ?)").run(
+      "prj_test", "Test Workspace", "org/test"
+    );
+
+    const wsAlice = new WebSocket(wsUrl);
+    const wsBob = new WebSocket(wsUrl);
+
+    await Promise.all([
+      new Promise((resolve) => wsAlice.on("open", resolve)),
+      new Promise((resolve) => wsBob.on("open", resolve)),
+    ]);
+
+    // Alice and Bob join room
+    wsAlice.send(JSON.stringify({ type: "join", roomId: "prj_test", userId: "usr_alice" }));
+    wsBob.send(JSON.stringify({ type: "join", roomId: "prj_test", userId: "usr_bob" }));
+
+    await new Promise((r) => setTimeout(r, 80));
+
+    const receivedPromise = new Promise<any>((resolve) => {
+      wsBob.on("message", (raw) => {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === "webrtc_signal") resolve(msg);
+      });
+    });
+
+    wsAlice.send(JSON.stringify({
+      type: "webrtc_signal",
+      roomId: "prj_test",
+      fromUserId: "usr_alice",
+      targetUserId: "usr_bob",
+      signal: { sdp: { type: "offer", sdp: "v=0..." } },
+    }));
+
+    const received = await receivedPromise;
+    expect(received.type).toBe("webrtc_signal");
+    expect(received.fromUserId).toBe("usr_alice");
+    expect(received.targetUserId).toBe("usr_bob");
+    expect(received.signal.sdp.sdp).toBe("v=0...");
+
+    wsAlice.close();
+    wsBob.close();
+    await server.app.close();
   });
 });

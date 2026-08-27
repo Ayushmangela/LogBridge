@@ -997,9 +997,19 @@
                   </div>
                 </div>
               </div>
-              <button onclick="leavePrivateRoom()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#cbd5e1;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;">
-                Step Out
-              </button>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <button id="btn-room-mic" onclick="toggleRoomMic()" style="display:flex;align-items:center;gap:6px;background:rgba(239,68,68,0.18);border:1px solid rgba(239,68,68,0.4);color:#fca5a5;padding:5px 11px;border-radius:7px;font-size:11.5px;font-weight:600;cursor:pointer;transition:all .15s ease;">
+                  <span id="mic-status-icon">🔇</span> <span id="mic-status-label">Mic: Muted</span> <span style="font-size:9.5px;opacity:0.75;background:rgba(0,0,0,0.25);padding:1px 4px;border-radius:3px;">M</span>
+                </button>
+                <div id="mic-level-meter" style="display:none;align-items:flex-end;gap:2px;height:14px;padding:0 2px;">
+                  <div class="mic-bar" style="width:3px;height:4px;background:#4ade80;border-radius:1px;transition:height 0.05s;"></div>
+                  <div class="mic-bar" style="width:3px;height:8px;background:#4ade80;border-radius:1px;transition:height 0.05s;"></div>
+                  <div class="mic-bar" style="width:3px;height:6px;background:#4ade80;border-radius:1px;transition:height 0.05s;"></div>
+                </div>
+                <button onclick="leavePrivateRoom()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#cbd5e1;padding:5px 10px;border-radius:7px;font-size:11.5px;cursor:pointer;">
+                  Step Out
+                </button>
+              </div>
             </div>
 
             <!-- In-room message history -->
@@ -1850,6 +1860,8 @@
           onChatMessage(msg.msg);
         } else if (msg.type === 'room_chat') {
           onRoomChatMessage(msg.msg);
+        } else if (msg.type === 'webrtc_signal') {
+          handleWebRtcSignal(msg);
         }
       });
     }
@@ -5927,7 +5939,7 @@
       c.classList.add('show');
     }
 
-    // ---------------- Spatial Private Room Comms (Gather.town style) ----------------
+    // ---------------- Spatial Private Room Comms & WebRTC Voice (Gather.town style) ----------------
     let currentRoomZone = null;
     let lastChimeZone = null;
 
@@ -5938,6 +5950,136 @@
       'cabin3': { name: 'Senior Cabin 3', icon: '🔒', rect: () => zones.cabin[3] },
       'collaborating': { name: 'Executive Meeting Room', icon: '🤝', rect: () => zones.collaborating },
     };
+
+    // WebRTC & Audio State
+    let localAudioStream = null;
+    let isMicLive = false;
+    let localAudioContext = null;
+    let localAnalyser = null;
+    let isLocalSpeaking = false;
+    const peerConnections = new Map(); // targetUserId -> RTCPeerConnection
+    const peerAudioElements = new Map(); // targetUserId -> HTMLAudioElement
+    const peerAnalysers = new Map(); // targetUserId -> { analyser, isSpeaking }
+
+    const RTC_CONFIG = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+      ],
+    };
+
+    window.toggleRoomMic = async function () {
+      if (!currentRoomZone) return;
+
+      if (!localAudioStream) {
+        try {
+          localAudioStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          });
+          setupLocalAudioAnalyser(localAudioStream);
+        } catch (err) {
+          console.warn("Microphone access failed/denied:", err);
+          alert("Microphone permission required to speak. Please allow microphone access in your browser settings.");
+          return;
+        }
+      }
+
+      isMicLive = !isMicLive;
+      localAudioStream.getAudioTracks().forEach((track) => {
+        track.enabled = isMicLive;
+      });
+
+      updateMicUi();
+
+      // Ensure local tracks are added to existing peer connections
+      for (const [targetUserId, pc] of peerConnections) {
+        const senders = pc.getSenders();
+        const audioTrack = localAudioStream.getAudioTracks()[0];
+        if (audioTrack) {
+          const sender = senders.find((s) => s.track && s.track.kind === 'audio');
+          if (sender) {
+            sender.replaceTrack(audioTrack);
+          } else {
+            pc.addTrack(audioTrack, localAudioStream);
+            renegotiatePeer(targetUserId, pc);
+          }
+        }
+      }
+
+      if (isMicLive) {
+        syncRoomVoicePeers();
+      }
+    };
+
+    function updateMicUi() {
+      const btn = document.getElementById('btn-room-mic');
+      const icon = document.getElementById('mic-status-icon');
+      const label = document.getElementById('mic-status-label');
+      const meter = document.getElementById('mic-level-meter');
+
+      if (!btn) return;
+      if (isMicLive) {
+        btn.style.background = 'rgba(34, 197, 94, 0.22)';
+        btn.style.borderColor = 'rgba(34, 197, 94, 0.55)';
+        btn.style.color = '#4ade80';
+        if (icon) icon.textContent = '🎙️';
+        if (label) label.textContent = 'Mic: Live';
+        if (meter) meter.style.display = 'flex';
+      } else {
+        btn.style.background = 'rgba(239, 68, 68, 0.18)';
+        btn.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+        btn.style.color = '#fca5a5';
+        if (icon) icon.textContent = '🔇';
+        if (label) label.textContent = 'Mic: Muted';
+        if (meter) meter.style.display = 'none';
+      }
+    }
+
+    function setupLocalAudioAnalyser(stream) {
+      try {
+        localAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const source = localAudioContext.createMediaStreamSource(stream);
+        localAnalyser = localAudioContext.createAnalyser();
+        localAnalyser.fftSize = 256;
+        source.connect(localAnalyser);
+
+        const dataArray = new Uint8Array(localAnalyser.frequencyBinCount);
+        const checkVolume = () => {
+          if (!currentRoomZone) {
+            isLocalSpeaking = false;
+            return;
+          }
+          if (isMicLive && localAnalyser) {
+            localAnalyser.getByteFrequencyData(dataArray);
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+            const avg = sum / dataArray.length;
+            isLocalSpeaking = avg > 14;
+
+            // Animate HUD bars
+            const bars = document.querySelectorAll('.mic-bar');
+            if (bars && bars.length === 3) {
+              const h1 = Math.min(14, Math.max(3, (avg / 255) * 24));
+              const h2 = Math.min(14, Math.max(3, (avg / 255) * 32));
+              const h3 = Math.min(14, Math.max(3, (avg / 255) * 20));
+              bars[0].style.height = `${h1}px`;
+              bars[1].style.height = `${h2}px`;
+              bars[2].style.height = `${h3}px`;
+            }
+          } else {
+            isLocalSpeaking = false;
+          }
+          requestAnimationFrame(checkVolume);
+        };
+        requestAnimationFrame(checkVolume);
+      } catch (e) {
+        console.warn("Local audio context error:", e);
+      }
+    }
 
     function playRoomChime() {
       try {
@@ -5970,10 +6112,9 @@
       const lift = 46;
 
       bg.clear();
-      bg.beginFill(0x4338ca, 0.95); // deep indigo
+      bg.beginFill(0x4338ca, 0.95);
       bg.lineStyle(1.5, 0x818cf8, 0.9);
       bg.drawRoundedRect(-w / 2, -lift - h / 2, w, h, 7);
-      // pointer tail
       bg.moveTo(-4, -lift + h / 2);
       bg.lineTo(0, -lift + h / 2 + 5);
       bg.lineTo(4, -lift + h / 2);
@@ -5987,6 +6128,200 @@
       bubbleObj._timer = setTimeout(() => {
         container.visible = false;
       }, durationMs);
+    }
+
+    function getOccupantsInZone(zone) {
+      const roomInfo = PRIVATE_ROOMS[zone];
+      if (!roomInfo) return [];
+      const rect = roomInfo.rect();
+      const room = activeRoom();
+      const occupants = [];
+      if (rect && room?.humans) {
+        for (const h of room.humans) {
+          if (!h.position) continue;
+          if (h.position.x >= rect.x && h.position.x < rect.x + rect.w &&
+              h.position.y >= rect.y && h.position.y < rect.y + rect.h) {
+            occupants.push(h);
+          }
+        }
+      }
+      return occupants;
+    }
+
+    function syncRoomVoicePeers() {
+      if (!currentRoomZone || !ws || ws.readyState !== WebSocket.OPEN) return;
+      const room = activeRoom();
+      if (!room) return;
+
+      const myId = currentUser?.id || meId || 'you';
+      const occupants = getOccupantsInZone(currentRoomZone);
+      const occupantIds = new Set(occupants.map((o) => o.id));
+
+      // Close peers who stepped out
+      for (const [targetUserId, pc] of peerConnections) {
+        if (!occupantIds.has(targetUserId)) {
+          pc.close();
+          peerConnections.delete(targetUserId);
+          const audioEl = peerAudioElements.get(targetUserId);
+          if (audioEl) { audioEl.remove(); peerAudioElements.delete(targetUserId); }
+          peerAnalysers.delete(targetUserId);
+        }
+      }
+
+      // Connect to other occupants currently in the room
+      for (const occ of occupants) {
+        if (occ.id === myId) continue;
+        if (!peerConnections.has(occ.id)) {
+          const shouldCreateOffer = myId < occ.id;
+          createPeerConnection(occ.id, shouldCreateOffer);
+        }
+      }
+    }
+
+    function createPeerConnection(targetUserId, shouldCreateOffer) {
+      const room = activeRoom();
+      if (!room) return;
+      const myId = currentUser?.id || meId || 'you';
+
+      const pc = new RTCPeerConnection(RTC_CONFIG);
+      peerConnections.set(targetUserId, pc);
+
+      if (localAudioStream) {
+        for (const track of localAudioStream.getAudioTracks()) {
+          pc.addTrack(track, localAudioStream);
+        }
+      }
+
+      pc.onicecandidate = (e) => {
+        if (e.candidate && ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'webrtc_signal',
+            roomId: room.id,
+            fromUserId: myId,
+            targetUserId,
+            signal: { candidate: e.candidate },
+          }));
+        }
+      };
+
+      pc.ontrack = (e) => {
+        const remoteStream = e.streams[0];
+        let audioEl = peerAudioElements.get(targetUserId);
+        if (!audioEl) {
+          audioEl = document.createElement('audio');
+          audioEl.autoplay = true;
+          document.body.appendChild(audioEl);
+          peerAudioElements.set(targetUserId, audioEl);
+        }
+        audioEl.srcObject = remoteStream;
+        setupRemoteAudioAnalyser(targetUserId, remoteStream);
+      };
+
+      if (shouldCreateOffer) {
+        renegotiatePeer(targetUserId, pc);
+      }
+    }
+
+    async function renegotiatePeer(targetUserId, pc) {
+      const room = activeRoom();
+      if (!room) return;
+      const myId = currentUser?.id || meId || 'you';
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'webrtc_signal',
+            roomId: room.id,
+            fromUserId: myId,
+            targetUserId,
+            signal: { sdp: pc.localDescription },
+          }));
+        }
+      } catch (err) {
+        console.warn("WebRTC renegotiation error:", err);
+      }
+    }
+
+    window.handleWebRtcSignal = async function (msg) {
+      const { fromUserId, signal } = msg;
+      if (!currentRoomZone) return;
+      const room = activeRoom();
+      if (!room) return;
+      const myId = currentUser?.id || meId || 'you';
+
+      let pc = peerConnections.get(fromUserId);
+      if (!pc) {
+        createPeerConnection(fromUserId, false);
+        pc = peerConnections.get(fromUserId);
+      }
+      if (!pc) return;
+
+      try {
+        if (signal.sdp) {
+          await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+          if (signal.sdp.type === 'offer') {
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            ws.send(JSON.stringify({
+              type: 'webrtc_signal',
+              roomId: room.id,
+              fromUserId: myId,
+              targetUserId: fromUserId,
+              signal: { sdp: pc.localDescription },
+            }));
+          }
+        } else if (signal.candidate) {
+          await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+        }
+      } catch (err) {
+        console.warn("WebRTC signal processing error:", err);
+      }
+    };
+
+    function setupRemoteAudioAnalyser(targetUserId, stream) {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioCtx.createMediaStreamSource(stream);
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        const state = { analyser, isSpeaking: false };
+        peerAnalysers.set(targetUserId, state);
+
+        const checkVolume = () => {
+          if (!peerConnections.has(targetUserId)) return;
+          analyser.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+          const avg = sum / dataArray.length;
+          state.isSpeaking = avg > 14;
+          requestAnimationFrame(checkVolume);
+        };
+        requestAnimationFrame(checkVolume);
+      } catch (e) {
+        console.warn("Remote audio analyser error:", e);
+      }
+    }
+
+    function cleanupRoomVoice() {
+      for (const [id, pc] of peerConnections) {
+        pc.close();
+      }
+      peerConnections.clear();
+      for (const [id, audioEl] of peerAudioElements) {
+        audioEl.remove();
+      }
+      peerAudioElements.clear();
+      peerAnalysers.clear();
+      isLocalSpeaking = false;
+      isMicLive = false;
+      if (localAudioStream) {
+        localAudioStream.getAudioTracks().forEach((track) => { track.enabled = false; });
+      }
+      updateMicUi();
     }
 
     function updateSpatialRoomComms() {
@@ -6010,38 +6345,39 @@
         if (iconEl) iconEl.textContent = roomInfo.icon;
         if (titleEl) titleEl.textContent = `${roomInfo.name} (Private Channel)`;
 
-        // Find other humans in this room
-        const rect = roomInfo.rect();
-        const room = activeRoom();
         const myName = currentUser?.name || 'You';
-        const occupants = [myName];
-        if (rect && room?.humans) {
-          for (const h of room.humans) {
-            if (h.id === meId || (currentUser && h.id === currentUser.id)) continue;
-            if (!h.position) continue;
-            if (h.position.x >= rect.x && h.position.x < rect.x + rect.w &&
-                h.position.y >= rect.y && h.position.y < rect.y + rect.h) {
-              occupants.push(h.name || 'Colleague');
-            }
-          }
-        }
+        const myId = currentUser?.id || meId || 'you';
+        const occupants = getOccupantsInZone(zone);
 
         const occEl = document.getElementById('room-comms-occupants');
         if (occEl) {
           if (occupants.length > 1) {
-            occEl.innerHTML = `<span style="color:#4ade80;font-weight:600;">🟢 ${occupants.length} in Room:</span> ${occupants.join(', ')} · <i>Spatial talk enabled</i>`;
+            const occupantChips = occupants.map((h) => {
+              const isSelf = h.id === myId;
+              const isSpeaking = isSelf ? isLocalSpeaking : (peerAnalysers.get(h.id)?.isSpeaking ?? false);
+              const name = isSelf ? 'You' : (h.name || 'Colleague');
+              const micBadge = isSpeaking ? '🔊 <b style="color:#4ade80;">(Speaking...)</b>' : (isSelf ? (isMicLive ? '🎙️' : '🔇') : '🎙️');
+              return `${name} ${micBadge}`;
+            });
+            occEl.innerHTML = `<span style="color:#4ade80;font-weight:600;">🟢 ${occupants.length} in Room:</span> ${occupantChips.join(', ')}`;
           } else {
-            occEl.innerHTML = `<span style="color:#94a3b8;">🟢 You are in this room.</span> Others who enter will automatically join your private conversation.`;
+            occEl.innerHTML = `<span style="color:#94a3b8;">🟢 You are in this room.</span> Others who enter will connect to voice & chat automatically.`;
           }
         }
+
+        // Sync mesh peer connections for voice
+        syncRoomVoicePeers();
       } else {
+        if (currentRoomZone) {
+          cleanupRoomVoice();
+        }
         currentRoomZone = null;
         lastChimeZone = null;
         commsBar.style.display = 'none';
       }
     }
 
-    window.sendRoomMessage = function(e) {
+    window.sendRoomMessage = function (e) {
       if (e) e.preventDefault();
       const input = document.getElementById('room-comms-input');
       const text = input?.value?.trim();
@@ -6062,21 +6398,18 @@
         from: {
           id: myId,
           name: myName,
-        }
+        },
       }));
 
-      // Immediately show speech bubble over local player sprite
       if (playerBubble) showSpeechBubble(playerBubble, text);
-
-      // Append to local in-room message log
       appendInRoomMessage(myName, text, true);
     };
 
-    window.leavePrivateRoom = function() {
-      // Step out of the room towards atrium corridor (x: 40*TILE, y: 15*TILE)
+    window.leavePrivateRoom = function () {
       player.x = 40 * TILE;
       player.y = 15 * TILE;
       sendPosition();
+      cleanupRoomVoice();
       updateSpatialRoomComms();
     };
 
@@ -6092,13 +6425,10 @@
     }
 
     function onRoomChatMessage(roomMsg) {
-      // Only display if we are in the same room zone
       if (currentRoomZone && currentRoomZone === roomMsg.zone) {
-        // Show in HUD messages
         appendInRoomMessage(roomMsg.from.name, roomMsg.text, roomMsg.from.id === (currentUser?.id || meId));
         playRoomChime();
 
-        // Show speech bubble over the avatar
         if (roomMsg.from.id === (currentUser?.id || meId)) {
           if (playerBubble) showSpeechBubble(playerBubble, roomMsg.text);
         } else {
@@ -6207,12 +6537,14 @@
       const frames = charTextures[charName] || charTextures.nancy;
       const sprite = new PIXI.Sprite(frames[DIR_FRAMES.idle.down[0]]);
       sprite.anchor.set(0.5, 0.75);
+      const voiceRing = new PIXI.Graphics();
+      sprite.addChild(voiceRing);
       const tag = makeNameTag(h.name, 0xffffff);
       sprite.addChild(tag);
       const bubble = makeBubble();
       sprite.addChild(bubble.container);
       worldContainer.addChild(sprite);
-      const entry = { sprite, tag, bubble };
+      const entry = { sprite, tag, bubble, voiceRing };
       renderedHumans.set(h.id, entry);
       return entry;
     }
@@ -6545,6 +6877,7 @@
     }
 
     let playerBubble = null;
+    let playerVoiceRing = null;
     function createPlayer() {
       const frames = charTextures[currentCharacter];
       playerSprite = new PIXI.Sprite(frames[18]);
@@ -6553,6 +6886,8 @@
       playerSprite.y = player.y;
       playerSprite.zIndex = 1000;
       worldContainer.addChild(playerSprite);
+      playerVoiceRing = new PIXI.Graphics();
+      playerSprite.addChild(playerVoiceRing);
       playerSprite.addChild(makeNameTag(currentUser?.name || 'You', 0xffffff));
       playerBubble = makeBubble();
       playerSprite.addChild(playerBubble.container);
@@ -6575,6 +6910,10 @@
         }
         if (e.key === 'Escape' && selectedAgentId) { closeAgentPopup(); return; }
         if (e.key === 'Escape' && currentView !== 'office') { window.setView('office'); return; }
+        if ((e.key === 'm' || e.key === 'M') && currentRoomZone) {
+          window.toggleRoomMic();
+          return;
+        }
         if (e.key === 'c' || e.key === 'C') { window.setView('chat'); return; }
         if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') keys.w = keys.up = true;
         if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') keys.a = keys.left = true;
@@ -6689,6 +7028,29 @@
       posSendTimer += dt;
       if (posSendTimer >= 0.2) { posSendTimer = 0; sendPosition(); }
       updateSpatialRoomComms();
+
+      // Render real-time avatar speaking rings
+      if (playerVoiceRing) {
+        if (isLocalSpeaking) {
+          playerVoiceRing.clear();
+          playerVoiceRing.lineStyle(2.5, 0x22c55e, 0.9);
+          playerVoiceRing.drawCircle(0, -14, 18);
+        } else {
+          playerVoiceRing.clear();
+        }
+      }
+      for (const [uid, entry] of renderedHumans) {
+        if (entry.voiceRing) {
+          const peerState = peerAnalysers.get(uid);
+          if (peerState && peerState.isSpeaking) {
+            entry.voiceRing.clear();
+            entry.voiceRing.lineStyle(2.5, 0x22c55e, 0.9);
+            entry.voiceRing.drawCircle(0, -14, 18);
+          } else {
+            entry.voiceRing.clear();
+          }
+        }
+      }
 
       // Idle roaming: recompute the wandering waypoint each frame from the
       // shared clock so every browser drifts the same way. Non-idle agents keep

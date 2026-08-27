@@ -20,7 +20,14 @@ Antigravity has engineered a Gather.town-inspired spatial communication layer an
    - The WebSocket gateway now tracks distinct authenticated user sessions (`userId`, `name`, `zone`).
    - Movements from each connected colleague stream to all office viewers, allowing teams to see each other walk across the floor, sit at desks, or meet in rooms in real time.
 
-4. **Instant Project Membership on Registration**:
+4. **Real-Time WebRTC Spatial Voice & Microphone (Gather.town Style)**:
+   - Entering a private cabin or the meeting room connects users to a peer-to-peer WebRTC audio mesh.
+   - **Microphone Toggle Button (`#btn-room-mic`)**: 1-click toggle between `🔇 Mic: Muted` and `🎙️ Mic: Live (On)` with active sound equalizer meter.
+   - **Keyboard Shortcut**: Press <kbd>M</kbd> while in any private room to immediately toggle mute.
+   - **Dynamic Speaking Indicators**: Real-time `AudioContext` and `AnalyserNode` monitoring calculates voice volume. When any user speaks, an animated pulsing green speaking ring is rendered directly around their pixel-art avatar on the office floor, and an active speaking badge (`🔊 Speaking...`) highlights their name in the room HUD.
+   - **Audio Track Lifecycle**: Stepping out of the room automatically closes peer connections and mutes the mic.
+
+5. **Instant Project Membership on Registration**:
    - The schema introduces the `project_members` table (`project_id`, `user_id`, `role`, `joined_at`).
    - When any user signs up (`POST /api/auth/signup`), they are automatically granted membership in all existing project workspaces.
    - When a new project is created (`POST /api/projects`), all existing registered users are automatically added as members.

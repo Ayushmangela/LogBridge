@@ -154,6 +154,23 @@ export function registerGateway(
           if (roomOf.get(ws) !== msg.data.roomId) continue;
           ws.send(json);
         }
+      } else if (msg.data.type === "webrtc_signal") {
+        const fromId = msg.data.fromUserId || userOf.get(socket) || "you";
+        const forward = {
+          type: "webrtc_signal" as const,
+          roomId: msg.data.roomId,
+          fromUserId: fromId,
+          targetUserId: msg.data.targetUserId,
+          signal: msg.data.signal,
+        };
+        const json = JSON.stringify(forward);
+        for (const ws of browserSockets) {
+          if (ws.readyState !== ws.OPEN) continue;
+          if (userOf.get(ws) === msg.data.targetUserId) {
+            ws.send(json);
+            break;
+          }
+        }
       } else if (msg.data.type === "chat") {
         const uid = userOf.get(socket) || "you";
         const userRow = db.prepare("SELECT name FROM users WHERE id = ?").get(uid) as any;
