@@ -12,6 +12,7 @@ import {
   setAgentPaused, setAgentRetired, deleteAgent,
   setAgentSteer, getAgentHistory, moveAgent, cloneAgent,
   getAgentTraces, getAgentOutput, getProjectGraph,
+  pauseTask, resumeTask, haltTask, getAgentTasks, getTaskTraces,
   type Db
 } from "./db.js";
 import { Positions } from "./view.js";
@@ -272,8 +273,28 @@ export async function buildServer(
     if (!text || typeof text !== "string") return reply.code(400).send({ ok: false, error: "text required" });
     const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(id) as any;
     if (!agent) return reply.code(404).send({ ok: false, error: "no such agent" });
+
     setAgentSteer(db, id, text);
-    return { ok: true, steered: true };
+
+    // Check if agent is currently running an active task
+    const activeTask = db.prepare("SELECT * FROM tasks WHERE agent_id = ? AND state IN ('in_progress', 'accepted', 'working')").get(id) as any;
+    if (activeTask) {
+      appendEvent(db, agent.project_id, activeTask.id, "task_steer", {
+        agentId: id,
+        taskId: activeTask.id,
+        text,
+        at: new Date().toISOString(),
+      });
+      if (agent.machine_id) {
+        const sock = nodeSockets.get(agent.machine_id);
+        if (sock && sock.readyState === 1) {
+          sock.send(JSON.stringify({ type: "steer", agentId: id, taskId: activeTask.id, text }));
+        }
+      }
+    }
+
+    broadcastView();
+    return { ok: true, steered: true, mode: activeTask ? "live" : "next_task", taskId: activeTask?.id ?? null };
   });
 
   app.post<{ Params: { id: string }; Body: { projectId: string } }>("/api/agents/:id/move", async (req, reply) => {
@@ -551,6 +572,199 @@ export async function buildServer(
     broadcastView();
     const assignedTo = (db.prepare("SELECT agent_id FROM tasks WHERE id = ?").get(taskId) as any)?.agent_id ?? null;
     return { ok: true, taskId, assignedTo, queued: assignedTo === null };
+  });
+
+  // ---- Agent Task Management & Dispatch API ----
+  app.post<{
+    Body: {
+      projectId: string;
+      agentId?: string | null;
+      title: string;
+      spec?: string | null;
+      budgetSeconds?: number;
+      budgetUsd?: number;
+      priority?: string;
+      parentTask?: string | null;
+    };
+  }>("/api/tasks", async (req, reply) => {
+    const { projectId, agentId, title, spec, budgetSeconds, budgetUsd, parentTask } = req.body ?? {};
+    if (!projectId || !title) return reply.code(400).send({ ok: false, error: "projectId and title required" });
+    const project = db.prepare("SELECT id FROM projects WHERE id = ?").get(projectId) as any;
+    if (!project) return reply.code(404).send({ ok: false, error: `project "${projectId}" does not exist` });
+
+    let targetAgentId = agentId ?? null;
+    if (targetAgentId) {
+      const ag = db.prepare("SELECT id, project_id FROM agents WHERE id = ?").get(targetAgentId) as any;
+      if (!ag) return reply.code(404).send({ ok: false, error: `agent "${targetAgentId}" not found` });
+    }
+
+    const taskId = createTask(db, {
+      projectId,
+      title: title.trim(),
+      spec: spec ?? null,
+      creatorId: "user",
+      agentId: targetAgentId,
+      budgetSeconds: budgetSeconds ? Number(budgetSeconds) : 60,
+      budgetUsd: budgetUsd ? Number(budgetUsd) : 1.0,
+      parentTask: parentTask ?? null,
+    });
+
+    if (targetAgentId) {
+      sendTaskOffer(db, nodeSockets, taskId);
+    } else {
+      orchestrate(db, nodeSockets, app);
+    }
+    broadcastView();
+    return { ok: true, taskId, agentId: targetAgentId };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/tasks/:id/pause", async (req, reply) => {
+    const taskId = req.params.id;
+    const ok = pauseTask(db, taskId);
+    if (!ok) return reply.code(404).send({ ok: false, error: "task not found" });
+    const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as any;
+    if (task?.agent_id) {
+      const agent = db.prepare("SELECT machine_id FROM agents WHERE id = ?").get(task.agent_id) as any;
+      if (agent?.machine_id) {
+        const sock = nodeSockets.get(agent.machine_id);
+        if (sock && sock.readyState === 1) {
+          sock.send(JSON.stringify({ type: "task_pause", taskId, agentId: task.agent_id }));
+        }
+      }
+    }
+    broadcastView();
+    return { ok: true, state: "paused" };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/tasks/:id/resume", async (req, reply) => {
+    const taskId = req.params.id;
+    const ok = resumeTask(db, taskId);
+    if (!ok) return reply.code(404).send({ ok: false, error: "task not found" });
+    const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as any;
+    if (task?.agent_id) {
+      const agent = db.prepare("SELECT machine_id FROM agents WHERE id = ?").get(task.agent_id) as any;
+      if (agent?.machine_id) {
+        const sock = nodeSockets.get(agent.machine_id);
+        if (sock && sock.readyState === 1) {
+          sock.send(JSON.stringify({ type: "task_resume", taskId, agentId: task.agent_id }));
+        }
+      }
+    }
+    broadcastView();
+    return { ok: true, state: "in_progress" };
+  });
+
+  app.post<{ Params: { id: string }; Body: { reason?: string } }>("/api/tasks/:id/halt", async (req, reply) => {
+    const taskId = req.params.id;
+    const { reason } = req.body ?? {};
+    const ok = haltTask(db, taskId, reason);
+    if (!ok) return reply.code(404).send({ ok: false, error: "task not found" });
+    const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as any;
+    if (task?.agent_id) {
+      const agent = db.prepare("SELECT machine_id FROM agents WHERE id = ?").get(task.agent_id) as any;
+      if (agent?.machine_id) {
+        const sock = nodeSockets.get(agent.machine_id);
+        if (sock && sock.readyState === 1) {
+          sock.send(JSON.stringify({ type: "task_cancel", taskId, agentId: task.agent_id, reason }));
+        }
+      }
+    }
+    broadcastView();
+    return { ok: true, state: "cancelled" };
+  });
+
+  app.get<{ Params: { id: string } }>("/api/tasks/:id/traces", async (req, reply) => {
+    const taskId = req.params.id;
+    const traces = getTaskTraces(db, taskId);
+    return { ok: true, taskId, traces };
+  });
+
+  app.get<{ Params: { id: string }; Querystring: { limit?: string } }>("/api/agents/:id/tasks", async (req, reply) => {
+    const agentId = req.params.id;
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    const tasks = getAgentTasks(db, agentId, limit);
+    return { ok: true, agentId, tasks };
+  });
+
+  app.post<{
+    Body: {
+      projectId: string;
+      title: string;
+      spec?: string | null;
+      commanderId?: string;
+    };
+  }>("/api/commander/breakdown", async (req, reply) => {
+    const { projectId, title, spec, commanderId } = req.body ?? {};
+    if (!projectId || !title) return reply.code(400).send({ ok: false, error: "projectId and title required" });
+
+    const parentTaskId = createTask(db, {
+      projectId,
+      title: `👑 Epic: ${title.trim()}`,
+      spec: spec ?? null,
+      creatorId: "commander",
+      agentId: commanderId ?? null,
+      kind: "plan",
+      budgetSeconds: 300,
+      budgetUsd: 5.0,
+    });
+
+    const agents = db.prepare(
+      "SELECT id, name, role FROM agents WHERE project_id = ? AND status != 'retired'"
+    ).all(projectId) as any[];
+
+    const planner = agents.find((a) => a.role === "planner" || a.id === commanderId) || agents[0];
+    const engineer = agents.find((a) => a.role === "developer" || a.role === "coder" || a.id !== planner?.id) || planner;
+    const reviewer = agents.find((a) => a.role === "reviewer" || a.role === "qa" || (a.id !== planner?.id && a.id !== engineer?.id)) || planner;
+
+    const subtaskTemplates = [
+      {
+        title: `[Architecture & Schema] ${title.trim()}`,
+        spec: `Design technical schema, API contracts, and protocols for: ${title.trim()}.\n${spec || ''}`,
+        assignedTo: planner?.id ?? null,
+      },
+      {
+        title: `[Implementation] ${title.trim()}`,
+        spec: `Implement core logic, backend endpoints, and components for: ${title.trim()}.\n${spec || ''}`,
+        assignedTo: engineer?.id ?? null,
+      },
+      {
+        title: `[Testing & Verification] ${title.trim()}`,
+        spec: `Verify integration tests and end-to-end functionality for: ${title.trim()}.\n${spec || ''}`,
+        assignedTo: reviewer?.id ?? null,
+      },
+    ];
+
+    const createdSubtasks = [];
+    for (const st of subtaskTemplates) {
+      const subId = createTask(db, {
+        projectId,
+        title: st.title,
+        spec: st.spec,
+        creatorId: commanderId || "commander",
+        agentId: st.assignedTo,
+        parentTask: parentTaskId,
+        budgetSeconds: 120,
+        budgetUsd: 2.0,
+      });
+      if (st.assignedTo) {
+        sendTaskOffer(db, nodeSockets, subId);
+      }
+      createdSubtasks.push({ id: subId, title: st.title, agentId: st.assignedTo });
+    }
+
+    appendEvent(db, projectId, parentTaskId, "commander.delegation", {
+      parentTaskId,
+      title,
+      subtasks: createdSubtasks,
+      at: new Date().toISOString(),
+    });
+
+    broadcastView();
+    return {
+      ok: true,
+      parentTaskId,
+      subtasks: createdSubtasks,
+    };
   });
 
   // Create an agent on a machine, from the browser. This is NOT a debug

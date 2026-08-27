@@ -513,6 +513,7 @@ export function createTask(
     agentId?: string | null;        // null = let the orchestrator decide
     requiredCapability?: string | null;
     kind?: string | null;           // 'plan' = its output is a task list
+    parentTask?: string | null;     // subtask link to parent goal
     budgetSeconds?: number;
     budgetUsd?: number;
     /** Idempotency key. A second call with the same key returns the FIRST
@@ -536,12 +537,12 @@ export function createTask(
   }
   const taskId = `tsk_${crypto.randomUUID()}`;
   db.prepare(
-    `INSERT INTO tasks (id, project_id, title, spec, creator_id, agent_id, state, budget_seconds, budget_usd, cost_usd, required_capability, created_at, kind, idem)
-     VALUES (?, ?, ?, ?, ?, ?, 'submitted', ?, ?, 0, ?, ?, ?, ?)`
+    `INSERT INTO tasks (id, project_id, title, spec, creator_id, agent_id, state, budget_seconds, budget_usd, cost_usd, required_capability, created_at, kind, parent_task, idem)
+     VALUES (?, ?, ?, ?, ?, ?, 'submitted', ?, ?, 0, ?, ?, ?, ?, ?)`
   ).run(
     taskId, opts.projectId, opts.title, opts.spec ?? null, opts.creatorId, opts.agentId ?? null,
     opts.budgetSeconds ?? 60, opts.budgetUsd ?? 1.0, opts.requiredCapability ?? null, new Date().toISOString(),
-    opts.kind ?? null, opts.idem ?? null
+    opts.kind ?? null, opts.parentTask ?? null, opts.idem ?? null
   );
   return taskId;
 }
@@ -934,23 +935,27 @@ export function getAgentTraces(db: Db, agentId: string, limit = 50) {
     `SELECT e.seq, e.task_id, e.type, e.body, e.ts, t.title as task_title
      FROM events e
      JOIN tasks t ON t.id = e.task_id
-     WHERE t.agent_id = ? AND e.type = 'task.event'
+     WHERE t.agent_id = ? AND (e.type = 'task.event' OR e.type LIKE 'task%')
      ORDER BY e.seq DESC LIMIT ?`
   ).all(agentId, boundedLimit) as any[];
 
   return rows.map((r) => {
     let parsed: any = {};
     try { parsed = JSON.parse(r.body); } catch {}
+    let kind = parsed.kind ?? "tool_call";
+    if (r.type === "task_steer") kind = "steer";
+    else if (r.type === "task.pause" || r.type === "task.resume" || r.type === "task.halt") kind = "control";
+
     // Redact absolute paths and potential secrets
     const summary = typeof parsed.summary === "string"
       ? parsed.summary.replace(/\/Users\/[^\/]+/g, "~").slice(0, 200)
-      : (parsed.text ? String(parsed.text).slice(0, 200) : "step");
+      : (parsed.text ? String(parsed.text).slice(0, 200) : (parsed.reason ? `Halted: ${parsed.reason}` : r.type));
     return {
       id: `tr_${r.seq}`,
       seq: r.seq,
       taskId: r.task_id,
       taskTitle: r.task_title ?? r.task_id,
-      kind: parsed.kind ?? "tool_call",
+      kind,
       summary,
       ts: r.ts,
       data: parsed.data ? (typeof parsed.data === "object" ? "[data]" : String(parsed.data).slice(0, 100)) : null,
@@ -1034,4 +1039,68 @@ export function getProjectGraph(db: Db, projectId: string, windowHours = 168) {
 
   const edges = Array.from(edgeMap.values()).slice(0, 50);
   return { nodes: agents, edges };
+}
+
+export function pauseTask(db: Db, taskId: string): boolean {
+  const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as any;
+  if (!task) return false;
+  db.prepare("UPDATE tasks SET state = 'paused' WHERE id = ?").run(taskId);
+  if (task.agent_id) {
+    db.prepare("UPDATE agents SET status = 'waiting' WHERE id = ?").run(task.agent_id);
+  }
+  appendEvent(db, task.project_id, taskId, "task.pause", { taskId, agentId: task.agent_id, at: new Date().toISOString() });
+  return true;
+}
+
+export function resumeTask(db: Db, taskId: string): boolean {
+  const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as any;
+  if (!task) return false;
+  db.prepare("UPDATE tasks SET state = 'in_progress' WHERE id = ?").run(taskId);
+  if (task.agent_id) {
+    db.prepare("UPDATE agents SET status = 'working' WHERE id = ?").run(task.agent_id);
+  }
+  appendEvent(db, task.project_id, taskId, "task.resume", { taskId, agentId: task.agent_id, at: new Date().toISOString() });
+  return true;
+}
+
+export function haltTask(db: Db, taskId: string, reason = "User halted task"): boolean {
+  const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as any;
+  if (!task) return false;
+  const now = new Date().toISOString();
+  db.prepare("UPDATE tasks SET state = 'cancelled', ended_at = ? WHERE id = ?").run(now, taskId);
+  if (task.agent_id) {
+    db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(task.agent_id);
+  }
+  appendEvent(db, task.project_id, taskId, "task.halt", { taskId, agentId: task.agent_id, reason, at: now });
+  return true;
+}
+
+export function getAgentTasks(db: Db, agentId: string, limit = 50): any[] {
+  return db.prepare(
+    `SELECT id, project_id, title, spec, state, budget_seconds, budget_usd, cost_usd, created_at, started_at, ended_at, parent_task
+     FROM tasks
+     WHERE agent_id = ?
+     ORDER BY created_at DESC LIMIT ?`
+  ).all(agentId, limit) as any[];
+}
+
+export function getTaskTraces(db: Db, taskId: string): any[] {
+  const rows = db.prepare(
+    `SELECT seq, project_id, task_id, type, body, ts
+     FROM events
+     WHERE task_id = ?
+     ORDER BY seq ASC`
+  ).all(taskId) as any[];
+
+  return rows.map((r) => {
+    let parsed: any = {};
+    try { parsed = JSON.parse(r.body); } catch { parsed = { raw: r.body }; }
+    return {
+      seq: r.seq,
+      taskId: r.task_id,
+      type: r.type,
+      data: parsed,
+      ts: r.ts,
+    };
+  });
 }

@@ -3,7 +3,7 @@ import type { WebSocket } from "ws";
 import { ClientMessage, ServerMessage, type ChatMessageT, type RoomChatMessageT } from "@logbridge/protocol";
 import {
   appendEvent, clearAgentWaiting, createTask, getTask, lastSeq,
-  setAgentWaitingOnHuman, setTaskState, type Db,
+  setAgentWaitingOnHuman, setTaskState, pauseTask, resumeTask, haltTask, setAgentSteer, type Db,
 } from "./db.js";
 import { acceptPlan, orchestrate, resolveDelegationConsent, sendTaskOffer, type NodeSockets } from "./nodeGateway.js";
 import { planPrompt } from "./plan.js";
@@ -365,6 +365,44 @@ export function registerGateway(
           // "edit" is still deferred — see M4-KICKOFF.md (prompt 4).
         }
         broadcastView();
+      } else if (msg.data.type === "task_control") {
+        const { taskId, action } = msg.data;
+        const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as any;
+        if (task) {
+          if (action === "pause") pauseTask(db, taskId);
+          else if (action === "resume") resumeTask(db, taskId);
+          else if (action === "halt") haltTask(db, taskId, "Halted from UI");
+
+          if (task.agent_id) {
+            const agent = db.prepare("SELECT machine_id FROM agents WHERE id = ?").get(task.agent_id) as any;
+            if (agent?.machine_id) {
+              const sock = nodeSockets.get(agent.machine_id);
+              if (sock && sock.readyState === 1) {
+                sock.send(JSON.stringify({ type: `task_${action}`, taskId, agentId: task.agent_id }));
+              }
+            }
+          }
+          broadcastView();
+        }
+      } else if (msg.data.type === "steer") {
+        const { agentId, text, taskId } = msg.data;
+        setAgentSteer(db, agentId, text);
+        const agent = db.prepare("SELECT machine_id, project_id FROM agents WHERE id = ?").get(agentId) as any;
+        if (agent) {
+          appendEvent(db, agent.project_id, taskId ?? null, "task_steer", {
+            agentId,
+            taskId,
+            text,
+            at: new Date().toISOString(),
+          });
+          if (agent.machine_id) {
+            const sock = nodeSockets.get(agent.machine_id);
+            if (sock && sock.readyState === 1) {
+              sock.send(JSON.stringify({ type: "steer", agentId, taskId, text }));
+            }
+          }
+          broadcastView();
+        }
       }
     });
 

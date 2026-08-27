@@ -1090,7 +1090,14 @@
               <div style="font-weight:600;font-size:13px;margin-top:3px;" id="insp-task-title">—</div>
               <div style="display:flex;justify-content:space-between;margin-top:7px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-faint);">
                 <span id="insp-elapsed"></span><span id="insp-cost"></span></div>
+              <div id="insp-task-controls" style="display:none;gap:6px;margin-top:9px;padding-top:8px;border-top:1px solid var(--border-soft);">
+                <button id="insp-pause-btn" class="cc-tab" style="flex:1;padding:5px;font-size:11px;" onclick="controlActiveTask('pause')">⏸️ Pause</button>
+                <button id="insp-resume-btn" class="cc-tab" style="flex:1;padding:5px;font-size:11px;display:none;" onclick="controlActiveTask('resume')">▶️ Resume</button>
+                <button id="insp-halt-btn" class="cc-tab" style="flex:1;padding:5px;font-size:11px;color:var(--red);border-color:rgba(239,68,68,0.3);" onclick="controlActiveTask('halt')">⏹️ Halt</button>
+                <button id="insp-steer-btn" class="cc-tab" style="flex:1;padding:5px;font-size:11px;color:var(--accent);" onclick="promptQuickSteer()">🧭 Steer</button>
+              </div>
             </div>
+            <button class="primary" id="insp-assign-btn" style="width:100%;margin-bottom:8px;padding:8px 12px;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px;" onclick="openDispatchTaskModal()">🚀 Assign Task</button>
             <button class="card-link" id="insp-more" style="margin-bottom:10px;">Command Center →</button>
             <div style="font-size:12px;color:var(--text-faint);line-height:1.45;" id="insp-desc"></div>
           </div>
@@ -1103,6 +1110,7 @@
               <button class="ap-summon-btn" id="ap-summon-btn">Call here</button>
               <span class="ap-summon-err" id="ap-summon-err" style="display:none"></span>
             </div>
+            <button class="ap-summon-btn" id="ap-assign-btn" style="width:100%;margin-top:6px;background:var(--accent);color:#fff;border:none;font-weight:600;display:block;" onclick="openDispatchTaskModal()">🚀 Assign Task</button>
           </div>
         </div>
 
@@ -1195,6 +1203,11 @@
             </div>
           </div>
           <div id="cc-manage" style="display:flex;gap:6px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--border-soft);align-items:center;background:rgba(255,255,255,0.02);">
+            <button class="cc-tab" id="cc-assign-task-btn" style="background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700;" onclick="openDispatchTaskModal()">🚀 Assign Task</button>
+            <button class="cc-tab" id="cc-breakdown-btn" style="display:none;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;border:none;font-weight:700;" onclick="openCommanderBreakdownModal()">👑 Delegate Epic</button>
+            <button class="cc-tab" id="cc-task-pause-btn" style="display:none;" onclick="controlActiveTask('pause')">⏸️ Pause Task</button>
+            <button class="cc-tab" id="cc-task-resume-btn" style="display:none;" onclick="controlActiveTask('resume')">▶️ Resume Task</button>
+            <button class="cc-tab" id="cc-task-halt-btn" style="display:none;color:var(--red);border-color:rgba(239,68,68,0.3);background:rgba(239,68,68,0.08);" onclick="controlActiveTask('halt')">⏹️ Halt Task</button>
             <button class="cc-tab" onclick="openEditAgent()">Edit</button>
             <button class="cc-tab" onclick="openNoteDialog()">Note</button>
             <button class="cc-tab" id="cc-pause-btn" onclick="togglePause()">Pause</button>
@@ -1517,6 +1530,71 @@
       <div class="dialog-actions" style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px;">
         <button class="btn-ghost" onclick="closeCreateProjectModal()">Cancel</button>
         <button class="btn-primary" id="cp-submit-btn" onclick="submitCreateProject()">Launch Project →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="dispatch-task-modal">
+  <div class="modal" style="width:480px;max-width:92vw;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <h2 style="font-size:18px;font-weight:700;margin:0;">🚀 Assign Task to Agent</h2>
+      <button class="btn-ghost" onclick="closeDispatchTaskModal()" style="padding:4px 8px;font-size:16px;">✕</button>
+    </div>
+    <div class="sub" style="font-size:12.5px;color:var(--text-dim);margin-bottom:16px;line-height:1.4;">
+      Dispatches work directly to <b id="dt-agent-name" style="color:var(--accent);">this agent</b>. The agent will transition to working and execute in its workspace.
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <input type="hidden" id="dt-agent-id" value="">
+      <div class="field">
+        <label for="dt-title" style="font-size:12px;font-weight:600;display:block;margin-bottom:5px;">Task Title / Objective *</label>
+        <input id="dt-title" type="text" placeholder="e.g. Build payment webhook endpoint" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font:inherit;background:var(--surface-2);color:var(--text);">
+      </div>
+      <div class="field">
+        <label for="dt-spec" style="font-size:12px;font-weight:600;display:block;margin-bottom:5px;">Detailed Specification & Context (Optional)</label>
+        <textarea id="dt-spec" rows="4" placeholder="e.g. Accept Stripe POST requests at /api/stripe/webhook, verify signature with secret, and log invoice.paid events." style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font:inherit;background:var(--surface-2);color:var(--text);resize:vertical;"></textarea>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="field">
+          <label for="dt-timeout" style="font-size:12px;font-weight:600;display:block;margin-bottom:5px;">Timeout (Seconds)</label>
+          <input id="dt-timeout" type="number" value="120" min="30" max="1200" style="width:100%;box-sizing:border-box;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font:inherit;background:var(--surface-2);color:var(--text);">
+        </div>
+        <div class="field">
+          <label for="dt-budget" style="font-size:12px;font-weight:600;display:block;margin-bottom:5px;">Budget Cap ($ USD)</label>
+          <input id="dt-budget" type="number" value="1.0" step="0.5" min="0.1" max="20" style="width:100%;box-sizing:border-box;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font:inherit;background:var(--surface-2);color:var(--text);">
+        </div>
+      </div>
+      <div id="dt-err" style="color:var(--red);font-size:12px;display:none;padding:8px 12px;border-radius:6px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);"></div>
+      <div class="dialog-actions" style="display:flex;justify-content:flex-end;gap:10px;margin-top:10px;">
+        <button class="btn-ghost" onclick="closeDispatchTaskModal()">Cancel</button>
+        <button class="btn-primary" id="dt-submit-btn" onclick="submitDispatchTask()" style="background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700;">🚀 Launch Task</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="commander-breakdown-modal">
+  <div class="modal" style="width:520px;max-width:92vw;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <h2 style="font-size:18px;font-weight:700;margin:0;">👑 Central Commander: Delegate Epic Goal</h2>
+      <button class="btn-ghost" onclick="closeCommanderBreakdownModal()" style="padding:4px 8px;font-size:16px;">✕</button>
+    </div>
+    <div class="sub" style="font-size:12.5px;color:var(--text-dim);margin-bottom:16px;line-height:1.4;">
+      Enter a high-level initiative. The Central Commander will automatically decompose it into specialist subtasks across Architecture, Implementation, and QA, and assign each to the optimal agent.
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="field">
+        <label for="cbd-title" style="font-size:12px;font-weight:600;display:block;margin-bottom:5px;">Epic Goal / Initiative Title *</label>
+        <input id="cbd-title" type="text" placeholder="e.g. Build Real-time WebRTC Voice Chat" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font:inherit;background:var(--surface-2);color:var(--text);">
+      </div>
+      <div class="field">
+        <label for="cbd-spec" style="font-size:12px;font-weight:600;display:block;margin-bottom:5px;">Strategic Requirements & Scope</label>
+        <textarea id="cbd-spec" rows="4" placeholder="e.g. Mesh audio signaling over websocket, speaking detection rings, and room HUD controls." style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font:inherit;background:var(--surface-2);color:var(--text);resize:vertical;"></textarea>
+      </div>
+      <div id="cbd-err" style="color:var(--red);font-size:12px;display:none;padding:8px 12px;border-radius:6px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);"></div>
+      <div class="dialog-actions" style="display:flex;justify-content:flex-end;gap:10px;margin-top:10px;">
+        <button class="btn-ghost" onclick="closeCommanderBreakdownModal()">Cancel</button>
+        <button class="btn-primary" id="cbd-submit-btn" onclick="submitCommanderBreakdown()" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;border:none;font-weight:700;">👑 Decompose & Delegate →</button>
       </div>
     </div>
   </div>
@@ -2748,6 +2826,166 @@
       }
     };
 
+    // ---------------- Agent Task Dispatch & Controls ----------------
+    window.openDispatchTaskModal = function(agentId, agentName) {
+      const a = agentId ? (activeRoom()?.agents?.find(x => x.id === agentId)) : (ccAgent() || activeRoom()?.agents?.find(x => x.id === selectedAgentId));
+      const targetId = a?.id || agentId;
+      const targetName = a?.name || agentName || 'Selected Agent';
+      
+      document.getElementById('dt-agent-id').value = targetId || '';
+      document.getElementById('dt-agent-name').textContent = targetName;
+      document.getElementById('dt-title').value = '';
+      document.getElementById('dt-spec').value = '';
+      document.getElementById('dt-err').style.display = 'none';
+      document.getElementById('dispatch-task-modal').classList.add('open');
+      setTimeout(() => document.getElementById('dt-title')?.focus(), 50);
+    };
+
+    window.closeDispatchTaskModal = function() {
+      document.getElementById('dispatch-task-modal').classList.remove('open');
+    };
+
+    window.submitDispatchTask = async function() {
+      const agentId = document.getElementById('dt-agent-id').value;
+      const title = document.getElementById('dt-title').value.trim();
+      const spec = document.getElementById('dt-spec').value.trim();
+      const timeout = Number(document.getElementById('dt-timeout').value) || 120;
+      const budget = Number(document.getElementById('dt-budget').value) || 1.0;
+      const errEl = document.getElementById('dt-err');
+      const submitBtn = document.getElementById('dt-submit-btn');
+
+      if (!title) {
+        errEl.textContent = 'Please provide a task title or objective.';
+        errEl.style.display = 'block';
+        return;
+      }
+      errEl.style.display = 'none';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Launching…';
+
+      try {
+        const room = activeRoom();
+        const res = await fetch('/api/tasks', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            projectId: room.id,
+            agentId: agentId || null,
+            title,
+            spec,
+            budgetSeconds: timeout,
+            budgetUsd: budget,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || 'Failed to dispatch task');
+        }
+        closeDispatchTaskModal();
+        closeAgentPopup();
+        if (viewMode === 'agent') renderCommandCenter();
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = '🚀 Launch Task';
+      }
+    };
+
+    window.controlActiveTask = async function(action) {
+      const a = ccAgent() || activeRoom()?.agents?.find(x => x.id === selectedAgentId);
+      const taskId = a?.task?.id;
+      if (!taskId) {
+        alert('No active task to ' + action);
+        return;
+      }
+      if (action === 'halt') {
+        if (!confirm(`Are you sure you want to halt and abort task "${a.task.title}"?`)) return;
+      }
+      try {
+        const res = await fetch(`/api/tasks/${taskId}/${action}`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          alert(`Failed to ${action} task: ` + (data.error || res.statusText));
+        } else {
+          if (viewMode === 'agent') renderCommandCenter();
+        }
+      } catch (e) {
+        alert(`Error communicating with server: ` + e.message);
+      }
+    };
+
+    window.promptQuickSteer = function() {
+      const a = ccAgent() || activeRoom()?.agents?.find(x => x.id === selectedAgentId);
+      if (!a) return;
+      const text = prompt(`🧭 Inject steering context for ${a.name}:\n(Guide what to focus on or avoid)`);
+      if (!text || !text.trim()) return;
+      fetch(`/api/agents/${a.id}/steer`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: text.trim() }),
+      }).then(r => r.json()).then(data => {
+        if (data.ok) alert(`Steered: "${text.trim()}"`);
+        else alert('Steer failed: ' + data.error);
+      }).catch(e => alert('Failed: ' + e));
+    };
+
+    window.openCommanderBreakdownModal = function() {
+      document.getElementById('cbd-title').value = '';
+      document.getElementById('cbd-spec').value = '';
+      document.getElementById('cbd-err').style.display = 'none';
+      document.getElementById('commander-breakdown-modal').classList.add('open');
+      setTimeout(() => document.getElementById('cbd-title')?.focus(), 50);
+    };
+
+    window.closeCommanderBreakdownModal = function() {
+      document.getElementById('commander-breakdown-modal').classList.remove('open');
+    };
+
+    window.submitCommanderBreakdown = async function() {
+      const title = document.getElementById('cbd-title').value.trim();
+      const spec = document.getElementById('cbd-spec').value.trim();
+      const errEl = document.getElementById('cbd-err');
+      const btn = document.getElementById('cbd-submit-btn');
+
+      if (!title) {
+        errEl.textContent = 'Please specify an epic goal title.';
+        errEl.style.display = 'block';
+        return;
+      }
+      errEl.style.display = 'none';
+      btn.disabled = true;
+      btn.textContent = 'Decomposing…';
+
+      try {
+        const room = activeRoom();
+        const commander = ccAgent() || room?.agents?.find(x => isOrchestrator(x)) || room?.agents?.[0];
+        const res = await fetch('/api/commander/breakdown', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            projectId: room.id,
+            title,
+            spec,
+            commanderId: commander?.id,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || 'Failed to breakdown epic');
+        }
+        closeCommanderBreakdownModal();
+        setView('tasks');
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '👑 Decompose & Delegate →';
+      }
+    };
+
     // ---------------- Command Center (one agent) ----------------
     //
     // A full view rather than a docked panel: the office keeps its right side
@@ -2915,6 +3153,30 @@
           manageRow.appendChild(label);
         }
         label.textContent = isOrchestrator(a) ? 'Orchestrator · floor' : 'Employee · ' + (a.name || '');
+
+        const breakdownBtn = document.getElementById('cc-breakdown-btn');
+        if (breakdownBtn) {
+          breakdownBtn.style.display = isOrchestrator(a) ? 'inline-block' : 'none';
+        }
+
+        const taskPauseBtn = document.getElementById('cc-task-pause-btn');
+        const taskResumeBtn = document.getElementById('cc-task-resume-btn');
+        const taskHaltBtn = document.getElementById('cc-task-halt-btn');
+        const activeTask = a.task;
+        if (activeTask && activeTask.title) {
+          if (taskHaltBtn) taskHaltBtn.style.display = 'inline-block';
+          if (a.status === 'waiting' || a.status === 'paused') {
+            if (taskPauseBtn) taskPauseBtn.style.display = 'none';
+            if (taskResumeBtn) taskResumeBtn.style.display = 'inline-block';
+          } else {
+            if (taskPauseBtn) taskPauseBtn.style.display = 'inline-block';
+            if (taskResumeBtn) taskResumeBtn.style.display = 'none';
+          }
+        } else {
+          if (taskPauseBtn) taskPauseBtn.style.display = 'none';
+          if (taskResumeBtn) taskResumeBtn.style.display = 'none';
+          if (taskHaltBtn) taskHaltBtn.style.display = 'none';
+        }
       }
 
       const tabs = document.getElementById('cc-tabs');
@@ -3251,56 +3513,94 @@
 
     function ccRenderSteer(body, a) {
       body.innerHTML = '';
+      const isWorking = !!(a.task && a.task.title);
+
+      const statusBox = document.createElement('div');
+      statusBox.style.cssText = `
+        padding:12px 16px;border-radius:10px;margin-bottom:14px;
+        background:${isWorking ? 'rgba(99,102,241,0.1)' : 'rgba(255,255,255,0.03)'};
+        border:1px solid ${isWorking ? 'rgba(99,102,241,0.3)' : 'var(--border)'};
+        display:flex;align-items:center;gap:12px;
+      `;
+      statusBox.innerHTML = `
+        <div style="font-size:24px;">${isWorking ? '🟢' : '⚪'}</div>
+        <div>
+          <div style="font-size:13px;font-weight:700;color:var(--text);">
+            ${isWorking ? `Live Task In Progress: "${escapeHtml(a.task.title)}"` : `Agent is Idle`}
+          </div>
+          <div style="font-size:11.5px;color:var(--text-dim);margin-top:2px;">
+            ${isWorking ? 'Steering messages will be injected directly into the active run loop.' : 'Steering messages will be saved into agent memory and prepended to the next task.'}
+          </div>
+        </div>
+      `;
+      body.appendChild(statusBox);
+
       const note = document.createElement('div');
       note.className = 'cmd-note';
-      note.textContent = 'One line of context for the next task — it lands in the prompt, not in a running process. This is not a terminal.';
+      note.textContent = 'Inject guidance, architectural constraints, or corrections. You can steer without stopping the agent.';
       body.appendChild(note);
 
       const row = document.createElement('div');
       row.style.cssText = 'display:flex;gap:8px;margin-top:12px';
       const inp = document.createElement('input');
-      inp.placeholder = 'e.g. prefer pnpm, check the staging DB first';
-      inp.style.cssText = 'flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:12.5px;background:var(--surface-2);color:var(--text)';
+      inp.placeholder = 'e.g. prefer pnpm, use Tailwind instead of raw CSS, check error boundaries';
+      inp.style.cssText = 'flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;background:var(--surface-2);color:var(--text)';
       inp.id = 'cc-steer-input';
-      // Keep draft across broadcasts
       if (window._ccSteerDraft?.agentId === a.id) inp.value = window._ccSteerDraft.text;
       inp.oninput = () => { window._ccSteerDraft = { agentId: a.id, text: inp.value }; };
+      inp.onkeydown = (e) => { if (e.key === 'Enter') btn.click(); };
 
       const btn = document.createElement('button');
       btn.className = 'btn-primary';
-      btn.textContent = 'Steer next task';
-      btn.style.cssText = 'padding:8px 14px;border-radius:8px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer';
+      btn.textContent = isWorking ? '🧭 Inject Live Guidance' : '🧭 Steer Next Task';
+      btn.style.cssText = 'padding:10px 18px;border-radius:8px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-weight:700;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;';
       const err = document.createElement('div');
-      err.style.cssText = 'font-size:11px;color:var(--red);margin-top:8px;display:none';
+      err.style.cssText = 'font-size:12px;margin-top:10px;display:none;padding:8px 12px;border-radius:6px;';
+
       btn.onclick = async () => {
         const text = inp.value.trim();
-        if (!text) { err.textContent = 'Enter a line of context.'; err.style.display = 'block'; return; }
+        if (!text) {
+          err.textContent = 'Please enter a line of guidance.';
+          err.style.display = 'block';
+          err.style.background = 'rgba(239,68,68,0.1)';
+          err.style.color = 'var(--red)';
+          return;
+        }
         err.style.display = 'none';
         btn.disabled = true;
-        btn.textContent = 'Steering…';
+        btn.textContent = 'Injecting…';
         try {
-          const res = await fetch(`/api/agents/${a.id}/steer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
+          const res = await fetch(`/api/agents/${a.id}/steer`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ text }),
+          });
           const data = await res.json().catch(() => ({}));
           if (!res.ok || data.ok === false) {
-            const msg = data.error || `steer failed (${res.status})`;
+            const msg = data.error || `Steer failed (${res.status})`;
             err.textContent = msg;
             err.style.display = 'block';
-            // If 404, degrade honestly
-            if (res.status === 404) err.textContent = 'Steer not available yet — server has no steer endpoint.';
+            err.style.background = 'rgba(239,68,68,0.1)';
+            err.style.color = 'var(--red)';
           } else {
             inp.value = '';
             window._ccSteerDraft = null;
-            err.textContent = 'Steered — next task will include it.';
+            const modeText = data.mode === 'live' ? 'Injected directly into live running task!' : 'Saved for next task.';
+            err.textContent = `✓ Guidance steered successfully: "${text}" (${modeText})`;
             err.style.display = 'block';
+            err.style.background = 'rgba(16,185,129,0.12)';
+            err.style.border = '1px solid rgba(16,185,129,0.3)';
             err.style.color = 'var(--green)';
-            setTimeout(() => { err.style.display = 'none'; err.style.color = 'var(--red)'; }, 2000);
+            setTimeout(() => { err.style.display = 'none'; }, 4000);
           }
         } catch (e) {
-          err.textContent = e.message || 'could not reach server';
+          err.textContent = e.message || 'Could not reach server';
           err.style.display = 'block';
+          err.style.background = 'rgba(239,68,68,0.1)';
+          err.style.color = 'var(--red)';
         } finally {
           btn.disabled = false;
-          btn.textContent = 'Steer next task';
+          btn.textContent = isWorking ? '🧭 Inject Live Guidance' : '🧭 Steer Next Task';
         }
       };
 
@@ -3310,53 +3610,124 @@
 
     function ccRenderTraces(body, a) {
       body.innerHTML = '';
+
+      const topRow = document.createElement('div');
+      topRow.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;';
+
       const note = document.createElement('div');
       note.className = 'cmd-note';
-      note.textContent = 'Tool calls and step boundaries from task.event rows — what the agent actually did, not a live terminal.';
-      body.appendChild(note);
+      note.style.margin = '0';
+      note.textContent = 'Structured step-by-step waterfall: model reasoning, tool invocations, and execution events.';
 
-      const room = activeRoom();
-      // Find the agent's tasks, then pull their task.event rows from the activity feed is not enough
-      // (task.event is noise-filtered from activity). Instead, try to fetch traces via an endpoint,
-      // and degrade if it is not there.
+      const refreshBtn = document.createElement('button');
+      refreshBtn.className = 'code-btn';
+      refreshBtn.textContent = '🔄 Refresh Traces';
+      refreshBtn.onclick = () => ccRenderTraces(body, a);
+
+      topRow.append(note, refreshBtn);
+      body.appendChild(topRow);
+
       const placeholder = document.createElement('div');
       placeholder.className = 'empty-note';
-      placeholder.textContent = 'Loading traces…';
+      placeholder.textContent = 'Loading execution traces…';
       body.appendChild(placeholder);
 
-      // Try the honest endpoint; if 404, degrade
-      fetch(`/api/agents/${a.id}/traces?limit=50`).then(async (res) => {
+      fetch(`/api/agents/${a.id}/traces?limit=60`).then(async (res) => {
         if (!res.ok) {
-          if (res.status === 404) placeholder.textContent = 'Traces not available yet — server has no traces endpoint. What is here is the honest, buildable part of “watch it work”.';
-          else placeholder.textContent = `Could not load traces (${res.status}).`;
+          placeholder.textContent = `Could not load traces (${res.status}).`;
           return;
         }
         const data = await res.json().catch(() => ({}));
         const traces = data.traces ?? data.events ?? [];
         if (!traces.length) {
-          placeholder.textContent = 'No tool calls yet — traces appear as the agent works.';
+          placeholder.textContent = 'No execution traces recorded yet. Traces will appear in real time as the agent executes work.';
           return;
         }
         placeholder.remove();
+
+        const timeline = document.createElement('div');
+        timeline.style.cssText = 'display:flex;flex-direction:column;gap:10px;position:relative;';
+
         for (const ev of traces) {
-          const row = document.createElement('div');
-          row.className = 'cmd-row';
-          const main = document.createElement('div');
-          main.className = 'cmd-main';
-          const kind = document.createElement('div');
-          kind.className = 'cmd-desc';
-          kind.style.cssText = 'font-size:11px;font-weight:700;color:var(--text-faint)';
-          kind.textContent = ev.kind || ev.type || 'event';
+          const card = document.createElement('div');
+          card.style.cssText = `
+            background:var(--surface);
+            border:1px solid var(--border);
+            border-radius:10px;
+            padding:12px 16px;
+            display:flex;
+            flex-direction:column;
+            gap:6px;
+            transition:border-color .15s;
+          `;
+
+          const head = document.createElement('div');
+          head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:10px;';
+
+          const leftGroup = document.createElement('div');
+          leftGroup.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
+
+          let badgeBg = 'rgba(99,102,241,0.15)';
+          let badgeColor = '#818cf8';
+          let badgeBorder = 'rgba(99,102,241,0.3)';
+          let icon = '🛠️';
+          const k = (ev.kind || ev.type || '').toLowerCase();
+
+          if (k.includes('thought') || k.includes('reason')) {
+            badgeBg = 'rgba(139,92,246,0.15)'; badgeColor = '#a78bfa'; badgeBorder = 'rgba(139,92,246,0.3)'; icon = '🧠';
+          } else if (k.includes('steer')) {
+            badgeBg = 'rgba(245,158,11,0.15)'; badgeColor = '#fbbf24'; badgeBorder = 'rgba(245,158,11,0.3)'; icon = '🧭';
+          } else if (k.includes('control') || k.includes('pause') || k.includes('halt')) {
+            badgeBg = 'rgba(244,63,94,0.15)'; badgeColor = '#fb7185'; badgeBorder = 'rgba(244,63,94,0.3)'; icon = '⏸️';
+          } else if (k.includes('result') || k.includes('output')) {
+            badgeBg = 'rgba(16,185,129,0.15)'; badgeColor = '#34d399'; badgeBorder = 'rgba(16,185,129,0.3)'; icon = '📄';
+          } else if (k.includes('task')) {
+            badgeBg = 'rgba(59,130,246,0.15)'; badgeColor = '#60a5fa'; badgeBorder = 'rgba(59,130,246,0.3)'; icon = '📋';
+          }
+
+          const badge = document.createElement('span');
+          badge.style.cssText = `background:${badgeBg};color:${badgeColor};border:1px solid ${badgeBorder};font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:12px;display:inline-flex;align-items:center;gap:4px;text-transform:uppercase;`;
+          badge.textContent = `${icon} ${ev.kind || ev.type || 'STEP'}`;
+
+          if (ev.taskTitle) {
+            const taskTag = document.createElement('span');
+            taskTag.style.cssText = 'font-size:11px;color:var(--text-faint);background:var(--surface-2);padding:2px 6px;border-radius:4px;border:1px solid var(--border-soft);font-family:monospace;';
+            taskTag.textContent = ev.taskTitle;
+            leftGroup.append(badge, taskTag);
+          } else {
+            leftGroup.append(badge);
+          }
+
+          const time = document.createElement('span');
+          time.style.cssText = 'font-size:11px;color:var(--text-faint);font-family:\'JetBrains Mono\',monospace;';
+          time.textContent = ev.ts ? new Date(ev.ts).toLocaleTimeString() : '';
+
+          head.append(leftGroup, time);
+
           const summary = document.createElement('div');
-          summary.className = 'cmd-name';
-          summary.style.cssText = 'font-size:12px';
-          summary.textContent = ev.summary || ev.text || JSON.stringify(ev.data ?? ev.body ?? '').slice(0, 120);
-          main.append(kind, summary);
-          row.appendChild(main);
-          body.appendChild(row);
+          summary.style.cssText = 'font-size:13px;font-weight:500;color:var(--text);line-height:1.45;';
+          summary.textContent = ev.summary || ev.text || 'Action executed';
+
+          card.append(head, summary);
+
+          if (ev.data || ev.details) {
+            const detailStr = typeof (ev.data || ev.details) === 'object' ? JSON.stringify(ev.data || ev.details, null, 2) : String(ev.data || ev.details);
+            if (detailStr && detailStr !== '{}' && detailStr !== 'null') {
+              const detailsWrapper = document.createElement('details');
+              detailsWrapper.style.cssText = 'margin-top:4px;font-size:11.5px;color:var(--text-dim);cursor:pointer;';
+              detailsWrapper.innerHTML = `
+                <summary style="font-size:11px;color:var(--text-faint);outline:none;user-select:none;">View Payload Details</summary>
+                <pre style="font-family:'JetBrains Mono',monospace;font-size:11px;background:rgba(0,0,0,0.3);border:1px solid var(--border-soft);padding:8px 12px;border-radius:6px;margin-top:6px;overflow-x:auto;white-space:pre-wrap;color:#cbd5e1;">${escapeHtml(detailStr)}</pre>
+              `;
+              card.appendChild(detailsWrapper);
+            }
+          }
+
+          timeline.appendChild(card);
         }
-      }).catch(() => {
-        placeholder.textContent = 'Could not reach server for traces.';
+        body.appendChild(timeline);
+      }).catch((e) => {
+        placeholder.textContent = 'Could not reach server for traces: ' + e.message;
       });
     }
 
@@ -6735,6 +7106,11 @@
             if (err) { err.textContent = ''; err.style.display = 'none'; }
           }
         }
+        const assignBtn = document.getElementById('ap-assign-btn');
+        if (assignBtn) {
+          assignBtn.onclick = (e) => { e.stopPropagation(); openDispatchTaskModal(a.id, a.name); };
+        }
+        updateInspector(a);
       } catch (e) { console.warn('popup content failed', e); }
     }
 
@@ -6864,6 +7240,60 @@
       // For now clicking an agent opens the head card, not the large panel.
       openAgentPopup(a);
     }
+
+    function updateInspector(a) {
+      const insp = document.getElementById('inspector');
+      if (!insp) return;
+      const nameEl = document.getElementById('insp-name');
+      if (nameEl) nameEl.textContent = a.name;
+      const subEl = document.getElementById('insp-sub');
+      if (subEl) subEl.textContent = a.role + ' · ' + (a.machineName || 'local');
+      const badge = document.getElementById('insp-badge');
+      if (badge) {
+        badge.textContent = a.status;
+        badge.className = 'inspector-badge badge-' + (a.status === 'working' ? 'working' : (a.status === 'blocked' ? 'blocked' : 'idle'));
+      }
+      
+      const titleEl = document.getElementById('insp-task-title');
+      const elapsedEl = document.getElementById('insp-elapsed');
+      const costEl = document.getElementById('insp-cost');
+      const controls = document.getElementById('insp-task-controls');
+      const pauseBtn = document.getElementById('insp-pause-btn');
+      const resumeBtn = document.getElementById('insp-resume-btn');
+      
+      if (a.task && a.task.title) {
+        if (titleEl) titleEl.textContent = a.task.title;
+        if (elapsedEl) elapsedEl.textContent = '⏱ ' + formatElapsed(a.task.elapsedSec || 0);
+        if (costEl) costEl.textContent = '$' + (a.task.costUsd || 0).toFixed(3);
+        if (controls) controls.style.display = 'flex';
+        if (pauseBtn && resumeBtn) {
+          if (a.status === 'waiting' || a.status === 'paused') {
+            pauseBtn.style.display = 'none';
+            resumeBtn.style.display = 'inline-block';
+          } else {
+            pauseBtn.style.display = 'inline-block';
+            resumeBtn.style.display = 'none';
+          }
+        }
+      } else {
+        if (titleEl) titleEl.textContent = 'No active task';
+        if (elapsedEl) elapsedEl.textContent = '';
+        if (costEl) costEl.textContent = '';
+        if (controls) controls.style.display = 'none';
+      }
+
+      const descEl = document.getElementById('insp-desc');
+      if (descEl) descEl.textContent = a.description || '';
+      const moreBtn = document.getElementById('insp-more');
+      if (moreBtn) {
+        moreBtn.onclick = () => {
+          setCCAgent(a.id);
+          setView('agent');
+          insp.classList.remove('open');
+        };
+      }
+    }
+
     window.closeInspector = function () {
       document.getElementById('inspector').classList.remove('open');
       closeAgentPopup();

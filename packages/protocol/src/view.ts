@@ -341,6 +341,17 @@ export const ClientMessage = z.discriminatedUnion("type", [
     // every other handler. See the grants table and SEALED.md.
     mode: z.enum(["once", "always", "never"]).optional(),
   }),
+  z.object({
+    type: z.literal("task_control"),
+    taskId: z.string(),
+    action: z.enum(["pause", "resume", "halt"]),
+  }),
+  z.object({
+    type: z.literal("steer"),
+    agentId: z.string(),
+    taskId: z.string().optional(),
+    text: z.string(),
+  }),
 ]);
 
 export type ClientMessageT = z.infer<typeof ClientMessage>;
