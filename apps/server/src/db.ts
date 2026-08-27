@@ -253,6 +253,10 @@ export function openDb(dbPath?: string): Db {
     "ALTER TABLE agents ADD COLUMN context_used INTEGER",
     "ALTER TABLE agents ADD COLUMN context_limit INTEGER",
     "ALTER TABLE agents ADD COLUMN tool_calls INTEGER",
+    "ALTER TABLE users ADD COLUMN email TEXT",
+    "ALTER TABLE users ADD COLUMN password_hash TEXT",
+    "ALTER TABLE users ADD COLUMN created_at TEXT",
+    "ALTER TABLE projects ADD COLUMN owner_id TEXT",
   ]) {
     try {
       db.exec(alter);

@@ -816,6 +816,61 @@
     .hive-mem-editor { flex: 1; padding: 12px; font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.5; background: #FCFAF0; color: #1e293b; border: none; outline: none; resize: none; }
   </style>
 <body>
+
+<!-- ================= 1. Sign In / Sign Up Screen ================= -->
+<div id="view-auth" style="display:none;position:fixed;inset:0;background:#090d16;z-index:9999;align-items:center;justify-content:center;font-family:inherit;">
+  <div style="position:absolute;inset:0;background:radial-gradient(circle at 50% 35%, rgba(99, 102, 241, 0.18), transparent 60%);pointer-events:none;"></div>
+  
+  <div style="position:relative;width:400px;max-width:92vw;background:rgba(18, 24, 38, 0.95);border:1px solid rgba(255, 255, 255, 0.12);border-radius:18px;padding:32px;box-shadow:0 24px 60px rgba(0,0,0,0.6);backdrop-filter:blur(16px);display:flex;flex-direction:column;gap:20px;">
+    
+    <!-- Branding Header -->
+    <div style="text-align:center;display:flex;flex-direction:column;align-items:center;">
+      <div style="width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg, #6366f1, #a855f7);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:#fff;box-shadow:0 8px 24px rgba(99,102,241,0.4);margin-bottom:12px;">LB</div>
+      <div style="font-size:20px;font-weight:800;color:#f8fafc;letter-spacing:-.3px;">LogBridge Workplace</div>
+      <div style="font-size:13px;color:#94a3b8;margin-top:4px;">Autonomous Multi-Agent AI Office</div>
+    </div>
+
+    <!-- Auth Tabs -->
+    <div style="display:flex;background:rgba(255,255,255,0.06);padding:4px;border-radius:10px;gap:4px;">
+      <button id="auth-tab-login" onclick="switchAuthMode('login')" style="flex:1;padding:8px 12px;border:none;border-radius:7px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;background:#6366f1;color:#fff;transition:all .15s;">Sign In</button>
+      <button id="auth-tab-signup" onclick="switchAuthMode('signup')" style="flex:1;padding:8px 12px;border:none;border-radius:7px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:#94a3b8;transition:all .15s;">Create Account</button>
+    </div>
+
+    <!-- Error Alert -->
+    <div id="auth-error" style="display:none;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;padding:10px 14px;border-radius:8px;font-size:12.5px;"></div>
+
+    <!-- Form Fields -->
+    <form onsubmit="handleAuthSubmit(event)" style="display:flex;flex-direction:column;gap:14px;">
+      <div id="auth-name-group" style="display:none;flex-direction:column;gap:5px;">
+        <label style="font-size:12px;font-weight:600;color:#cbd5e1;">Your Full Name</label>
+        <input id="auth-name" type="text" placeholder="e.g. Ayush Mangela" style="padding:10px 13px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:#fff;font:inherit;font-size:13px;outline:none;" />
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:12px;font-weight:600;color:#cbd5e1;">Email or Username</label>
+        <input id="auth-email" type="text" placeholder="ayush@example.com" style="padding:10px 13px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:#fff;font:inherit;font-size:13px;outline:none;" required />
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <label style="font-size:12px;font-weight:600;color:#cbd5e1;">Password</label>
+        <input id="auth-password" type="password" placeholder="••••••••" style="padding:10px 13px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:#fff;font:inherit;font-size:13px;outline:none;" required minlength="6" />
+      </div>
+
+      <button type="submit" id="auth-submit-btn" style="margin-top:6px;padding:11px;border:none;border-radius:8px;background:linear-gradient(135deg, #6366f1, #4f46e5);color:#fff;font:inherit;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(99,102,241,0.4);transition:opacity .15s;">
+        Sign In →
+      </button>
+    </form>
+
+    <!-- Quick Demo Access -->
+    <div style="border-top:1px solid rgba(255,255,255,0.08);padding-top:14px;text-align:center;">
+      <button onclick="quickDemoLogin()" style="background:transparent;border:1px dashed rgba(255,255,255,0.2);color:#94a3b8;padding:7px 14px;border-radius:6px;font:inherit;font-size:12px;cursor:pointer;width:100%;">
+        ⚡ One-Click Demo Access (Ayush)
+      </button>
+    </div>
+
+  </div>
+</div>
+
 <div class="app">
 
   <!-- ================= left sidebar ================= -->
@@ -871,16 +926,32 @@
   <!-- ================= main ================= -->
   <div class="main">
     <header class="topbar">
-      <button class="ws-pick" onclick="setView('projects')" title="Switch Project Workspace">
+      <button class="ws-pick" onclick="goToProjectsPage()" title="Switch Project Workspace">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-        <span id="ws-name">Workspace</span>
+        <span id="ws-breadcrumb" style="display:flex;align-items:center;gap:6px;">
+          <span id="ws-back-label" style="color:var(--accent);font-weight:700;display:none;">← Projects /</span>
+          <span id="ws-name">Workspace</span>
+        </span>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
       </button>
       <div class="top-right">
         <div class="online-pill"><span class="d" id="online-dot"></span><span id="online-count">Connecting…</span></div>
-        <div class="me">
-          <div class="av" style="background:var(--accent)">Y</div>
-          <div><div class="me-name">You</div><div class="me-state" id="me-state">Online</div></div>
+        <div class="me" onclick="toggleUserDropdown(event)" style="cursor:pointer;position:relative;" id="user-pill">
+          <div class="av" id="user-avatar" style="background:var(--accent)">A</div>
+          <div><div class="me-name" id="user-display-name">Ayush</div><div class="me-state" id="me-state">Online</div></div>
+          <!-- User Dropdown Menu -->
+          <div id="user-dropdown" style="display:none;position:absolute;top:100%;right:0;margin-top:8px;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);width:210px;z-index:999;padding:6px;flex-direction:column;gap:4px;">
+            <div style="padding:8px 10px;border-bottom:1px solid var(--border-soft);font-size:12px;">
+              <div style="font-weight:700;color:var(--text);" id="dropdown-user-name">Ayush</div>
+              <div style="font-size:11px;color:var(--text-faint);" id="dropdown-user-email">ayush@example.com</div>
+            </div>
+            <button class="cc-tab" style="width:100%;text-align:left;border:none;background:none;padding:8px 10px;font-size:12px;cursor:pointer;" onclick="goToProjectsPage()">
+              🏢 Project Workspaces
+            </button>
+            <button class="cc-tab" style="width:100%;text-align:left;border:none;background:none;padding:8px 10px;font-size:12px;color:var(--red);cursor:pointer;" onclick="handleSignOut()">
+              🚪 Sign Out
+            </button>
+          </div>
         </div>
       </div>
     </header>
@@ -1767,6 +1838,132 @@
       ws.send(JSON.stringify({ type: 'position', roomId: room.id, x: tx, y: ty }));
     }
 
+    // ---------------- Authentication State & Handlers ----------------
+    let currentUser = null;
+    try {
+      currentUser = JSON.parse(localStorage.getItem("logbridge_auth_user") || "null");
+    } catch {}
+
+    let authMode = 'login';
+
+    window.switchAuthMode = function(mode) {
+      authMode = mode;
+      const isLogin = mode === 'login';
+      const tabLog = document.getElementById('auth-tab-login');
+      const tabSign = document.getElementById('auth-tab-signup');
+      if (tabLog) {
+        tabLog.style.background = isLogin ? '#6366f1' : 'transparent';
+        tabLog.style.color = isLogin ? '#fff' : '#94a3b8';
+      }
+      if (tabSign) {
+        tabSign.style.background = !isLogin ? '#6366f1' : 'transparent';
+        tabSign.style.color = !isLogin ? '#fff' : '#94a3b8';
+      }
+      const nameGrp = document.getElementById('auth-name-group');
+      if (nameGrp) nameGrp.style.display = isLogin ? 'none' : 'flex';
+      const subBtn = document.getElementById('auth-submit-btn');
+      if (subBtn) subBtn.textContent = isLogin ? 'Sign In →' : 'Create Account →';
+      const err = document.getElementById('auth-error');
+      if (err) err.style.display = 'none';
+    };
+
+    function checkAuth() {
+      const authView = document.getElementById('view-auth');
+      const appView = document.querySelector('.app');
+      if (!currentUser) {
+        if (authView) authView.style.display = 'flex';
+        if (appView) appView.style.display = 'none';
+      } else {
+        if (authView) authView.style.display = 'none';
+        if (appView) appView.style.display = 'flex';
+        updateUserHeader();
+      }
+    }
+
+    function updateUserHeader() {
+      if (!currentUser) return;
+      const name = currentUser.name || "Ayush";
+      const initial = (name[0] || "A").toUpperCase();
+      const nameEl = document.getElementById('user-display-name');
+      if (nameEl) nameEl.textContent = name;
+      const avEl = document.getElementById('user-avatar');
+      if (avEl) avEl.textContent = initial;
+      const dropName = document.getElementById('dropdown-user-name');
+      if (dropName) dropName.textContent = name;
+      const dropEmail = document.getElementById('dropdown-user-email');
+      if (dropEmail) dropEmail.textContent = currentUser.email || "";
+    }
+
+    window.handleAuthSubmit = async function(e) {
+      if (e) e.preventDefault();
+      const email = document.getElementById('auth-email')?.value?.trim();
+      const password = document.getElementById('auth-password')?.value;
+      const name = document.getElementById('auth-name')?.value?.trim();
+      const err = document.getElementById('auth-error');
+      const btn = document.getElementById('auth-submit-btn');
+
+      if (btn) btn.disabled = true;
+      if (err) err.style.display = 'none';
+
+      const url = authMode === 'signup' ? '/api/auth/signup' : '/api/auth/login';
+      const payload = authMode === 'signup' ? { name, email, password } : { email, password };
+
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Authentication failed');
+
+        currentUser = data.user;
+        localStorage.setItem('logbridge_auth_user', JSON.stringify(currentUser));
+        if (data.token) localStorage.setItem('logbridge_auth_token', data.token);
+
+        checkAuth();
+        goToProjectsPage();
+      } catch (errObj) {
+        if (err) {
+          err.textContent = errObj.message;
+          err.style.display = 'block';
+        }
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    };
+
+    window.quickDemoLogin = function() {
+      currentUser = {
+        id: 'usr_ayush',
+        name: 'Ayush Mangela',
+        email: 'ayush@logbridge.internal'
+      };
+      localStorage.setItem('logbridge_auth_user', JSON.stringify(currentUser));
+      checkAuth();
+      goToProjectsPage();
+    };
+
+    window.handleSignOut = function() {
+      currentUser = null;
+      localStorage.removeItem('logbridge_auth_user');
+      localStorage.removeItem('logbridge_auth_token');
+      localStorage.removeItem('logbridge_active_project');
+      activeProjectId = null;
+      checkAuth();
+    };
+
+    window.toggleUserDropdown = function(e) {
+      if (e) e.stopPropagation();
+      const d = document.getElementById('user-dropdown');
+      if (d) d.style.display = d.style.display === 'none' ? 'flex' : 'none';
+    };
+
+    document.addEventListener('click', () => {
+      const d = document.getElementById('user-dropdown');
+      if (d) d.style.display = 'none';
+    });
+
     // Tell the server which room we're looking at. Until it knows, it can't
     // scope chat — and it deliberately sends none rather than guessing.
     let activeProjectId = localStorage.getItem("logbridge_active_project") || null;
@@ -1781,9 +1978,31 @@
       return latestView.rooms[0];
     }
 
+    function updateProjectNavVisibility() {
+      const navProjects = document.getElementById('nav-projects');
+      const wsBackLabel = document.getElementById('ws-back-label');
+      if (activeProjectId) {
+        // A particular project is opened: REMOVE / HIDE projects section from left sidebar
+        if (navProjects) navProjects.style.display = 'none';
+        if (wsBackLabel) wsBackLabel.style.display = 'inline';
+      } else {
+        // On Projects selection landing page: SHOW projects in left sidebar
+        if (navProjects) navProjects.style.display = 'flex';
+        if (wsBackLabel) wsBackLabel.style.display = 'none';
+      }
+    }
+
+    window.goToProjectsPage = function () {
+      activeProjectId = null;
+      localStorage.removeItem("logbridge_active_project");
+      updateProjectNavVisibility();
+      setView('projects');
+    };
+
     function selectProject(projectId) {
       activeProjectId = projectId;
       localStorage.setItem("logbridge_active_project", projectId);
+      updateProjectNavVisibility();
       announcedRoom = null;
       announceRoom();
       if (latestView) {
@@ -2018,8 +2237,13 @@
     // you reach it by clicking an agent, and leave via 'All agents'.
     const VIEWS = ['office', 'tasks', 'chat', 'projects', 'agents', 'memory', 'settings', 'agent'];
     let currentView = activeProjectId ? 'office' : 'projects';
-    if (!activeProjectId) {
-      setTimeout(() => setView('projects'), 60);
+    checkAuth();
+    if (currentUser) {
+      if (!activeProjectId) {
+        setTimeout(() => goToProjectsPage(), 60);
+      } else {
+        setTimeout(() => { updateProjectNavVisibility(); setView('office'); }, 60);
+      }
     }
     function stageEl() { return document.getElementById('canvas-container'); }
 
@@ -2034,6 +2258,7 @@
         document.getElementById('nav-' + v)?.classList.toggle('active', v === name);
       }
       for (const k of Object.keys(keys)) keys[k] = false; // don't leave a key stuck down
+      updateProjectNavVisibility();
       renderCurrentView();
       if (name === 'chat') {
         unreadChat = 0;
