@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "ws";
-import { ClientMessage, ServerMessage, type ChatMessageT } from "@logbridge/protocol";
+import { ClientMessage, ServerMessage, type ChatMessageT, type RoomChatMessageT } from "@logbridge/protocol";
 import {
   appendEvent, clearAgentWaiting, createTask, getTask, lastSeq,
   setAgentWaitingOnHuman, setTaskState, type Db,
@@ -37,23 +37,26 @@ export function registerGateway(
   nodeSockets: NodeSockets,
   hive?: HiveManager
 ): { broadcastView: () => void; broadcastChat: (chat: ChatMessageT) => void } {
+  // Which user is connected to each browser socket
+  const userOf = new Map<WebSocket, string>();
+
+  // Which room each browser is looking at, set by the `join` message.
+  const roomOf = new Map<WebSocket, string>();
+
   const broadcastView = () => {
     if (browserSockets.size === 0) return;
-    const msg = { type: "view" as const, view: buildView(db, positions, "you", hive) };
-    const parsed = ServerMessage.safeParse(msg);
-    if (!parsed.success) {
-      app.log.error({ err: parsed.error }, "view failed contract validation — not sent");
-      return;
+    for (const ws of browserSockets) {
+      if (ws.readyState !== ws.OPEN) continue;
+      const meId = userOf.get(ws) || "you";
+      const msg = { type: "view" as const, view: buildView(db, positions, meId, hive) };
+      const parsed = ServerMessage.safeParse(msg);
+      if (!parsed.success) {
+        app.log.error({ err: parsed.error }, "view failed contract validation — not sent");
+        continue;
+      }
+      ws.send(JSON.stringify(parsed.data));
     }
-    const json = JSON.stringify(parsed.data);
-    for (const ws of browserSockets) if (ws.readyState === ws.OPEN) ws.send(json);
   };
-
-  // Which room each browser is looking at, set by the `join` message. The
-  // server previously had no idea, so chat went to every socket regardless of
-  // room and the browser filtered it — fine while there was one room, wrong
-  // once the GitHub mirror started creating one per repo.
-  const roomOf = new Map<WebSocket, string>();
 
   const broadcastChat = (chat: ChatMessageT) => {
     const json = JSON.stringify({ type: "chat", roomId: chat.roomId, msg: chat });
@@ -112,6 +115,7 @@ export function registerGateway(
         if (!known) return; // don't hand out history for a room that isn't real
         const previous = roomOf.get(socket);
         roomOf.set(socket, msg.data.roomId);
+        if (msg.data.userId) userOf.set(socket, msg.data.userId);
         // Only replay when the room actually changed, so a browser that
         // re-announces the same room doesn't duplicate its own history.
         if (previous !== msg.data.roomId) replayChat(socket, msg.data.roomId);
@@ -119,14 +123,44 @@ export function registerGateway(
       }
 
       if (msg.data.type === "position") {
-        positions.set("you", { roomId: msg.data.roomId, x: msg.data.x, y: msg.data.y });
+        const uid = msg.data.userId || userOf.get(socket) || "you";
+        userOf.set(socket, uid);
+        positions.set(uid, {
+          roomId: msg.data.roomId,
+          x: msg.data.x,
+          y: msg.data.y,
+        });
         appendEvent(db, msg.data.roomId, null, "position", msg.data);
         broadcastView();
+      } else if (msg.data.type === "room_chat") {
+        const uid = msg.data.from?.id || userOf.get(socket) || "you";
+        const uname = msg.data.from?.name || "Colleague";
+        const roomMsg: RoomChatMessageT = {
+          id: crypto.randomUUID(),
+          roomId: msg.data.roomId,
+          zone: msg.data.zone,
+          from: {
+            id: uid,
+            name: uname,
+            avatar: msg.data.from?.avatar ?? 0,
+          },
+          text: msg.data.text,
+          ts: new Date().toISOString(),
+        };
+        appendEvent(db, msg.data.roomId, null, "room_chat", roomMsg);
+        const json = JSON.stringify({ type: "room_chat", roomId: msg.data.roomId, msg: roomMsg });
+        for (const ws of browserSockets) {
+          if (ws.readyState !== ws.OPEN) continue;
+          if (roomOf.get(ws) !== msg.data.roomId) continue;
+          ws.send(json);
+        }
       } else if (msg.data.type === "chat") {
+        const uid = userOf.get(socket) || "you";
+        const userRow = db.prepare("SELECT name FROM users WHERE id = ?").get(uid) as any;
         const chat: ChatMessageT = {
           id: crypto.randomUUID(),
           roomId: msg.data.roomId,
-          from: { kind: "user", id: "you", name: "you" },
+          from: { kind: "user", id: uid, name: userRow?.name || uid },
           text: msg.data.text,
           ts: new Date().toISOString(),
           ask: null,
@@ -317,7 +351,16 @@ export function registerGateway(
       }
     });
 
-    socket.on("close", () => { browserSockets.delete(socket); roomOf.delete(socket); });
+    socket.on("close", () => {
+      browserSockets.delete(socket);
+      roomOf.delete(socket);
+      const uid = userOf.get(socket);
+      if (uid) {
+        userOf.delete(socket);
+        positions.delete(uid);
+        broadcastView();
+      }
+    });
   });
 
   app.get("/healthz", async () => ({

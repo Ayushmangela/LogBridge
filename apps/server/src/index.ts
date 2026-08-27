@@ -891,6 +891,17 @@ export async function buildServer(
       }, "operator");
     } catch {}
 
+    // Add all existing users directly into this new project
+    try {
+      const allUsers = db.prepare("SELECT id FROM users").all() as any[];
+      for (const u of allUsers) {
+        db.prepare(`
+          INSERT OR IGNORE INTO project_members (project_id, user_id, role, joined_at)
+          VALUES (?, ?, 'member', ?)
+        `).run(projectId, u.id, new Date().toISOString());
+      }
+    } catch {}
+
     broadcastView();
 
     return {
@@ -951,6 +962,17 @@ export async function buildServer(
       INSERT INTO users (id, gh_login, name, avatar, email, password_hash, created_at)
       VALUES (?, ?, ?, 0, ?, ?, ?)
     `).run(userId, email, name, email, password_hash, createdAt);
+
+    // Add user directly into all existing projects
+    try {
+      const allProjects = db.prepare("SELECT id FROM projects").all() as any[];
+      for (const p of allProjects) {
+        db.prepare(`
+          INSERT OR IGNORE INTO project_members (project_id, user_id, role, joined_at)
+          VALUES (?, ?, 'member', ?)
+        `).run(p.id, userId, createdAt);
+      }
+    } catch {}
 
     const token = randomBytes(24).toString("hex");
     return {

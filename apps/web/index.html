@@ -982,6 +982,37 @@
               <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="flt-bubbles" checked> Task bubbles</label>
             </div>
           </div>
+
+          <!-- Spatial Private Room Comms Bar (Gather.town style) -->
+          <div id="room-comms-bar" style="display:none;position:absolute;bottom:14px;left:50%;transform:translateX(-50%);background:rgba(15, 23, 42, 0.94);border:1.5px solid var(--accent);border-radius:14px;box-shadow:0 12px 36px rgba(0,0,0,0.5);backdrop-filter:blur(12px);z-index:900;padding:12px 18px;min-width:380px;max-width:90%;flex-direction:column;gap:8px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span id="room-comms-icon" style="font-size:18px;">🔒</span>
+                <div>
+                  <div id="room-comms-title" style="font-size:13px;font-weight:700;color:#fff;display:flex;align-items:center;gap:6px;">
+                    Boss Cabin (Private Channel)
+                  </div>
+                  <div id="room-comms-occupants" style="font-size:11.5px;color:#94a3b8;">
+                    🟢 You are in this room
+                  </div>
+                </div>
+              </div>
+              <button onclick="leavePrivateRoom()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#cbd5e1;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;">
+                Step Out
+              </button>
+            </div>
+
+            <!-- In-room message history -->
+            <div id="room-comms-messages" style="display:flex;flex-direction:column;gap:4px;max-height:85px;overflow-y:auto;font-size:12px;color:#e2e8f0;padding:2px 0;"></div>
+
+            <!-- In-room talk input -->
+            <form onsubmit="sendRoomMessage(event)" style="display:flex;gap:6px;margin-top:2px;">
+              <input id="room-comms-input" type="text" placeholder="Say something to people in this room... (Press Enter)" style="flex:1;padding:7px 12px;border-radius:7px;border:1px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.08);color:#fff;font:inherit;font-size:12px;outline:none;" />
+              <button type="submit" style="background:var(--accent);color:#fff;border:none;border-radius:7px;padding:7px 13px;font-size:12px;font-weight:600;cursor:pointer;">
+                Talk 💬
+              </button>
+            </form>
+          </div>
           <div class="inspector" id="inspector">
             <div class="inspector-header">
               <div><div class="inspector-name" id="insp-name">—</div>
@@ -1817,6 +1848,8 @@
           renderCurrentView();
         } else if (msg.type === 'chat') {
           onChatMessage(msg.msg);
+        } else if (msg.type === 'room_chat') {
+          onRoomChatMessage(msg.msg);
         }
       });
     }
@@ -1834,9 +1867,18 @@
       if (!room) return;
       const tx = Math.floor(player.x / TILE);
       const ty = Math.floor(player.y / TILE);
-      if (lastSentPos && lastSentPos.x === tx && lastSentPos.y === ty) return;
-      lastSentPos = { x: tx, y: ty };
-      ws.send(JSON.stringify({ type: 'position', roomId: room.id, x: tx, y: ty }));
+      const currentZone = (typeof detectZoneName === 'function') ? detectZoneName(player.x, player.y) : 'corridor';
+      if (lastSentPos && lastSentPos.x === tx && lastSentPos.y === ty && lastSentPos.zone === currentZone) return;
+      lastSentPos = { x: tx, y: ty, zone: currentZone };
+      ws.send(JSON.stringify({
+        type: 'position',
+        roomId: room.id,
+        x: tx,
+        y: ty,
+        userId: currentUser?.id || 'you',
+        name: currentUser?.name || 'You',
+        zone: currentZone,
+      }));
     }
 
     // ---------------- Authentication State & Handlers ----------------
@@ -2026,7 +2068,11 @@
       if (announcedRoom === room.id) return;
       announcedRoom = room.id;
       chatLog.length = 0; // history for the new room is about to arrive
-      ws.send(JSON.stringify({ type: 'join', roomId: room.id }));
+      ws.send(JSON.stringify({
+        type: 'join',
+        roomId: room.id,
+        userId: currentUser?.id || 'you',
+      }));
     }
 
     // ---------------- office legend + filters (prompt 8b) ----------------
@@ -5881,6 +5927,189 @@
       c.classList.add('show');
     }
 
+    // ---------------- Spatial Private Room Comms (Gather.town style) ----------------
+    let currentRoomZone = null;
+    let lastChimeZone = null;
+
+    const PRIVATE_ROOMS = {
+      'cabin0': { name: '★ Boss Executive Cabin', icon: '👔', rect: () => zones.cabin[0] },
+      'cabin1': { name: 'Senior Cabin 1', icon: '🔒', rect: () => zones.cabin[1] },
+      'cabin2': { name: 'Senior Cabin 2', icon: '🔒', rect: () => zones.cabin[2] },
+      'cabin3': { name: 'Senior Cabin 3', icon: '🔒', rect: () => zones.cabin[3] },
+      'collaborating': { name: 'Executive Meeting Room', icon: '🤝', rect: () => zones.collaborating },
+    };
+
+    function playRoomChime() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.08, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.35);
+      } catch {}
+    }
+
+    function showSpeechBubble(bubbleObj, text, durationMs = 6000) {
+      if (!bubbleObj) return;
+      const { container, bg, label } = bubbleObj;
+      label.text = truncate(text, 50);
+      label.style.fill = '#ffffff';
+      label.style.fontSize = 10;
+      label.style.fontWeight = '700';
+
+      const padX = 10, padY = 5;
+      const w = Math.max(label.width + padX * 2, 40);
+      const h = label.height + padY * 2;
+      const lift = 46;
+
+      bg.clear();
+      bg.beginFill(0x4338ca, 0.95); // deep indigo
+      bg.lineStyle(1.5, 0x818cf8, 0.9);
+      bg.drawRoundedRect(-w / 2, -lift - h / 2, w, h, 7);
+      // pointer tail
+      bg.moveTo(-4, -lift + h / 2);
+      bg.lineTo(0, -lift + h / 2 + 5);
+      bg.lineTo(4, -lift + h / 2);
+      bg.endFill();
+
+      label.x = 0;
+      label.y = -lift;
+      container.visible = true;
+
+      if (bubbleObj._timer) clearTimeout(bubbleObj._timer);
+      bubbleObj._timer = setTimeout(() => {
+        container.visible = false;
+      }, durationMs);
+    }
+
+    function updateSpatialRoomComms() {
+      if (typeof detectZoneName !== 'function') return;
+      const zone = detectZoneName(player.x, player.y);
+      const commsBar = document.getElementById('room-comms-bar');
+      if (!commsBar) return;
+
+      if (PRIVATE_ROOMS[zone]) {
+        const roomInfo = PRIVATE_ROOMS[zone];
+        currentRoomZone = zone;
+        commsBar.style.display = 'flex';
+
+        if (lastChimeZone !== zone) {
+          lastChimeZone = zone;
+          playRoomChime();
+        }
+
+        const iconEl = document.getElementById('room-comms-icon');
+        const titleEl = document.getElementById('room-comms-title');
+        if (iconEl) iconEl.textContent = roomInfo.icon;
+        if (titleEl) titleEl.textContent = `${roomInfo.name} (Private Channel)`;
+
+        // Find other humans in this room
+        const rect = roomInfo.rect();
+        const room = activeRoom();
+        const myName = currentUser?.name || 'You';
+        const occupants = [myName];
+        if (rect && room?.humans) {
+          for (const h of room.humans) {
+            if (h.id === meId || (currentUser && h.id === currentUser.id)) continue;
+            if (!h.position) continue;
+            if (h.position.x >= rect.x && h.position.x < rect.x + rect.w &&
+                h.position.y >= rect.y && h.position.y < rect.y + rect.h) {
+              occupants.push(h.name || 'Colleague');
+            }
+          }
+        }
+
+        const occEl = document.getElementById('room-comms-occupants');
+        if (occEl) {
+          if (occupants.length > 1) {
+            occEl.innerHTML = `<span style="color:#4ade80;font-weight:600;">🟢 ${occupants.length} in Room:</span> ${occupants.join(', ')} · <i>Spatial talk enabled</i>`;
+          } else {
+            occEl.innerHTML = `<span style="color:#94a3b8;">🟢 You are in this room.</span> Others who enter will automatically join your private conversation.`;
+          }
+        }
+      } else {
+        currentRoomZone = null;
+        lastChimeZone = null;
+        commsBar.style.display = 'none';
+      }
+    }
+
+    window.sendRoomMessage = function(e) {
+      if (e) e.preventDefault();
+      const input = document.getElementById('room-comms-input');
+      const text = input?.value?.trim();
+      if (!text || !currentRoomZone) return;
+      input.value = '';
+
+      const room = activeRoom();
+      if (!room) return;
+
+      const myId = currentUser?.id || meId || 'you';
+      const myName = currentUser?.name || 'You';
+
+      ws.send(JSON.stringify({
+        type: 'room_chat',
+        roomId: room.id,
+        zone: currentRoomZone,
+        text,
+        from: {
+          id: myId,
+          name: myName,
+        }
+      }));
+
+      // Immediately show speech bubble over local player sprite
+      if (playerBubble) showSpeechBubble(playerBubble, text);
+
+      // Append to local in-room message log
+      appendInRoomMessage(myName, text, true);
+    };
+
+    window.leavePrivateRoom = function() {
+      // Step out of the room towards atrium corridor (x: 40*TILE, y: 15*TILE)
+      player.x = 40 * TILE;
+      player.y = 15 * TILE;
+      sendPosition();
+      updateSpatialRoomComms();
+    };
+
+    function appendInRoomMessage(sender, text, isSelf = false) {
+      const box = document.getElementById('room-comms-messages');
+      if (!box) return;
+      const line = document.createElement('div');
+      line.style.cssText = 'padding:2px 0;line-height:1.4;';
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      line.innerHTML = `<span style="color:${isSelf ? '#818cf8' : '#38bdf8'};font-weight:600;">${escapeHtml(sender)}</span> <span style="font-size:10px;color:#64748b;">${timeStr}</span>: <span>${escapeHtml(text)}</span>`;
+      box.appendChild(line);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function onRoomChatMessage(roomMsg) {
+      // Only display if we are in the same room zone
+      if (currentRoomZone && currentRoomZone === roomMsg.zone) {
+        // Show in HUD messages
+        appendInRoomMessage(roomMsg.from.name, roomMsg.text, roomMsg.from.id === (currentUser?.id || meId));
+        playRoomChime();
+
+        // Show speech bubble over the avatar
+        if (roomMsg.from.id === (currentUser?.id || meId)) {
+          if (playerBubble) showSpeechBubble(playerBubble, roomMsg.text);
+        } else {
+          const entry = renderedHumans.get(roomMsg.from.id);
+          if (entry && entry.bubble) {
+            showSpeechBubble(entry.bubble, roomMsg.text);
+          }
+        }
+      }
+    }
+
 
     function makeNameTag(text, color) {
       const t = new PIXI.Text(text, {
@@ -5980,8 +6209,10 @@
       sprite.anchor.set(0.5, 0.75);
       const tag = makeNameTag(h.name, 0xffffff);
       sprite.addChild(tag);
+      const bubble = makeBubble();
+      sprite.addChild(bubble.container);
       worldContainer.addChild(sprite);
-      const entry = { sprite, tag };
+      const entry = { sprite, tag, bubble };
       renderedHumans.set(h.id, entry);
       return entry;
     }
@@ -6313,6 +6544,7 @@
       }
     }
 
+    let playerBubble = null;
     function createPlayer() {
       const frames = charTextures[currentCharacter];
       playerSprite = new PIXI.Sprite(frames[18]);
@@ -6321,7 +6553,9 @@
       playerSprite.y = player.y;
       playerSprite.zIndex = 1000;
       worldContainer.addChild(playerSprite);
-      playerSprite.addChild(makeNameTag('You', 0xffffff));
+      playerSprite.addChild(makeNameTag(currentUser?.name || 'You', 0xffffff));
+      playerBubble = makeBubble();
+      playerSprite.addChild(playerBubble.container);
     }
 
     window.switchCharacter = function (name) {
@@ -6454,6 +6688,7 @@
       // throttled position push — only when the tile actually changed (CONTRACT.md: "at most 5/sec, only on change")
       posSendTimer += dt;
       if (posSendTimer >= 0.2) { posSendTimer = 0; sendPosition(); }
+      updateSpatialRoomComms();
 
       // Idle roaming: recompute the wandering waypoint each frame from the
       // shared clock so every browser drifts the same way. Non-idle agents keep

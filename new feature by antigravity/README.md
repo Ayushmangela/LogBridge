@@ -18,6 +18,7 @@ LogBridge has been upgraded by **Antigravity** with a next-generation autonomous
 | **8. Visual Meeting Room Collab** | Pixel-art characters dynamically walk to the 🤝 Meeting Room when collaborating or messaging. | [MEETING_ROOM_COLLAB.md](./MEETING_ROOM_COLLAB.md) |
 | **9. Project Workspaces & Commander Provisioning** | Dedicated Project Launcher screen, strict project scoping, and auto-spawning of single Central Commander. | [PROJECT_WORKSPACES.md](./PROJECT_WORKSPACES.md) |
 | **10. Authentication & Scoped Office Navigation** | Signup/Login gateway, post-login workspace launcher, and contextual sidebar pruning inside project offices. | [AUTHENTICATION_AND_PROJECT_SCOPING.md](./AUTHENTICATION_AND_PROJECT_SCOPING.md) |
+| **11. Spatial Private Room Chat & Team Membership** | Gather.town style spatial talk in cabins & meeting room with avatar speech bubbles, audio cues, and automatic project enrollment. | [SPATIAL_ROOM_CHAT.md](./SPATIAL_ROOM_CHAT.md) |
 
 ---
 

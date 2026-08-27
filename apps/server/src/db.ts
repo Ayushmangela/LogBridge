@@ -76,6 +76,13 @@ CREATE TABLE IF NOT EXISTS projects (
   layout TEXT DEFAULT 'office',
   call_link TEXT
 );
+CREATE TABLE IF NOT EXISTS project_members (
+  project_id TEXT,
+  user_id TEXT,
+  role TEXT DEFAULT 'member',
+  joined_at TEXT,
+  PRIMARY KEY (project_id, user_id)
+);
 CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
   project_id TEXT,
@@ -273,6 +280,21 @@ export function openDb(dbPath?: string): Db {
   // memory.ts). A backfill cannot live in this ALTER list, which only knows
   // how to add columns.
   migrateMemoryDedupe(db);
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS project_members (
+        project_id TEXT,
+        user_id TEXT,
+        role TEXT DEFAULT 'member',
+        joined_at TEXT,
+        PRIMARY KEY (project_id, user_id)
+      );
+      INSERT OR IGNORE INTO project_members (project_id, user_id, role, joined_at)
+      SELECT p.id, u.id, 'member', datetime('now')
+      FROM projects p CROSS JOIN users u;
+    `);
+  } catch {}
 
   try {
     const defaultProviders = JSON.stringify([

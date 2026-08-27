@@ -274,9 +274,20 @@ export const ChatMessage = z.object({
 
 export type ChatMessageT = z.infer<typeof ChatMessage>;
 
+export const RoomChatMessage = z.object({
+  id: z.string(),
+  roomId: z.string(),
+  zone: z.string(),
+  from: z.object({ id: z.string(), name: z.string(), avatar: z.number().optional() }),
+  text: z.string(),
+  ts: z.string(),
+});
+export type RoomChatMessageT = z.infer<typeof RoomChatMessage>;
+
 export const ServerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("view"), view: WorkspaceView }),
   z.object({ type: z.literal("chat"), roomId: z.string(), msg: ChatMessage }),
+  z.object({ type: z.literal("room_chat"), roomId: z.string(), msg: RoomChatMessage }),
 ]);
 
 export type ServerMessageT = z.infer<typeof ServerMessage>;
@@ -286,9 +297,24 @@ export const ClientMessage = z.discriminatedUnion("type", [
   // no way to scope anything per-room — membership was previously only
   // implied by `position`, which doesn't exist until the player moves.
   // Sent on first view and whenever the viewer switches rooms.
-  z.object({ type: z.literal("join"), roomId: z.string() }),
-  z.object({ type: z.literal("position"), roomId: z.string(), x: z.number(), y: z.number() }),
+  z.object({ type: z.literal("join"), roomId: z.string(), userId: z.string().optional() }),
+  z.object({
+    type: z.literal("position"),
+    roomId: z.string(),
+    x: z.number(),
+    y: z.number(),
+    userId: z.string().optional(),
+    name: z.string().optional(),
+    zone: z.string().optional(),
+  }),
   z.object({ type: z.literal("chat"), roomId: z.string(), text: z.string() }),
+  z.object({
+    type: z.literal("room_chat"),
+    roomId: z.string(),
+    zone: z.string(),
+    text: z.string(),
+    from: z.object({ id: z.string(), name: z.string(), avatar: z.number().optional() }).optional(),
+  }),
   z.object({
     type: z.literal("answer"),
     taskId: z.string(),

@@ -12,6 +12,7 @@ import {
   type RoomT,
   type TriggerViewT,
   type WorkspaceViewT,
+  type HumanViewT,
 } from "@logbridge/protocol";
 
 export class Positions {
@@ -23,6 +24,10 @@ export class Positions {
 
   get(userId: string) {
     return this.map.get(userId) ?? null;
+  }
+
+  delete(userId: string) {
+    return this.map.delete(userId);
   }
 }
 
@@ -115,19 +120,45 @@ export function buildView(db: Db, positions: Positions, meId: string, hive?: Hiv
   const cabinOf = new Map(users.map((u, i) => [u.id, u.cabin ?? i % 4]));
 
   const rooms: RoomT[] = projects.map((p) => {
-    const roomHumans = users
-      .filter((u) => positions.get(u.id)?.roomId === p.id)
-      .map((u) => {
+    let projectUsers = db.prepare(
+      "SELECT u.* FROM users u JOIN project_members pm ON u.id = pm.user_id WHERE pm.project_id = ?"
+    ).all(p.id) as any[];
+    if (!projectUsers.length) projectUsers = users;
+
+    const roomHumans: HumanViewT[] = projectUsers
+      .filter((u) => {
         const pos = positions.get(u.id);
+        if (pos?.roomId === p.id) return true;
+        if (positions.get("you")?.roomId === p.id && (u.id === "you" || (users.length === 1 && users[0].id === u.id))) return true;
+        return false;
+      })
+      .map((u, idx) => {
+        let pos = positions.get(u.id);
+        if (!pos && (u.id === "you" || (users.length === 1 && users[0].id === u.id))) {
+          pos = positions.get("you");
+        }
         return {
           id: u.id,
           name: u.name ?? u.gh_login ?? u.id,
-          avatar: u.avatar ?? 0,
+          avatar: ((Number(u.avatar) || idx) % 8),
           presence: "online" as const,
           position: pos ? { x: pos.x, y: pos.y } : null,
-          cabin: cabinOf.get(u.id) ?? null,
+          cabin: (cabinOf.get(u.id) ?? (idx % 4)) as 0 | 1 | 2 | 3,
         };
       });
+
+    // Backwards compatibility for tests that set "you" directly in positions
+    const youPos = positions.get("you");
+    if (youPos && youPos.roomId === p.id && !roomHumans.some((h) => h.id === "you")) {
+      roomHumans.unshift({
+        id: "you",
+        name: "You",
+        avatar: 0,
+        presence: "online",
+        position: { x: youPos.x, y: youPos.y },
+        cabin: 0,
+      });
+    }
 
     const roomAgents = agents.filter((a) => a.project_id === p.id);
 
