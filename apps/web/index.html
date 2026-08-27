@@ -59,6 +59,7 @@
     .side.collapsed .hide-collapsed { display: none !important; }
     .side.collapsed .nav-item { justify-content: center; padding-left: 0; padding-right: 0; }
     .side.collapsed .roster-row { justify-content: center; }
+    .app.no-sidebar .side { display: none !important; }
 
     .brand {
       display: flex; align-items: center; gap: 11px; padding: 17px 18px;
@@ -1979,16 +1980,23 @@
     }
 
     function updateProjectNavVisibility() {
+      const appEl = document.querySelector('.app');
       const navProjects = document.getElementById('nav-projects');
       const wsBackLabel = document.getElementById('ws-back-label');
-      if (activeProjectId) {
-        // A particular project is opened: REMOVE / HIDE projects section from left sidebar
+      const wsNameEl = document.getElementById('ws-name');
+      const isProjectSelection = (currentView === 'projects') || !activeProjectId;
+
+      if (isProjectSelection) {
+        // Selection of project is there: HIDE the left sidebar completely!
+        if (appEl) appEl.classList.add('no-sidebar');
+        if (navProjects) navProjects.style.display = 'none';
+        if (wsBackLabel) wsBackLabel.style.display = 'none';
+        if (wsNameEl) wsNameEl.textContent = 'Project Workspaces';
+      } else {
+        // Particular project is opened: SHOW left sidebar, but REMOVE "Projects" item from it
+        if (appEl) appEl.classList.remove('no-sidebar');
         if (navProjects) navProjects.style.display = 'none';
         if (wsBackLabel) wsBackLabel.style.display = 'inline';
-      } else {
-        // On Projects selection landing page: SHOW projects in left sidebar
-        if (navProjects) navProjects.style.display = 'flex';
-        if (wsBackLabel) wsBackLabel.style.display = 'none';
       }
     }
 
@@ -2291,7 +2299,7 @@
     function renderAlways(view) {
       const room = activeRoom() || view.rooms[0];
       if (!room) return;
-      document.getElementById('ws-name').textContent = room.name;
+      document.getElementById('ws-name').textContent = (currentView === 'projects' || !activeProjectId) ? 'Project Workspaces' : room.name;
       renderLegend();
       renderPeople(room);
       renderAgentRoster(room);
