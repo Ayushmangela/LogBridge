@@ -1153,6 +1153,13 @@
                 <button id="insp-halt-btn" class="cc-tab" style="flex:1;padding:5px;font-size:11px;color:var(--red);border-color:rgba(239,68,68,0.3);" onclick="controlActiveTask('halt')">⏹️ Halt</button>
                 <button id="insp-steer-btn" class="cc-tab" style="flex:1;padding:5px;font-size:11px;color:var(--accent);" onclick="promptQuickSteer()">🧭 Steer</button>
               </div>
+              <div id="insp-task-subsections" style="display:none;margin-top:10px;padding-top:8px;border-top:1px solid var(--border-soft);">
+                <div style="display:flex;gap:4px;margin-bottom:8px;">
+                  <button id="insp-sub-attempts-btn" class="cc-tab active" style="flex:1;padding:4px 6px;font-size:10.5px;" onclick="switchInspSection('attempts')">Attempts (<span id="insp-attempts-count">0</span>)</button>
+                  <button id="insp-sub-artifacts-btn" class="cc-tab" style="flex:1;padding:4px 6px;font-size:10.5px;" onclick="switchInspSection('artifacts')">Artifacts (<span id="insp-artifacts-count">0</span>)</button>
+                </div>
+                <div id="insp-sub-content" style="font-size:11.5px;max-height:160px;overflow-y:auto;"></div>
+              </div>
             </div>
             <button class="primary" id="insp-assign-btn" style="width:100%;margin-bottom:8px;padding:8px 12px;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px;" onclick="openDispatchTaskModal()">🚀 Assign Task</button>
             <button class="card-link" id="insp-more" style="margin-bottom:10px;">Command Center →</button>
@@ -2023,22 +2030,56 @@
     const keys = { w:false,a:false,s:false,d:false,up:false,down:false,left:false,right:false,shift:false };
 
     // ---------------- WebSocket: the only source of truth ----------------
+    let lastSeenSeq = 0;
+    let reconnectTimer = null;
+    let hasConnectedBefore = false;
+
     function connect() {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
+        return; // Prevent duplicate sockets
+      }
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
       ws = new WebSocket(`${proto}://${location.host}/ws`);
 
-      ws.addEventListener('open', () => setConnLabel('● Connected', true));
+      ws.addEventListener('open', () => {
+        setConnLabel('● Connected', true);
+        const room = activeRoom();
+        if (hasConnectedBefore && lastSeenSeq > 0 && room) {
+          // Reconnecting with sequence knowledge: send sync request
+          ws.send(JSON.stringify({
+            type: 'sync',
+            roomId: room.id,
+            lastSeenSeq: lastSeenSeq,
+          }));
+        }
+        hasConnectedBefore = true;
+      });
+
       ws.addEventListener('close', () => {
         announcedRoom = null; // must re-announce the room after reconnecting
         setConnLabel('● Disconnected — retrying…', false);
-        setTimeout(connect, 1500);
+        if (!reconnectTimer) {
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
+            connect();
+          }, 1500);
+        }
       });
-      ws.addEventListener('error', () => ws.close());
+      ws.addEventListener('error', () => {
+        try { ws.close(); } catch {}
+      });
 
       ws.addEventListener('message', (ev) => {
         let msg;
         try { msg = JSON.parse(ev.data); } catch { return; }
         if (msg.type === 'view') {
+          if (typeof msg.view?.seq === 'number' && msg.view.seq >= lastSeenSeq) {
+            lastSeenSeq = msg.view.seq;
+          }
           latestView = msg.view;
           viewReceiveAt = Date.now();
           announceRoom();
@@ -2046,6 +2087,19 @@
           renderView(latestView);
           renderAlways(latestView);
           renderCurrentView();
+        } else if (msg.type === 'events_replay') {
+          if (Array.isArray(msg.events)) {
+            for (const evt of msg.events) {
+              if (typeof evt.seq === 'number' && evt.seq > lastSeenSeq) {
+                lastSeenSeq = evt.seq;
+              }
+              handleReplayEvent(evt);
+            }
+          }
+          if (latestView) {
+            renderAlways(latestView);
+            renderCurrentView();
+          }
         } else if (msg.type === 'chat') {
           onChatMessage(msg.msg);
         } else if (msg.type === 'room_chat') {
@@ -2054,6 +2108,24 @@
           handleWebRtcSignal(msg);
         }
       });
+    }
+
+    function handleReplayEvent(evt) {
+      if (!evt || !evt.type) return;
+      try {
+        if (evt.type === 'room_chat' && evt.data) {
+          onRoomChatMessage(evt.data);
+        } else if (evt.type === 'task.accept' || evt.type === 'task.result' || evt.type === 'artifact.created' || evt.type === 'lease.expired') {
+          if (currentView === 'agent') {
+            renderCommandCenter();
+          } else if (currentView === 'tasks' && latestView) {
+            const room = activeRoom() || latestView.rooms?.[0];
+            if (room) renderBoard(room);
+          }
+        }
+      } catch (err) {
+        console.warn('Replay event handler ignored error:', err);
+      }
     }
 
     function setConnLabel(text, ok) {
@@ -3149,6 +3221,8 @@
         { id: 'terminal', label: '>_ Terminal', surface: 'both' },
         { id: 'code', label: '</> Code', surface: 'both' },
         { id: 'tasks', label: 'Tasks', surface: 'both' },
+        { id: 'attempts', label: 'Attempts', surface: 'both' },
+        { id: 'artifacts', label: 'Artifacts', surface: 'both' },
         { id: 'messages', label: 'Messages', surface: 'both' },
         { id: 'memory', label: 'Memory', surface: 'both' },
         { id: 'steer', label: 'Steer', surface: 'employee' },
@@ -3278,6 +3352,8 @@
       else if (ccTab === 'memory') ccRenderMemory(body, a);
       else if (ccTab === 'triggers') ccRenderTriggers(body, a);
       else if (ccTab === 'tasks') ccRenderTasks(body, a);
+      else if (ccTab === 'attempts') ccRenderAttempts(body, a);
+      else if (ccTab === 'artifacts') ccRenderArtifacts(body, a);
       else if (ccTab === 'steer') ccRenderSteer(body, a);
       else if (ccTab === 'traces') ccRenderTraces(body, a);
       else if (ccTab === 'monitor') ccRenderMonitor(body, a);
@@ -3591,6 +3667,257 @@
       };
 
       loadTasks();
+    }
+
+    let _activeAttemptsReq = 0;
+    function ccRenderAttempts(body, a) {
+      body.innerHTML = '';
+      const reqId = ++_activeAttemptsReq;
+
+      const topRow = document.createElement('div');
+      topRow.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;';
+
+      const titleWrap = document.createElement('div');
+      const title = document.createElement('div');
+      title.style.cssText = 'font-weight:700;font-size:13px;';
+      title.textContent = 'Execution Attempts & Retry History';
+      const note = document.createElement('div');
+      note.className = 'cmd-note';
+      note.style.margin = '2px 0 0 0';
+      note.textContent = a.task?.title ? `Task: ${a.task.title}` : 'Recent execution attempts for this agent';
+      titleWrap.append(title, note);
+
+      const refreshBtn = document.createElement('button');
+      refreshBtn.className = 'code-btn';
+      refreshBtn.textContent = '🔄 Refresh Attempts';
+      refreshBtn.onclick = () => ccRenderAttempts(body, a);
+
+      topRow.append(titleWrap, refreshBtn);
+      body.appendChild(topRow);
+
+      const placeholder = document.createElement('div');
+      placeholder.className = 'empty-note';
+      placeholder.textContent = 'Loading task attempts…';
+      body.appendChild(placeholder);
+
+      const taskId = a.task?.id || a.current_task;
+      const fetchPromise = taskId
+        ? fetch(`/api/tasks/${taskId}/attempts`).then(r => r.json())
+        : fetch(`/api/agents/${a.id}/tasks?limit=10`).then(r => r.json()).then(async (tData) => {
+            const firstTask = tData.tasks?.[0];
+            if (!firstTask) return { ok: true, attempts: [] };
+            note.textContent = `Task: ${firstTask.title || firstTask.id}`;
+            const attRes = await fetch(`/api/tasks/${firstTask.id}/attempts`);
+            return attRes.json();
+          });
+
+      fetchPromise
+        .then((data) => {
+          if (reqId !== _activeAttemptsReq) return;
+          if (!data || !data.ok) {
+            placeholder.textContent = `Could not load attempts (${data?.error || 'Unknown error'}).`;
+            return;
+          }
+          const attempts = data.attempts ?? [];
+          if (!attempts.length) {
+            placeholder.textContent = 'No execution attempts recorded for this task yet.';
+            return;
+          }
+          placeholder.remove();
+
+          const list = document.createElement('div');
+          list.style.cssText = 'display:flex;flex-direction:column;gap:10px;';
+
+          for (const att of attempts) {
+            const card = document.createElement('div');
+            card.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px;';
+
+            const cardHead = document.createElement('div');
+            cardHead.style.cssText = 'display:flex;justify-content:space-between;align-items:center;';
+
+            const numWrap = document.createElement('div');
+            numWrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+            const num = document.createElement('span');
+            num.style.cssText = 'font-weight:700;font-size:14px;color:var(--text);';
+            num.textContent = `Attempt #${att.attempt_number}`;
+            numWrap.appendChild(num);
+
+            const badge = document.createElement('span');
+            badge.className = 'inspector-badge';
+            const st = (att.state || 'running').toLowerCase();
+            if (st === 'completed') {
+              badge.textContent = '✓ Completed';
+              badge.style.cssText = 'background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid rgba(34,197,94,0.3);';
+            } else if (st === 'failed') {
+              badge.textContent = '✕ Failed';
+              badge.style.cssText = 'background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3);';
+            } else if (st === 'timed_out') {
+              badge.textContent = '⏱ Timed Out';
+              badge.style.cssText = 'background:rgba(245,158,11,0.15);color:#fbbf24;border:1px solid rgba(245,158,11,0.3);';
+            } else if (st === 'canceled') {
+              badge.textContent = '⊘ Canceled';
+              badge.style.cssText = 'background:rgba(148,163,184,0.15);color:#94a3b8;border:1px solid rgba(148,163,184,0.3);';
+            } else {
+              badge.textContent = '● Running';
+              badge.style.cssText = 'background:rgba(59,130,246,0.15);color:#60a5fa;border:1px solid rgba(59,130,246,0.3);';
+            }
+            cardHead.append(numWrap, badge);
+
+            const metaGrid = document.createElement('div');
+            metaGrid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:8px;font-size:11.5px;color:var(--text-faint);background:var(--surface-2);padding:9px 12px;border-radius:7px;border:1px solid var(--border-soft);';
+
+            const startStr = att.started_at ? new Date(att.started_at).toLocaleTimeString() : '—';
+            let durationStr = '—';
+            if (att.started_at) {
+              const startMs = new Date(att.started_at).getTime();
+              const endMs = att.ended_at ? new Date(att.ended_at).getTime() : Date.now();
+              const sec = Math.max(0, Math.floor((endMs - startMs) / 1000));
+              durationStr = `${Math.floor(sec / 60)}m ${sec % 60}s`;
+            }
+
+            metaGrid.innerHTML = `
+              <div><span style="color:var(--text-muted);">Started:</span> ${escapeHtml(startStr)}</div>
+              <div><span style="color:var(--text-muted);">Duration:</span> ${escapeHtml(durationStr)}</div>
+              <div><span style="color:var(--text-muted);">Exit Code:</span> ${att.exit_code != null ? att.exit_code : '—'}</div>
+              <div><span style="color:var(--text-muted);">Cost:</span> $${(att.cost_usd || 0).toFixed(3)}</div>
+            `;
+
+            card.append(cardHead, metaGrid);
+
+            if (att.error_message) {
+              const errBox = document.createElement('div');
+              errBox.style.cssText = 'font-family:\'JetBrains Mono\',monospace;font-size:11px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:6px;padding:8px 10px;color:#fca5a5;white-space:pre-wrap;word-break:break-all;';
+              errBox.textContent = `Error: ${att.error_message}`;
+              card.appendChild(errBox);
+            }
+
+            list.appendChild(card);
+          }
+          body.appendChild(list);
+        })
+        .catch((err) => {
+          if (reqId !== _activeAttemptsReq) return;
+          placeholder.textContent = `Failed loading attempts: ${err.message || err}`;
+        });
+    }
+
+    let _activeArtifactsReq = 0;
+    function ccRenderArtifacts(body, a) {
+      body.innerHTML = '';
+      const reqId = ++_activeArtifactsReq;
+
+      const topRow = document.createElement('div');
+      topRow.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;';
+
+      const titleWrap = document.createElement('div');
+      const title = document.createElement('div');
+      title.style.cssText = 'font-weight:700;font-size:13px;';
+      title.textContent = 'Generated Artifacts & Outputs';
+      const note = document.createElement('div');
+      note.className = 'cmd-note';
+      note.style.margin = '2px 0 0 0';
+      note.textContent = a.task?.title ? `Task: ${a.task.title}` : 'Artifacts produced in this project';
+      titleWrap.append(title, note);
+
+      const refreshBtn = document.createElement('button');
+      refreshBtn.className = 'code-btn';
+      refreshBtn.textContent = '🔄 Refresh Artifacts';
+      refreshBtn.onclick = () => ccRenderArtifacts(body, a);
+
+      topRow.append(titleWrap, refreshBtn);
+      body.appendChild(topRow);
+
+      const placeholder = document.createElement('div');
+      placeholder.className = 'empty-note';
+      placeholder.textContent = 'Loading artifacts…';
+      body.appendChild(placeholder);
+
+      const taskId = a.task?.id || a.current_task;
+      const fetchPromise = taskId
+        ? fetch(`/api/tasks/${taskId}/artifacts`).then(r => r.json())
+        : (activeProjectId
+            ? fetch(`/api/projects/${activeProjectId}/artifacts`).then(r => r.json())
+            : Promise.resolve({ ok: true, artifacts: [] }));
+
+      fetchPromise
+        .then((data) => {
+          if (reqId !== _activeArtifactsReq) return;
+          if (!data || !data.ok) {
+            placeholder.textContent = `Could not load artifacts (${data?.error || 'Unknown error'}).`;
+            return;
+          }
+          const artifacts = data.artifacts ?? [];
+          if (!artifacts.length) {
+            placeholder.textContent = 'No artifacts attached to this task or project yet.';
+            return;
+          }
+          placeholder.remove();
+
+          const list = document.createElement('div');
+          list.style.cssText = 'display:flex;flex-direction:column;gap:10px;';
+
+          for (const art of artifacts) {
+            const card = document.createElement('div');
+            card.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px;';
+
+            const head = document.createElement('div');
+            head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:10px;';
+
+            const left = document.createElement('div');
+            left.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
+
+            const kindBadge = document.createElement('span');
+            kindBadge.className = 'inspector-badge';
+            const k = (art.kind || 'output').toLowerCase();
+            if (k === 'diff') {
+              kindBadge.textContent = '📄 DIFF';
+              kindBadge.style.cssText = 'background:rgba(99,102,241,0.15);color:#818cf8;border:1px solid rgba(99,102,241,0.3);';
+            } else if (k === 'test_report') {
+              kindBadge.textContent = '🧪 TEST REPORT';
+              kindBadge.style.cssText = 'background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid rgba(34,197,94,0.3);';
+            } else if (k === 'review') {
+              kindBadge.textContent = '🔍 REVIEW';
+              kindBadge.style.cssText = 'background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3);';
+            } else {
+              kindBadge.textContent = `📋 ${k.toUpperCase()}`;
+              kindBadge.style.cssText = 'background:rgba(148,163,184,0.15);color:#94a3b8;border:1px solid rgba(148,163,184,0.3);';
+            }
+
+            const artTitle = document.createElement('span');
+            artTitle.style.cssText = 'font-weight:700;font-size:13.5px;color:var(--text);';
+            artTitle.textContent = art.title;
+
+            left.append(kindBadge, artTitle);
+
+            const timeSpan = document.createElement('span');
+            timeSpan.style.cssText = 'font-size:11px;color:var(--text-faint);';
+            timeSpan.textContent = art.created_at ? relativeTime(art.created_at) : '';
+
+            head.append(left, timeSpan);
+            card.appendChild(head);
+
+            if (art.summary) {
+              const sumBox = document.createElement('div');
+              sumBox.style.cssText = 'font-size:12.5px;color:var(--text-muted);line-height:1.45;background:var(--surface-2);padding:9px 12px;border-radius:7px;border:1px solid var(--border-soft);';
+              sumBox.textContent = art.summary;
+              card.appendChild(sumBox);
+            }
+
+            if (art.file_path) {
+              const fileBox = document.createElement('div');
+              fileBox.style.cssText = 'display:flex;align-items:center;gap:6px;font-family:\'JetBrains Mono\',monospace;font-size:11px;color:var(--accent);background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.2);border-radius:6px;padding:6px 10px;';
+              fileBox.innerHTML = `<span>📁</span> <span style="word-break:break-all;">${escapeHtml(art.file_path)}</span>`;
+              card.appendChild(fileBox);
+            }
+
+            list.appendChild(card);
+          }
+          body.appendChild(list);
+        })
+        .catch((err) => {
+          if (reqId !== _activeArtifactsReq) return;
+          placeholder.textContent = `Failed loading artifacts: ${err.message || err}`;
+        });
     }
 
     function ccRenderSteer(body, a) {
@@ -7357,11 +7684,14 @@
             resumeBtn.style.display = 'none';
           }
         }
+        renderInspectorSubsections(a);
       } else {
         if (titleEl) titleEl.textContent = 'No active task';
         if (elapsedEl) elapsedEl.textContent = '';
         if (costEl) costEl.textContent = '';
         if (controls) controls.style.display = 'none';
+        const subWrap = document.getElementById('insp-task-subsections');
+        if (subWrap) subWrap.style.display = 'none';
       }
 
       const descEl = document.getElementById('insp-desc');
@@ -7375,6 +7705,102 @@
         };
       }
     }
+
+    let _inspActiveSub = 'attempts';
+    let _inspReqId = 0;
+    function renderInspectorSubsections(a) {
+      const subWrap = document.getElementById('insp-task-subsections');
+      if (!subWrap) return;
+      const taskId = a?.task?.id;
+      if (!taskId) {
+        subWrap.style.display = 'none';
+        return;
+      }
+      subWrap.style.display = 'block';
+      const curReq = ++_inspReqId;
+      const contentEl = document.getElementById('insp-sub-content');
+      if (contentEl) contentEl.innerHTML = '<div style="color:var(--text-faint);padding:6px 0;">Loading\u2026</div>';
+
+      const attemptsBtn = document.getElementById('insp-sub-attempts-btn');
+      const artifactsBtn = document.getElementById('insp-sub-artifacts-btn');
+      if (attemptsBtn) attemptsBtn.className = 'cc-tab' + (_inspActiveSub === 'attempts' ? ' active' : '');
+      if (artifactsBtn) artifactsBtn.className = 'cc-tab' + (_inspActiveSub === 'artifacts' ? ' active' : '');
+
+      Promise.all([
+        fetch(`/api/tasks/${taskId}/attempts`).then(r => r.json()).catch(() => ({ attempts: [] })),
+        fetch(`/api/tasks/${taskId}/artifacts`).then(r => r.json()).catch(() => ({ artifacts: [] })),
+      ]).then(([attData, artData]) => {
+        if (curReq !== _inspReqId) return;
+        const attempts = attData.attempts || [];
+        const artifacts = artData.artifacts || [];
+
+        const attCountEl = document.getElementById('insp-attempts-count');
+        const artCountEl = document.getElementById('insp-artifacts-count');
+        if (attCountEl) attCountEl.textContent = attempts.length;
+        if (artCountEl) artCountEl.textContent = artifacts.length;
+
+        if (!contentEl) return;
+        contentEl.innerHTML = '';
+
+        if (_inspActiveSub === 'attempts') {
+          if (!attempts.length) {
+            contentEl.innerHTML = '<div style="color:var(--text-faint);padding:4px 0;">No attempts recorded yet.</div>';
+            return;
+          }
+          for (const att of attempts) {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border-soft);font-size:11px;';
+            const left = document.createElement('span');
+            left.textContent = `Attempt #${att.attempt_number} · ${att.state}`;
+            left.style.fontWeight = '600';
+            if (att.state === 'completed') left.style.color = 'var(--green)';
+            else if (att.state === 'failed' || att.state === 'timed_out') left.style.color = 'var(--red)';
+            else left.style.color = 'var(--accent)';
+            const right = document.createElement('span');
+            right.style.color = 'var(--text-faint)';
+            right.textContent = att.cost_usd ? `$${att.cost_usd.toFixed(2)}` : '';
+            row.append(left, right);
+            contentEl.appendChild(row);
+          }
+        } else {
+          if (!artifacts.length) {
+            contentEl.innerHTML = '<div style="color:var(--text-faint);padding:4px 0;">No artifacts attached yet.</div>';
+            return;
+          }
+          for (const art of artifacts) {
+            const row = document.createElement('div');
+            row.style.cssText = 'padding:5px 0;border-bottom:1px solid var(--border-soft);font-size:11px;';
+            const top = document.createElement('div');
+            top.style.cssText = 'display:flex;justify-content:space-between;';
+            const k = document.createElement('span');
+            k.style.fontWeight = '700';
+            k.style.color = 'var(--accent)';
+            k.textContent = `[${(art.kind || 'output').toUpperCase()}]`;
+            const title = document.createElement('span');
+            title.style.cssText = 'flex:1;margin-left:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+            title.textContent = art.title;
+            top.append(k, title);
+            row.appendChild(top);
+            if (art.summary) {
+              const s = document.createElement('div');
+              s.style.cssText = 'color:var(--text-faint);font-size:10.5px;margin-top:2px;';
+              s.textContent = art.summary;
+              row.appendChild(s);
+            }
+            contentEl.appendChild(row);
+          }
+        }
+      }).catch(() => {
+        if (curReq !== _inspReqId) return;
+        if (contentEl) contentEl.innerHTML = '<div style="color:var(--red);padding:4px 0;">Failed to load data.</div>';
+      });
+    }
+
+    window.switchInspSection = function (sec) {
+      _inspActiveSub = sec;
+      const a = ccAgent();
+      renderInspectorSubsections(a);
+    };
 
     window.closeInspector = function () {
       document.getElementById('inspector').classList.remove('open');

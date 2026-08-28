@@ -10,6 +10,7 @@ import {
   storeArtifact,
   getTaskArtifacts,
   getProjectArtifacts,
+  appendEvent,
   type Db,
 } from "./db.js";
 import { buildServer } from "./index.js";
@@ -218,6 +219,51 @@ describe("REST APIs for Attempts & Artifacts", () => {
     });
     expect(badPathRes.statusCode).toBe(400);
 
+    // 5. Query unknown task ID returns 404
+    const notFoundRes = await server.app.inject({
+      method: "GET",
+      url: "/api/tasks/tsk_unknown/attempts",
+    });
+    expect(notFoundRes.statusCode).toBe(404);
+
     await server.app.close();
+  });
+});
+
+describe("WebSocket Delta Replay & Event Resync", () => {
+  test("server accurately queries missed events by project and seq for sync request", () => {
+    const db = openDb(":memory:");
+    seedProject(db, "prj_sync");
+
+    // Append 5 events
+    const e1 = appendEvent(db, "prj_sync", null, "test.e1", { step: 1 });
+    const e2 = appendEvent(db, "prj_sync", null, "test.e2", { step: 2 });
+    const e3 = appendEvent(db, "prj_sync", null, "test.e3", { step: 3 });
+    const e4 = appendEvent(db, "prj_sync", null, "test.e4", { step: 4 });
+    const e5 = appendEvent(db, "prj_sync", null, "test.e5", { step: 5 });
+
+    // Client says: I last saw sequence e2
+    const rows = db.prepare(
+      "SELECT seq, project_id, task_id, type, body, ts FROM events WHERE project_id = ? AND seq > ? ORDER BY seq ASC LIMIT 101"
+    ).all("prj_sync", e2) as any[];
+
+    expect(rows.length).toBe(3);
+    expect(rows[0].seq).toBe(e3);
+    expect(rows[1].seq).toBe(e4);
+    expect(rows[2].seq).toBe(e5);
+
+    // Empty delta when already up to date
+    const rowsUpToDate = db.prepare(
+      "SELECT seq, project_id, task_id, type, body, ts FROM events WHERE project_id = ? AND seq > ? ORDER BY seq ASC LIMIT 101"
+    ).all("prj_sync", e5) as any[];
+    expect(rowsUpToDate.length).toBe(0);
+
+    // Project isolation: no events returned for other project
+    const rowsOtherPrj = db.prepare(
+      "SELECT seq, project_id, task_id, type, body, ts FROM events WHERE project_id = ? AND seq > ? ORDER BY seq ASC LIMIT 101"
+    ).all("prj_other", 0) as any[];
+    expect(rowsOtherPrj.length).toBe(0);
+
+    db.close();
   });
 });
