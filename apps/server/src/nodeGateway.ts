@@ -35,6 +35,10 @@ import {
   getTaskDependents,
   getWorkflow,
   updateWorkflowStatusFromTasks,
+  classifyFailure,
+  getRetryPolicy,
+  getTaskAttempts,
+  candidateAgents,
 } from "./db.js";
 import { makeChallenge, verifySignature } from "./nodeAuth.js";
 import { parsePlan } from "./plan.js";
@@ -339,8 +343,7 @@ export function registerNodeGateway(
     });
   });
 
-  // Lease sweep — SYSTEM.md §3c "the idempotency trap". Never auto-reassign;
-  // a task whose runner went silent is surfaced as failed, not silently retried.
+  // Lease sweep — SYSTEM.md §3c "the idempotency trap".
   const sweep = setInterval(() => {
     for (const t of expiredLeaseTasks(db)) {
       failActiveTaskAttempt(db, t.id, "machine went offline — lease expired", "timed_out");
@@ -349,6 +352,58 @@ export function registerNodeGateway(
         note: "machine went offline — work may still be running there",
       });
       if (t.agent_id) setAgentStatus(db, t.agent_id, "idle", null);
+
+      // Classify failure and evaluate policy-driven recovery
+      const failureCat = classifyFailure("machine went offline — lease expired", 1, true);
+      appendEvent(db, t.project_id, t.id, "task.failure_classified", {
+        taskId: t.id,
+        failureCategory: failureCat,
+        error: "machine went offline — lease expired",
+      });
+
+      const policy = getRetryPolicy(db, t.project_id, t.id);
+      const attempts = getTaskAttempts(db, t.id);
+      if (attempts.length < policy.maxAttempts && policy.retryOn.includes(failureCat)) {
+        const candidates = candidateAgents(db, t.project_id);
+        const altAgent = policy.preferDifferentAgent
+          ? candidates.find((c) => c.machineOnline && c.id !== t.agent_id)
+          : candidates.find((c) => c.machineOnline);
+
+        const retryTaskId = createTask(db, {
+          projectId: t.project_id,
+          title: `[Retry ${attempts.length + 1}] ${t.title.replace(/^\[Retry \d+\]\s*/, "")}`,
+          spec: t.spec,
+          creatorId: "supervisor",
+          parentTask: t.parent_task || t.id,
+          retryOf: t.id,
+          agentId: altAgent?.id ?? null,
+          requiredCapability: t.required_capability,
+          workflowId: t.workflow_id,
+          budgetSeconds: t.budget_seconds,
+          budgetUsd: t.budget_usd,
+        });
+
+        appendEvent(db, t.project_id, t.id, "task.retry_scheduled", {
+          originalTaskId: t.id,
+          retryTaskId,
+          attemptNumber: attempts.length + 1,
+          assignedAgentId: altAgent?.id ?? null,
+        });
+        appendEvent(db, t.project_id, retryTaskId, "task.recovery_started", {
+          originalTaskId: t.id,
+          retryTaskId,
+        });
+
+        if (altAgent) {
+          sendTaskOffer(db, nodeSockets, retryTaskId);
+        }
+      } else if (attempts.length >= policy.maxAttempts) {
+        appendEvent(db, t.project_id, t.id, "task.retry_exhausted", {
+          taskId: t.id,
+          attemptsCount: attempts.length,
+          maxAttempts: policy.maxAttempts,
+        });
+      }
     }
     orchestrate(db, nodeSockets, app); // a swept task released its agent
     if (sweep.unref) sweep.unref();
@@ -1150,6 +1205,59 @@ function handleNodeEnvelope(
           failedDependency: t.id,
           state: body.state,
           taskId: dep.taskId,
+        });
+      }
+
+      // Classify failure and evaluate policy-driven recovery
+      const failureCat = classifyFailure(body.error || body.summary, body.exitCode, false);
+      appendEvent(db, t.project_id, t.id, "task.failure_classified", {
+        taskId: t.id,
+        failureCategory: failureCat,
+        error: body.error || body.summary || null,
+        exitCode: body.exitCode ?? 1,
+      });
+
+      const policy = getRetryPolicy(db, t.project_id, t.id);
+      const attempts = getTaskAttempts(db, t.id);
+      if (attempts.length < policy.maxAttempts && policy.retryOn.includes(failureCat) && body.state === "failed") {
+        const candidates = candidateAgents(db, t.project_id);
+        const altAgent = policy.preferDifferentAgent
+          ? candidates.find((c) => c.machineOnline && c.id !== t.agent_id)
+          : candidates.find((c) => c.machineOnline);
+
+        const retryTaskId = createTask(db, {
+          projectId: t.project_id,
+          title: `[Retry ${attempts.length + 1}] ${t.title.replace(/^\[Retry \d+\]\s*/, "")}`,
+          spec: t.spec,
+          creatorId: "supervisor",
+          parentTask: t.parent_task || t.id,
+          retryOf: t.id,
+          agentId: altAgent?.id ?? null,
+          requiredCapability: t.required_capability,
+          workflowId: t.workflow_id,
+          budgetSeconds: t.budget_seconds,
+          budgetUsd: t.budget_usd,
+        });
+
+        appendEvent(db, t.project_id, t.id, "task.retry_scheduled", {
+          originalTaskId: t.id,
+          retryTaskId,
+          attemptNumber: attempts.length + 1,
+          assignedAgentId: altAgent?.id ?? null,
+        });
+        appendEvent(db, t.project_id, retryTaskId, "task.recovery_started", {
+          originalTaskId: t.id,
+          retryTaskId,
+        });
+
+        if (altAgent) {
+          sendTaskOffer(db, nodeSockets, retryTaskId);
+        }
+      } else if (attempts.length >= policy.maxAttempts) {
+        appendEvent(db, t.project_id, t.id, "task.retry_exhausted", {
+          taskId: t.id,
+          attemptsCount: attempts.length,
+          maxAttempts: policy.maxAttempts,
         });
       }
     }

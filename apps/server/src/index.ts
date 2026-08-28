@@ -17,8 +17,13 @@ import {
   createWorkflow, getWorkflow, getProjectWorkflows, setWorkflowState, updateTaskWorkflow,
   getWorkflowGraph, addTaskDependency, removeTaskDependency, getTaskDependencies, getTaskDependents,
   getTaskDependencyStatus, isTaskDependenciesSatisfied,
+  getAgentMetrics, getProjectMetrics, getRetryPolicy, setRetryPolicy, classifyFailure,
+  candidateAgents, activeTaskCountsByAgent,
   type Db
 } from "./db.js";
+import { evaluateAgentCandidates } from "./orchestrator.js";
+import { buildAgentContext } from "./contextBuilder.js";
+import { evaluateWorkflowHealth, executeSupervisorAction } from "./supervisor.js";
 import { Positions } from "./view.js";
 import { registerCommandRoutes } from "./commands.js";
 import { registerGateway } from "./gateway.js";
@@ -1080,6 +1085,165 @@ export async function buildServer(
 
     broadcastView();
     return { ok: true, taskId, verdict, artifactId, reworkTaskId };
+  });
+
+  // ─── Phase 3: Intelligence, Routing, Context & Supervisor ──────────
+
+  app.get<{ Params: { id: string } }>("/api/agents/:id/profile", async (req, reply) => {
+    const agentId = req.params.id;
+    const profile = getAgentMetrics(db, agentId);
+    if (!profile) return reply.code(404).send({ ok: false, error: "agent not found" });
+    return { ok: true, profile };
+  });
+
+  app.get<{ Params: { id: string } }>("/api/tasks/:id/routing-explanation", async (req, reply) => {
+    const taskId = req.params.id;
+    const task = getTask(db, taskId);
+    if (!task) return reply.code(404).send({ ok: false, error: "task not found" });
+
+    // Check if event log already recorded the routing evaluation
+    const evt = db
+      .prepare(
+        "SELECT body FROM events WHERE task_id = ? AND type = 'task.routing_evaluated' ORDER BY seq DESC LIMIT 1"
+      )
+      .get(taskId) as any;
+
+    if (evt) {
+      try {
+        const body = JSON.parse(evt.body);
+        return { ok: true, taskId, ...body };
+      } catch {}
+    }
+
+    // Otherwise compute live evaluation
+    const candidates = candidateAgents(db, task.project_id);
+    const load = activeTaskCountsByAgent(db);
+    const evaluation = evaluateAgentCandidates(candidates, load, task.required_capability ?? null);
+
+    return {
+      ok: true,
+      taskId,
+      selectedAgentId: task.agent_id,
+      candidates: evaluation.candidates,
+      explanation: evaluation.explanation,
+    };
+  });
+
+  app.get<{ Params: { id: string }; Querystring: { maxChars?: string } }>("/api/tasks/:id/context", async (req, reply) => {
+    const taskId = req.params.id;
+    const maxChars = req.query.maxChars ? Number(req.query.maxChars) : 8000;
+    const contextPayload = buildAgentContext(db, taskId, null, { maxChars });
+    if (!contextPayload) return reply.code(404).send({ ok: false, error: "task not found" });
+    return { ok: true, ...contextPayload };
+  });
+
+  app.post<{
+    Params: { id: string };
+    Body: { agentId?: string; reason?: string };
+  }>("/api/tasks/:id/retry", async (req, reply) => {
+    const taskId = req.params.id;
+    const task = getTask(db, taskId);
+    if (!task) return reply.code(404).send({ ok: false, error: "task not found" });
+
+    const { agentId, reason } = req.body ?? {};
+    const attempts = db.prepare("SELECT * FROM task_attempts WHERE task_id = ?").all(taskId) as any[];
+
+    const retryTaskId = createTask(db, {
+      projectId: task.project_id,
+      title: `[Retry ${attempts.length + 1}] ${task.title.replace(/^\[Retry \d+\]\s*/, "")}`,
+      spec: task.spec,
+      creatorId: "human",
+      parentTask: task.parent_task || task.id,
+      retryOf: task.id,
+      agentId: agentId ?? null,
+      requiredCapability: task.required_capability,
+      workflowId: task.workflow_id,
+      budgetSeconds: task.budget_seconds,
+      budgetUsd: task.budget_usd,
+    });
+
+    appendEvent(db, task.project_id, taskId, "task.retry_scheduled", {
+      originalTaskId: taskId,
+      retryTaskId,
+      attemptNumber: attempts.length + 1,
+      assignedAgentId: agentId ?? null,
+      reason: reason ?? "Manual operator retry",
+    });
+
+    if (agentId) {
+      sendTaskOffer(db, nodeSockets, retryTaskId);
+    } else {
+      orchestrate(db, nodeSockets, app);
+    }
+
+    broadcastView();
+    return { ok: true, originalTaskId: taskId, retryTaskId };
+  });
+
+  app.get<{ Params: { id: string } }>("/api/workflows/:id/health", async (req, reply) => {
+    const workflowId = req.params.id;
+    const report = evaluateWorkflowHealth(db, workflowId);
+    if (!report) return reply.code(404).send({ ok: false, error: "workflow not found" });
+    return { ok: true, ...report };
+  });
+
+  app.post<{
+    Params: { id: string };
+    Body: {
+      action: "RETRY" | "REASSIGN" | "PAUSE" | "RESUME" | "CANCEL" | "ESCALATE_HUMAN";
+      taskId?: string;
+      recommendedAgentId?: string;
+      reason: string;
+    };
+  }>("/api/workflows/:id/supervisor-action", async (req, reply) => {
+    const workflowId = req.params.id;
+    const body = req.body ?? ({} as any);
+    if (!body.action || !body.reason) {
+      return reply.code(400).send({ ok: false, error: "action and reason required" });
+    }
+
+    const result = executeSupervisorAction(db, workflowId, body);
+    if (!result.ok) {
+      return reply.code(400).send({ ok: false, error: result.error });
+    }
+
+    orchestrate(db, nodeSockets, app);
+    broadcastView();
+    return { ok: true, ...result };
+  });
+
+  app.get<{ Params: { id: string } }>("/api/projects/:id/metrics", async (req, reply) => {
+    const projectId = req.params.id;
+    const project = db.prepare("SELECT id FROM projects WHERE id = ?").get(projectId);
+    if (!project) return reply.code(404).send({ ok: false, error: "project not found" });
+
+    const metrics = getProjectMetrics(db, projectId);
+    return { ok: true, ...metrics };
+  });
+
+  app.post<{
+    Params: { id: string };
+    Body: {
+      taskId?: string | null;
+      maxAttempts?: number;
+      backoffMs?: number;
+      retryOn?: string[];
+      preferDifferentAgent?: boolean;
+    };
+  }>("/api/projects/:id/retry-policy", async (req, reply) => {
+    const projectId = req.params.id;
+    const { taskId, maxAttempts, backoffMs, retryOn, preferDifferentAgent } = req.body ?? {};
+
+    const policyId = setRetryPolicy(db, {
+      projectId,
+      taskId: taskId ?? null,
+      maxAttempts: maxAttempts ?? 3,
+      backoffMs: backoffMs ?? 1000,
+      retryOn: (retryOn as any) ?? ["TIMEOUT", "MACHINE_OFFLINE", "TRANSIENT", "AGENT_FAILURE"],
+      preferDifferentAgent: preferDifferentAgent ?? true,
+    });
+
+    return { ok: true, policyId };
   });
 
   app.post<{

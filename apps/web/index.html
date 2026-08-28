@@ -1154,9 +1154,11 @@
                 <button id="insp-steer-btn" class="cc-tab" style="flex:1;padding:5px;font-size:11px;color:var(--accent);" onclick="promptQuickSteer()">🧭 Steer</button>
               </div>
               <div id="insp-task-subsections" style="display:none;margin-top:10px;padding-top:8px;border-top:1px solid var(--border-soft);">
-                <div style="display:flex;gap:4px;margin-bottom:8px;">
-                  <button id="insp-sub-attempts-btn" class="cc-tab active" style="flex:1;padding:4px 6px;font-size:10.5px;" onclick="switchInspSection('attempts')">Attempts (<span id="insp-attempts-count">0</span>)</button>
-                  <button id="insp-sub-artifacts-btn" class="cc-tab" style="flex:1;padding:4px 6px;font-size:10.5px;" onclick="switchInspSection('artifacts')">Artifacts (<span id="insp-artifacts-count">0</span>)</button>
+                <div style="display:flex;gap:3px;margin-bottom:8px;overflow-x:auto;">
+                  <button id="insp-sub-attempts-btn" class="cc-tab active" style="flex:1;padding:4px 5px;font-size:10px;white-space:nowrap;" onclick="switchInspSection('attempts')">Attempts (<span id="insp-attempts-count">0</span>)</button>
+                  <button id="insp-sub-artifacts-btn" class="cc-tab" style="flex:1;padding:4px 5px;font-size:10px;white-space:nowrap;" onclick="switchInspSection('artifacts')">Artifacts (<span id="insp-artifacts-count">0</span>)</button>
+                  <button id="insp-sub-routing-btn" class="cc-tab" style="flex:1;padding:4px 5px;font-size:10px;white-space:nowrap;" onclick="switchInspSection('routing')">Routing</button>
+                  <button id="insp-sub-context-btn" class="cc-tab" style="flex:1;padding:4px 5px;font-size:10px;white-space:nowrap;" onclick="switchInspSection('context')">Context</button>
                 </div>
                 <div id="insp-sub-content" style="font-size:11.5px;max-height:160px;overflow-y:auto;"></div>
               </div>
@@ -3992,11 +3994,16 @@
             else stPill.style.cssText += 'background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3);';
             stPill.textContent = wf.state;
 
+            const healthPill = document.createElement('span');
+            healthPill.id = `wf-health-${wf.id}`;
+            healthPill.style.cssText = 'font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:var(--surface-2);color:var(--text-faint);';
+            healthPill.textContent = '🏥 Checking health\u2026';
+
             const wfTitle = document.createElement('span');
             wfTitle.style.cssText = 'font-weight:700;font-size:15px;color:var(--text);';
             wfTitle.textContent = wf.title;
 
-            hLeft.append(stPill, wfTitle);
+            hLeft.append(stPill, healthPill, wfTitle);
 
             const hRight = document.createElement('div');
             hRight.style.cssText = 'display:flex;gap:6px;';
@@ -4050,6 +4057,45 @@
               desc.textContent = wf.description;
               card.appendChild(desc);
             }
+
+            // Supervisor banner container
+            const supervisorBanner = document.createElement('div');
+            supervisorBanner.id = `wf-supervisor-${wf.id}`;
+            supervisorBanner.style.display = 'none';
+            card.appendChild(supervisorBanner);
+
+            // Fetch supervisor health and diagnostics
+            fetch(`/api/workflows/${wf.id}/health`)
+              .then((r) => r.json())
+              .then((rep) => {
+                const hp = document.getElementById(`wf-health-${wf.id}`);
+                if (hp) {
+                  hp.textContent = `🏥 ${rep.health}`;
+                  if (rep.health === 'HEALTHY' || rep.health === 'COMPLETED') hp.style.color = '#4ade80';
+                  else if (rep.health === 'DEGRADED') hp.style.color = '#fde047';
+                  else hp.style.color = '#f87171';
+                }
+                if (rep.recommendations && rep.recommendations.length > 0) {
+                  supervisorBanner.style.display = 'flex';
+                  supervisorBanner.style.cssText = 'background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.25);border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;font-size:11.5px;';
+                  const rec = rep.recommendations[0];
+                  const recText = document.createElement('div');
+                  recText.innerHTML = `<strong>Supervisor Diagnostic:</strong> ${escapeHtml(rec.reason)}`;
+                  const recBtn = document.createElement('button');
+                  recBtn.className = 'btn-primary';
+                  recBtn.style.cssText = 'padding:3px 8px;font-size:11px;';
+                  recBtn.textContent = `⚡ Apply: ${rec.action}`;
+                  recBtn.onclick = () => {
+                    fetch(`/api/workflows/${wf.id}/supervisor-action`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(rec),
+                    }).then(() => renderCommandCenter());
+                  };
+                  supervisorBanner.append(recText, recBtn);
+                }
+              })
+              .catch(() => {});
 
             // Load DAG graph for this workflow
             const dagContainer = document.createElement('div');
@@ -8053,8 +8099,49 @@
 
       const attemptsBtn = document.getElementById('insp-sub-attempts-btn');
       const artifactsBtn = document.getElementById('insp-sub-artifacts-btn');
+      const routingBtn = document.getElementById('insp-sub-routing-btn');
+      const contextBtn = document.getElementById('insp-sub-context-btn');
+
       if (attemptsBtn) attemptsBtn.className = 'cc-tab' + (_inspActiveSub === 'attempts' ? ' active' : '');
       if (artifactsBtn) artifactsBtn.className = 'cc-tab' + (_inspActiveSub === 'artifacts' ? ' active' : '');
+      if (routingBtn) routingBtn.className = 'cc-tab' + (_inspActiveSub === 'routing' ? ' active' : '');
+      if (contextBtn) contextBtn.className = 'cc-tab' + (_inspActiveSub === 'context' ? ' active' : '');
+
+      if (_inspActiveSub === 'routing') {
+        fetch(`/api/tasks/${taskId}/routing-explanation`)
+          .then(r => r.json())
+          .then(data => {
+            if (curReq !== _inspReqId || !contentEl) return;
+            contentEl.innerHTML = `
+              <div style="font-size:11px;line-height:1.45;">
+                <div style="color:var(--accent);font-weight:700;margin-bottom:4px;">🎯 Routing Explanation</div>
+                <div style="color:var(--text);margin-bottom:6px;">${escapeHtml(data.explanation || 'Deterministic selection')}</div>
+                ${(data.candidates || []).map(c => `
+                  <div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border-soft);font-size:10.5px;color:${c.eligible ? 'var(--text)' : 'var(--text-faint)'};">
+                    <span>${c.eligible ? '✓' : '✕'} ${escapeHtml(c.agentName)}</span>
+                    <span>Score: <strong>${c.score}</strong></span>
+                  </div>
+                `).join('')}
+              </div>`;
+          })
+          .catch(() => { if (contentEl) contentEl.innerHTML = '<div style="color:var(--red);">Failed loading routing explanation.</div>'; });
+        return;
+      }
+
+      if (_inspActiveSub === 'context') {
+        fetch(`/api/tasks/${taskId}/context`)
+          .then(r => r.json())
+          .then(data => {
+            if (curReq !== _inspReqId || !contentEl) return;
+            contentEl.innerHTML = `
+              <div style="font-size:10.5px;">
+                <div style="color:var(--accent);font-weight:700;margin-bottom:4px;">📦 Assembled Context (${data.totalLength} chars)</div>
+                <pre style="font-family:'JetBrains Mono',monospace;font-size:10px;background:var(--surface-2);padding:6px;border-radius:5px;white-space:pre-wrap;max-height:120px;overflow-y:auto;color:var(--text-muted);">${escapeHtml(data.formattedContext || '')}</pre>
+              </div>`;
+          })
+          .catch(() => { if (contentEl) contentEl.innerHTML = '<div style="color:var(--red);">Failed loading context.</div>'; });
+        return;
+      }
 
       Promise.all([
         fetch(`/api/tasks/${taskId}/attempts`).then(r => r.json()).catch(() => ({ attempts: [] })),

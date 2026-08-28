@@ -261,6 +261,20 @@ CREATE TABLE IF NOT EXISTS task_dependencies (
 CREATE INDEX IF NOT EXISTS idx_task_deps_task ON task_dependencies (task_id);
 CREATE INDEX IF NOT EXISTS idx_task_deps_dep ON task_dependencies (depends_on_task_id);
 
+CREATE TABLE IF NOT EXISTS retry_policies (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  task_id TEXT,
+  max_attempts INTEGER NOT NULL DEFAULT 3,
+  backoff_ms INTEGER NOT NULL DEFAULT 1000,
+  retry_on TEXT NOT NULL,
+  prefer_different_agent INT DEFAULT 1,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_retry_policies_project ON retry_policies (project_id);
+CREATE INDEX IF NOT EXISTS idx_retry_policies_task ON retry_policies (task_id);
+
 CREATE INDEX IF NOT EXISTS idx_events_project ON events (project_id, seq);
 CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks (agent_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_workflow ON tasks (workflow_id);
@@ -1605,5 +1619,262 @@ export function updateWorkflowStatusFromTasks(db: Db, workflowId: string): strin
   }
   return newState;
 }
+
+// ─── Phase 3: Autonomous Intelligence, Health & Recovery ─────────────
+
+export type FailureCategory =
+  | "TIMEOUT"
+  | "MACHINE_OFFLINE"
+  | "TRANSIENT"
+  | "AGENT_FAILURE"
+  | "INVALID_TASK"
+  | "DEPENDENCY_FAILURE"
+  | "UNKNOWN";
+
+export function classifyFailure(
+  error?: string | null,
+  exitCode?: number | null,
+  timedOut?: boolean
+): FailureCategory {
+  if (timedOut) return "TIMEOUT";
+  const str = String(error ?? "").toLowerCase();
+  if (str.includes("lease expired") || str.includes("timed out") || str.includes("timeout")) {
+    return "TIMEOUT";
+  }
+  if (
+    str.includes("offline") ||
+    str.includes("socket closed") ||
+    str.includes("connection refused") ||
+    str.includes("econnrefused") ||
+    str.includes("econnreset")
+  ) {
+    return "MACHINE_OFFLINE";
+  }
+  if (
+    str.includes("transient") ||
+    str.includes("502") ||
+    str.includes("503") ||
+    str.includes("504") ||
+    str.includes("429") ||
+    str.includes("rate limit") ||
+    str.includes("temporary")
+  ) {
+    return "TRANSIENT";
+  }
+  if (
+    str.includes("syntax") ||
+    str.includes("invalid") ||
+    str.includes("bad request") ||
+    str.includes("400") ||
+    str.includes("unauthorized") ||
+    str.includes("permission denied")
+  ) {
+    return "INVALID_TASK";
+  }
+  if (str.includes("dependency")) {
+    return "DEPENDENCY_FAILURE";
+  }
+  if (exitCode != null && exitCode !== 0) {
+    return "AGENT_FAILURE";
+  }
+  return "UNKNOWN";
+}
+
+export interface RetryPolicy {
+  id?: string;
+  projectId: string;
+  taskId?: string | null;
+  maxAttempts: number;
+  backoffMs: number;
+  retryOn: FailureCategory[];
+  preferDifferentAgent: boolean;
+  createdAt?: string;
+}
+
+export function getRetryPolicy(db: Db, projectId: string, taskId?: string | null): RetryPolicy {
+  if (taskId) {
+    const taskPolicy = db.prepare("SELECT * FROM retry_policies WHERE task_id = ?").get(taskId) as any;
+    if (taskPolicy) {
+      return {
+        id: taskPolicy.id,
+        projectId: taskPolicy.project_id,
+        taskId: taskPolicy.task_id,
+        maxAttempts: Number(taskPolicy.max_attempts),
+        backoffMs: Number(taskPolicy.backoff_ms),
+        retryOn: (() => { try { return JSON.parse(taskPolicy.retry_on); } catch { return ["TIMEOUT", "MACHINE_OFFLINE", "TRANSIENT", "AGENT_FAILURE"]; } })(),
+        preferDifferentAgent: Boolean(taskPolicy.prefer_different_agent),
+        createdAt: taskPolicy.created_at,
+      };
+    }
+  }
+
+  const projPolicy = db.prepare("SELECT * FROM retry_policies WHERE project_id = ? AND task_id IS NULL").get(projectId) as any;
+  if (projPolicy) {
+    return {
+      id: projPolicy.id,
+      projectId: projPolicy.project_id,
+      taskId: null,
+      maxAttempts: Number(projPolicy.max_attempts),
+      backoffMs: Number(projPolicy.backoff_ms),
+      retryOn: (() => { try { return JSON.parse(projPolicy.retry_on); } catch { return ["TIMEOUT", "MACHINE_OFFLINE", "TRANSIENT", "AGENT_FAILURE"]; } })(),
+      preferDifferentAgent: Boolean(projPolicy.prefer_different_agent),
+      createdAt: projPolicy.created_at,
+    };
+  }
+
+  return {
+    projectId,
+    taskId: taskId ?? null,
+    maxAttempts: 3,
+    backoffMs: 1000,
+    retryOn: ["TIMEOUT", "MACHINE_OFFLINE", "TRANSIENT", "AGENT_FAILURE"],
+    preferDifferentAgent: true,
+  };
+}
+
+export function setRetryPolicy(db: Db, opts: RetryPolicy): string {
+  const id = opts.id || `rp_${crypto.randomUUID()}`;
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT OR REPLACE INTO retry_policies (id, project_id, task_id, max_attempts, backoff_ms, retry_on, prefer_different_agent, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    opts.projectId,
+    opts.taskId ?? null,
+    opts.maxAttempts,
+    opts.backoffMs,
+    JSON.stringify(opts.retryOn),
+    opts.preferDifferentAgent ? 1 : 0,
+    now
+  );
+  return id;
+}
+
+export interface AgentMetrics {
+  agentId: string;
+  name: string;
+  role: string;
+  machineOnline: boolean;
+  status: string;
+  totalAttempts: number;
+  tasksCompleted: number;
+  tasksFailed: number;
+  timeouts: number;
+  successRate: number; // 0.0 to 1.0
+  avgDurationSec: number;
+  totalCostUsd: number;
+  currentLoad: number;
+}
+
+export function getAgentMetrics(db: Db, agentId: string): AgentMetrics | null {
+  const agent = db.prepare("SELECT a.*, m.online FROM agents a JOIN machines m ON m.id = a.machine_id WHERE a.id = ?").get(agentId) as any;
+  if (!agent) return null;
+
+  const attempts = db.prepare("SELECT * FROM task_attempts WHERE agent_id = ?").all(agentId) as any[];
+  const tasksCompleted = attempts.filter((a) => a.state === "completed").length;
+  const tasksFailed = attempts.filter((a) => a.state === "failed").length;
+  const timeouts = attempts.filter((a) => a.state === "timed_out").length;
+  const totalAttempts = attempts.length;
+  const successRate = totalAttempts > 0 ? Number((tasksCompleted / totalAttempts).toFixed(3)) : 1.0;
+
+  let totalDurationSec = 0;
+  let durationCount = 0;
+  let totalCostUsd = 0;
+
+  for (const a of attempts) {
+    if (a.cost_usd) totalCostUsd += Number(a.cost_usd);
+    if (a.started_at && a.ended_at) {
+      const dur = (new Date(a.ended_at).getTime() - new Date(a.started_at).getTime()) / 1000;
+      if (dur > 0 && Number.isFinite(dur)) {
+        totalDurationSec += dur;
+        durationCount++;
+      }
+    }
+  }
+
+  const avgDurationSec = durationCount > 0 ? Number((totalDurationSec / durationCount).toFixed(1)) : 0;
+  const activeCount = db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE agent_id = ? AND state IN ('submitted','working','blocked','input-required','auth-required')").get(agentId) as any;
+
+  return {
+    agentId: agent.id,
+    name: agent.name,
+    role: agent.role,
+    machineOnline: Boolean(agent.online),
+    status: agent.status,
+    totalAttempts,
+    tasksCompleted,
+    tasksFailed,
+    timeouts,
+    successRate,
+    avgDurationSec,
+    totalCostUsd: Number(totalCostUsd.toFixed(3)),
+    currentLoad: Number(activeCount?.n ?? 0),
+  };
+}
+
+export interface ProjectMetrics {
+  projectId: string;
+  totalWorkflows: number;
+  activeWorkflows: number;
+  completedWorkflows: number;
+  failedWorkflows: number;
+  totalTasks: number;
+  completedTasks: number;
+  failedTasks: number;
+  activeTasks: number;
+  totalAttempts: number;
+  successRate: number;
+  totalCostUsd: number;
+  onlineAgents: number;
+  totalAgents: number;
+}
+
+export function getProjectMetrics(db: Db, projectId: string): ProjectMetrics {
+  const workflows = db.prepare("SELECT state FROM workflows WHERE project_id = ?").all(projectId) as any[];
+  const tasks = db.prepare("SELECT state, cost_usd FROM tasks WHERE project_id = ?").all(projectId) as any[];
+  const attempts = db.prepare("SELECT ta.state, ta.cost_usd FROM task_attempts ta JOIN tasks t ON t.id = ta.task_id WHERE t.project_id = ?").all(projectId) as any[];
+  const agents = db.prepare("SELECT a.id, m.online FROM agents a JOIN machines m ON m.id = a.machine_id WHERE a.project_id = ?").all(projectId) as any[];
+
+  const totalTasks = tasks.length;
+  const completedTasks = tasks.filter((t) => t.state === "completed").length;
+  const failedTasks = tasks.filter((t) => t.state === "failed" || t.state === "rejected").length;
+  const activeTasks = tasks.filter((t) => ["submitted", "working", "blocked", "input-required", "auth-required"].includes(t.state)).length;
+
+  const totalAttempts = attempts.length;
+  const completedAttempts = attempts.filter((a) => a.state === "completed").length;
+  const successRate = totalAttempts > 0 ? Number((completedAttempts / totalAttempts).toFixed(3)) : (totalTasks > 0 ? Number((completedTasks / totalTasks).toFixed(3)) : 1.0);
+
+  let totalCostUsd = 0;
+  for (const t of tasks) if (t.cost_usd) totalCostUsd += Number(t.cost_usd);
+
+  return {
+    projectId,
+    totalWorkflows: workflows.length,
+    activeWorkflows: workflows.filter((w) => w.state === "active").length,
+    completedWorkflows: workflows.filter((w) => w.state === "completed").length,
+    failedWorkflows: workflows.filter((w) => w.state === "failed").length,
+    totalTasks,
+    completedTasks,
+    failedTasks,
+    activeTasks,
+    totalAttempts,
+    successRate,
+    totalCostUsd: Number(totalCostUsd.toFixed(3)),
+    onlineAgents: agents.filter((a) => a.online).length,
+    totalAgents: agents.length,
+  };
+}
+
+export function getAgentHistoricalPerformance(db: Db, agentId: string, projectId: string) {
+  const metrics = getAgentMetrics(db, agentId);
+  if (!metrics) return { successRate: 1.0, tasksCompleted: 0, totalAttempts: 0 };
+  return {
+    successRate: metrics.successRate,
+    tasksCompleted: metrics.tasksCompleted,
+    totalAttempts: metrics.totalAttempts,
+  };
+}
+
 
 
