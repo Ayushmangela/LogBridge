@@ -7788,12 +7788,15 @@
         opt.value = r.id; opt.textContent = r.name;
         pSel.appendChild(opt);
       }
+      const currentProj = activeRoom();
+      const commander = currentProj?.agents?.find((x) => x.role === 'planner' || x.role === 'orchestrator' || (x.name || '').includes('commander'));
+      const defaultFolder = commander?.folder || (currentProj?.name ? `~/project_test/${currentProj.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}` : '');
       document.getElementById('aa-name').value = '';
       document.getElementById('aa-caps').value = '';
-      document.getElementById('aa-cwd').value = '';
+      document.getElementById('aa-cwd').value = defaultFolder;
       document.getElementById('aa-allow').value = '';
       document.getElementById('aa-deny').value = '';
-      document.getElementById('aa-folder').value = '';
+      document.getElementById('aa-folder').value = defaultFolder;
       document.getElementById('aa-isolation').value = 'shared';
       document.getElementById('aa-description').value = '';
       document.getElementById('aa-goal').value = '';

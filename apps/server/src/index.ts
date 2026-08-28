@@ -2119,9 +2119,18 @@ export async function buildServer(
     if (!db.prepare("SELECT id FROM projects WHERE id = ?").get(b.projectId)) {
       return reply.code(404).send({ ok: false, agentId: null, error: `no such project "${b.projectId}"` });
     }
-    // Machine existence/reachability is already handled by requestAgentCreate,
-    // which returns 409 for unknown-or-offline — don't split that into two
-    // status codes here.
+    const proj = db.prepare("SELECT gh_repo FROM projects WHERE id = ?").get(b.projectId) as any;
+    const commanderAgent = db.prepare("SELECT folder FROM agents WHERE project_id = ? AND (role = 'planner' OR role = 'orchestrator' OR name LIKE '%commander%') LIMIT 1").get(b.projectId) as any;
+    let targetFolder = b.folder || commanderAgent?.folder;
+    if (!targetFolder && proj?.gh_repo) {
+      if (existsSync(proj.gh_repo)) {
+        targetFolder = proj.gh_repo;
+      } else {
+        const candidate = join(process.env.HOME || "", "project_test", proj.gh_repo);
+        if (existsSync(candidate)) targetFolder = candidate;
+      }
+    }
+
     const result = await requestAgentCreate(db, nodeSockets, {
       machineId: b.machineId,
       projectId: b.projectId,
@@ -2130,10 +2139,10 @@ export async function buildServer(
       provider: b.provider ?? null,
       model: b.model ?? null,
       capabilities: Array.isArray(b.capabilities) ? b.capabilities : [],
-      cwd: b.cwd ?? null,
+      cwd: b.cwd || targetFolder || null,
       character: b.character ?? null,
       color: b.color ?? null,
-      folder: b.folder ?? null,
+      folder: targetFolder || null,
       isolation: b.isolation ?? null,
       bypassPermissions: Boolean(b.bypassPermissions),
       // Trimmed and capped here rather than in the browser — a request can
@@ -2145,9 +2154,6 @@ export async function buildServer(
     });
     broadcastView(); // success path already published a card; refresh either way
     if (result.ok && result.agentId) {
-      const proj = db.prepare("SELECT gh_repo FROM projects WHERE id = ?").get(b.projectId) as any;
-      const targetFolder = b.folder || proj?.gh_repo || undefined;
-
       if (targetFolder && existsSync(targetFolder)) {
         try {
           registerAgentInProjectHive(targetFolder, {
@@ -2497,7 +2503,7 @@ export async function buildServer(
     // 1. Create project row
     db.prepare("INSERT INTO projects (id, gh_repo, name, layout) VALUES (?, ?, ?, 'office')").run(
       projectId,
-      slug,
+      folder,
       name
     );
 
