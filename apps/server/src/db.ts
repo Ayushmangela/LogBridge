@@ -388,7 +388,6 @@ CREATE INDEX IF NOT EXISTS idx_dead_letter_task ON dead_letter_tasks (task_id);
 
 CREATE INDEX IF NOT EXISTS idx_events_project ON events (project_id, seq);
 CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks (agent_id);
-CREATE INDEX IF NOT EXISTS idx_tasks_workflow ON tasks (workflow_id);
 `;
 
 export function openDb(dbPath?: string): Db {
@@ -479,6 +478,12 @@ export function openDb(dbPath?: string): Db {
       INSERT OR IGNORE INTO project_members (project_id, user_id, role, joined_at)
       SELECT p.id, u.id, 'member', datetime('now')
       FROM projects p CROSS JOIN users u;
+    `);
+  } catch {}
+
+  try {
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_tasks_workflow ON tasks (workflow_id);
     `);
   } catch {}
 
