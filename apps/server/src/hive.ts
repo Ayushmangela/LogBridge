@@ -131,6 +131,7 @@ function stamp(): string {
 
 export class HiveManager {
   private _root: string;
+  private projectRoots = new Set<string>();
   private routerTimer: NodeJS.Timeout | null = null;
   private onEventCallback?: (event: HiveEvent) => void;
   private onMessageCallback?: (msg: HiveMessage, sourceId: string, targetId: string) => void;
@@ -145,6 +146,13 @@ export class HiveManager {
     this.onEventCallback = onEvent;
     this.onMessageCallback = onMessage;
     this.initHive();
+  }
+
+  registerProjectRoot(folder: string): void {
+    if (folder) {
+      const hDir = folder.endsWith("/hive") ? folder.slice(0, -5) : folder;
+      this.projectRoots.add(hDir);
+    }
   }
 
   setMeeting(agentA: string, agentB: string, durationMs = 45000, reason = "Conference"): void {
@@ -567,33 +575,73 @@ export class HiveManager {
 
   routeOnce(): number {
     this.cleanExpiredMeetings();
-    const reg = this.getRegistry();
+    const allRoots = [this._root, ...Array.from(this.projectRoots).map((f) => join(f, "hive"))];
+    const uniqueRoots = Array.from(new Set(allRoots)).filter((r) => existsSync(r));
     let routedCount = 0;
 
-    for (const agentId of Object.keys(reg.agents)) {
-      const outboxDir = join(this.agentDir(agentId), "outbox");
-      if (!existsSync(outboxDir)) continue;
+    for (const root of uniqueRoots) {
+      const regPath = join(root, "registry.json");
+      let reg: HiveRegistry = { godId: null, agents: {} };
+      if (existsSync(regPath)) {
+        try {
+          reg = JSON.parse(readFileSync(regPath, "utf8"));
+        } catch {}
+      }
 
-      let files: string[] = [];
+      const agentsDir = join(root, "agents");
+      if (!existsSync(agentsDir)) continue;
+
+      let agentFolders: string[] = [];
       try {
-        files = readdirSync(outboxDir).filter((f) => f.endsWith(".json"));
+        agentFolders = readdirSync(agentsDir);
       } catch {
         continue;
       }
 
-      for (const file of files) {
-        const filePath = join(outboxDir, file);
+      for (const agentId of agentFolders) {
+        const outboxDir = join(agentsDir, agentId, "outbox");
+        if (!existsSync(outboxDir)) continue;
+
+        let files: string[] = [];
         try {
-          const raw = readFileSync(filePath, "utf8");
-          const msg: HiveMessage = JSON.parse(raw);
-          if (msg && msg.to) {
-            this.deliver(msg);
-            routedCount++;
+          files = readdirSync(outboxDir).filter((f) => f.endsWith(".json"));
+        } catch {
+          continue;
+        }
+
+        for (const file of files) {
+          const filePath = join(outboxDir, file);
+          try {
+            const raw = readFileSync(filePath, "utf8");
+            const msg: HiveMessage = JSON.parse(raw);
+            if (msg && msg.to) {
+              if (root === this._root) {
+                this.deliver(msg);
+              } else {
+                const targetAgent = msg.to === "god" ? (reg.godId || "god") : msg.to;
+                const targetInbox = join(agentsDir, targetAgent, "inbox");
+                mkdirSync(targetInbox, { recursive: true });
+                writeFileSync(join(targetInbox, `${msg.id || Date.now()}.json`), JSON.stringify(msg, null, 2));
+
+                if (msg.from && targetAgent && msg.from !== targetAgent) {
+                  if (["request", "query", "propose"].includes(msg.act)) {
+                    this.setMeeting(msg.from, targetAgent, 45000, msg.subject || "Collaboration");
+                  }
+                }
+
+                if (this.onMessageCallback) {
+                  try {
+                    this.onMessageCallback(msg, msg.from || agentId, targetAgent);
+                  } catch {}
+                }
+              }
+              routedCount++;
+            }
+            unlinkSync(filePath);
+          } catch (e) {
+            console.warn(`[HiveRouter] Failed routing outbox message ${filePath}:`, e);
+            try { unlinkSync(filePath); } catch {}
           }
-          unlinkSync(filePath);
-        } catch (e) {
-          console.warn(`[HiveRouter] Failed routing outbox message ${filePath}:`, e);
-          try { unlinkSync(filePath); } catch {}
         }
       }
     }

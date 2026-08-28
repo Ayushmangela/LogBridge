@@ -117,11 +117,23 @@ export async function buildServer(
           summary: `[${msg.act.toUpperCase()}] ${msg.subject || msg.body?.slice(0, 80) || "Hive message"}`,
           metadata: msg,
         });
+
+        // Automatically wake up recipient agent terminal to execute the assigned task!
+        const wakeText = `New task assigned from ${sender?.name || fromId}: "${msg.subject || 'Task'}". Details: ${msg.body || 'Execute assigned task'}. Read your inbox and memory, then start work immediately.`;
+        submitPromptToAgent(toId, wakeText);
       } catch {}
     }
   );
 
   if (process.env.NODE_ENV !== "test" || opts.dbPath !== ":memory:") {
+    try {
+      const projects = db.prepare("SELECT gh_repo FROM projects").all() as any[];
+      for (const p of projects) {
+        if (p.gh_repo && existsSync(p.gh_repo)) {
+          hive.registerProjectRoot(p.gh_repo);
+        }
+      }
+    } catch {}
     hive.startRouter(1500);
   }
 
