@@ -122,6 +122,39 @@ export function registerGateway(
         return;
       }
 
+      if (msg.data.type === "sync") {
+        const roomId = msg.data.roomId;
+        const lastSeenSeq = msg.data.lastSeenSeq;
+        const known = db.prepare("SELECT id FROM projects WHERE id = ?").get(roomId);
+        if (!known) return;
+
+        // Fetch missed events up to limit (100)
+        const rows = db.prepare(
+          "SELECT seq, project_id, task_id, type, body, ts FROM events WHERE project_id = ? AND seq > ? ORDER BY seq ASC LIMIT 101"
+        ).all(roomId, lastSeenSeq) as any[];
+
+        if (rows.length > 100) {
+          // Bounded fallback: too far behind, push fresh full view snapshot
+          const meId = userOf.get(socket) || "you";
+          socket.send(JSON.stringify({
+            type: "view",
+            view: buildView(db, positions, meId, hive),
+          }));
+        } else {
+          const events = rows.map((r) => {
+            let data: any = {};
+            try { data = JSON.parse(r.body); } catch { data = { raw: r.body }; }
+            return { seq: r.seq, projectId: r.project_id, taskId: r.task_id, type: r.type, data, ts: r.ts };
+          });
+          socket.send(JSON.stringify({
+            type: "events_replay",
+            roomId,
+            events,
+          }));
+        }
+        return;
+      }
+
       if (msg.data.type === "position") {
         const uid = msg.data.userId || userOf.get(socket) || "you";
         userOf.set(socket, uid);

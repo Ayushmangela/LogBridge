@@ -27,6 +27,10 @@ import {
   tasksForMachine,
   consumeAgentSteer,
   isAgentDeleted,
+  createTaskAttempt,
+  finishTaskAttempt,
+  getActiveTaskAttempt,
+  failActiveTaskAttempt,
 } from "./db.js";
 import { makeChallenge, verifySignature } from "./nodeAuth.js";
 import { parsePlan } from "./plan.js";
@@ -335,6 +339,7 @@ export function registerNodeGateway(
   // a task whose runner went silent is surfaced as failed, not silently retried.
   const sweep = setInterval(() => {
     for (const t of expiredLeaseTasks(db)) {
+      failActiveTaskAttempt(db, t.id, "machine went offline — lease expired", "timed_out");
       setTaskState(db, t.id, "failed", { ended_at: new Date().toISOString() });
       appendEvent(db, t.project_id, t.id, "lease.expired", {
         note: "machine went offline — work may still be running there",
@@ -994,7 +999,10 @@ function handleNodeEnvelope(
     if (!t) return;
     setTaskState(db, t.id, "working", { started_at: t.started_at ?? new Date().toISOString() });
     renewLease(db, t.id, leaseSeconds);
-    if (t.agent_id) setAgentStatus(db, t.agent_id, "working", t.id);
+    if (t.agent_id) {
+      setAgentStatus(db, t.agent_id, "working", t.id);
+      createTaskAttempt(db, { taskId: t.id, agentId: t.agent_id });
+    }
     appendEvent(db, t.project_id, t.id, "task.accept", body);
     onChange();
     return;
@@ -1087,6 +1095,18 @@ function handleNodeEnvelope(
       appendEvent(db, t.project_id, t.id, "task.result.rejected", { attempted: body.state, from: t.state });
       return;
     }
+
+    // Finish the active execution attempt for this task
+    const activeAttempt = getActiveTaskAttempt(db, t.id);
+    if (activeAttempt) {
+      finishTaskAttempt(db, activeAttempt.id, {
+        state: body.state === "completed" ? "completed" : "failed",
+        exitCode: body.exitCode ?? (body.state === "completed" ? 0 : 1),
+        errorMessage: body.error ?? body.summary ?? null,
+        costUsd: body.costUsd ?? 0,
+      });
+    }
+
     setTaskState(db, t.id, body.state, { ended_at: new Date().toISOString(), cost_usd: body.costUsd ?? t.cost_usd });
     // A planning task's output IS a task list. Read it back from the events
     // the runner already logged rather than inventing a new channel.

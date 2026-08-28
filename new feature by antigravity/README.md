@@ -21,6 +21,7 @@ LogBridge has been upgraded by **Antigravity** with a next-generation autonomous
 | **11. Spatial Private Room Chat & Team Membership** | Gather.town style spatial talk in cabins & meeting room with avatar speech bubbles, audio cues, and automatic project enrollment. | [SPATIAL_ROOM_CHAT.md](./SPATIAL_ROOM_CHAT.md) |
 | **12. Core Agent-Related Task & Execution System** | Direct dispatch modal, live steering (`steer`), lifecycle pause/resume/halt controls, structured trace waterfall timeline, and Central Commander hierarchical delegation. | [AGENT_TASK_SYSTEM.md](./AGENT_TASK_SYSTEM.md) |
 | **13. Modern Dark Glassmorphic UI/UX Overhaul** | Unified floating command island, sleek vertical zoom dock, glowing status halos, dark developer-tool design system, and segmented Command Center tabs. | [UI_UX_OVERHAUL.md](./UI_UX_OVERHAUL.md) |
+| **14. Phase 1 Multi-Agent Coordination Engine** | Durable execution attempts (`task_attempts`), zero-copy artifact references (`artifacts`), bounded WebSocket reconnection delta replay, and crash-resilient attempt lifecycle tracking. | [MULTI_AGENT_COORDINATION_PHASE1.md](./MULTI_AGENT_COORDINATION_PHASE1.md) |
 
 ---
 

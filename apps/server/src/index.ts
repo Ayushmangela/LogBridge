@@ -13,6 +13,7 @@ import {
   setAgentSteer, getAgentHistory, moveAgent, cloneAgent,
   getAgentTraces, getAgentOutput, getProjectGraph,
   pauseTask, resumeTask, haltTask, getAgentTasks, getTaskTraces,
+  getTask, getTaskAttempts, getTaskArtifacts, getProjectArtifacts, getArtifact, storeArtifact,
   type Db
 } from "./db.js";
 import { Positions } from "./view.js";
@@ -677,6 +678,67 @@ export async function buildServer(
     const taskId = req.params.id;
     const traces = getTaskTraces(db, taskId);
     return { ok: true, taskId, traces };
+  });
+
+  app.get<{ Params: { id: string } }>("/api/tasks/:id/attempts", async (req, reply) => {
+    const taskId = req.params.id;
+    const task = getTask(db, taskId);
+    if (!task) return reply.code(404).send({ ok: false, error: "task not found" });
+    const attempts = getTaskAttempts(db, taskId);
+    return { ok: true, taskId, attempts };
+  });
+
+  app.get<{ Params: { id: string } }>("/api/tasks/:id/artifacts", async (req, reply) => {
+    const taskId = req.params.id;
+    const task = getTask(db, taskId);
+    if (!task) return reply.code(404).send({ ok: false, error: "task not found" });
+    const artifacts = getTaskArtifacts(db, taskId);
+    return { ok: true, taskId, artifacts };
+  });
+
+  app.post<{
+    Params: { id: string };
+    Body: {
+      creatorId?: string;
+      attemptId?: string | null;
+      kind: string;
+      title: string;
+      summary?: string | null;
+      filePath?: string | null;
+    };
+  }>("/api/tasks/:id/artifacts", async (req, reply) => {
+    const taskId = req.params.id;
+    const task = getTask(db, taskId);
+    if (!task) return reply.code(404).send({ ok: false, error: "task not found" });
+    const { creatorId, attemptId, kind, title, summary, filePath } = req.body ?? {};
+    if (!kind || !title) {
+      return reply.code(400).send({ ok: false, error: "kind and title are required" });
+    }
+    // Path traversal safety
+    if (filePath && (filePath.includes("..") || isAbsolute(filePath))) {
+      return reply.code(400).send({ ok: false, error: "filePath must be relative and safe" });
+    }
+    const artifactId = storeArtifact(db, {
+      projectId: task.project_id,
+      taskId,
+      attemptId: attemptId ?? null,
+      creatorId: creatorId ?? "user",
+      kind,
+      title,
+      summary: summary ?? null,
+      filePath: filePath ?? null,
+    });
+    appendEvent(db, task.project_id, taskId, "artifact.created", { artifactId, kind, title });
+    return { ok: true, artifactId };
+  });
+
+  app.get<{ Params: { id: string }; Querystring: { limit?: string } }>("/api/projects/:id/artifacts", async (req, reply) => {
+    const projectId = req.params.id;
+    const project = db.prepare("SELECT id FROM projects WHERE id = ?").get(projectId) as any;
+    if (!project) return reply.code(404).send({ ok: false, error: "project not found" });
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    const artifacts = getProjectArtifacts(db, projectId, limit);
+    return { ok: true, projectId, artifacts };
   });
 
   app.get<{ Params: { id: string }; Querystring: { limit?: string } }>("/api/agents/:id/tasks", async (req, reply) => {

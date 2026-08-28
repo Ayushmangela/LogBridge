@@ -295,6 +295,11 @@ export const ServerMessage = z.discriminatedUnion("type", [
     targetUserId: z.string(),
     signal: z.any(),
   }),
+  z.object({
+    type: z.literal("events_replay"),
+    roomId: z.string(),
+    events: z.array(z.any()),
+  }),
 ]);
 
 export type ServerMessageT = z.infer<typeof ServerMessage>;
@@ -351,6 +356,11 @@ export const ClientMessage = z.discriminatedUnion("type", [
     agentId: z.string(),
     taskId: z.string().optional(),
     text: z.string(),
+  }),
+  z.object({
+    type: z.literal("sync"),
+    roomId: z.string(),
+    lastSeenSeq: z.number().int().nonnegative(),
   }),
 ]);
 

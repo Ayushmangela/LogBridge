@@ -205,6 +205,37 @@ CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
   INSERT INTO memories_fts (rowid, text) VALUES (new.rowid, new.text);
 END;
 
+CREATE TABLE IF NOT EXISTS task_attempts (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  attempt_number INTEGER NOT NULL,
+  agent_id TEXT NOT NULL,
+  state TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  ended_at TEXT,
+  exit_code INTEGER,
+  error_message TEXT,
+  cost_usd REAL DEFAULT 0,
+  FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_task_attempts_task ON task_attempts (task_id, attempt_number);
+
+CREATE TABLE IF NOT EXISTS artifacts (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  task_id TEXT,
+  attempt_id TEXT,
+  creator_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  summary TEXT,
+  file_path TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_artifacts_task ON artifacts (task_id);
+CREATE INDEX IF NOT EXISTS idx_artifacts_project ON artifacts (project_id);
+
 CREATE INDEX IF NOT EXISTS idx_events_project ON events (project_id, seq);
 CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks (agent_id);
 `;
@@ -1104,3 +1135,174 @@ export function getTaskTraces(db: Db, taskId: string): any[] {
     };
   });
 }
+
+// ---------------- Task Attempts & Artifacts ----------------
+
+export interface TaskAttemptRow {
+  id: string;
+  task_id: string;
+  attempt_number: number;
+  agent_id: string;
+  state: "running" | "completed" | "failed" | "timed_out" | "canceled";
+  started_at: string;
+  ended_at: string | null;
+  exit_code: number | null;
+  error_message: string | null;
+  cost_usd: number;
+}
+
+export function createTaskAttempt(
+  db: Db,
+  opts: {
+    taskId: string;
+    agentId: string;
+    attemptNumber?: number;
+  }
+): TaskAttemptRow {
+  // Idempotency: if an attempt is already running for this task and agent, reuse it
+  const existingActive = db
+    .prepare("SELECT * FROM task_attempts WHERE task_id = ? AND state = 'running' ORDER BY attempt_number DESC LIMIT 1")
+    .get(opts.taskId) as TaskAttemptRow | undefined;
+  if (existingActive) {
+    return existingActive;
+  }
+
+  const num = opts.attemptNumber ??
+    ((db.prepare("SELECT COALESCE(MAX(attempt_number), 0) + 1 AS nextNum FROM task_attempts WHERE task_id = ?").get(opts.taskId) as any)?.nextNum ?? 1);
+
+  const attemptId = `att_${crypto.randomUUID()}`;
+  const now = new Date().toISOString();
+
+  db.prepare(
+    `INSERT INTO task_attempts (id, task_id, attempt_number, agent_id, state, started_at, cost_usd)
+     VALUES (?, ?, ?, ?, 'running', ?, 0)`
+  ).run(attemptId, opts.taskId, num, opts.agentId, now);
+
+  return {
+    id: attemptId,
+    task_id: opts.taskId,
+    attempt_number: num,
+    agent_id: opts.agentId,
+    state: "running",
+    started_at: now,
+    ended_at: null,
+    exit_code: null,
+    error_message: null,
+    cost_usd: 0,
+  };
+}
+
+export function getActiveTaskAttempt(db: Db, taskId: string): TaskAttemptRow | undefined {
+  return db
+    .prepare("SELECT * FROM task_attempts WHERE task_id = ? AND state = 'running' ORDER BY attempt_number DESC LIMIT 1")
+    .get(taskId) as TaskAttemptRow | undefined;
+}
+
+export function getTaskAttempts(db: Db, taskId: string): TaskAttemptRow[] {
+  return db
+    .prepare("SELECT * FROM task_attempts WHERE task_id = ? ORDER BY attempt_number ASC")
+    .all(taskId) as TaskAttemptRow[];
+}
+
+export function finishTaskAttempt(
+  db: Db,
+  attemptId: string,
+  opts: {
+    state?: "completed" | "failed" | "timed_out" | "canceled";
+    exitCode?: number | null;
+    errorMessage?: string | null;
+    costUsd?: number;
+  } = {}
+): boolean {
+  const state = opts.state ?? "completed";
+  const now = new Date().toISOString();
+  const res = db
+    .prepare(
+      `UPDATE task_attempts
+       SET state = ?, ended_at = ?, exit_code = ?, error_message = ?, cost_usd = COALESCE(?, cost_usd)
+       WHERE id = ? AND state = 'running'`
+    )
+    .run(state, now, opts.exitCode ?? null, opts.errorMessage ?? null, opts.costUsd ?? null, attemptId);
+  return res.changes > 0;
+}
+
+export function failActiveTaskAttempt(
+  db: Db,
+  taskId: string,
+  errorMessage: string,
+  state: "failed" | "timed_out" | "canceled" = "failed"
+): boolean {
+  const now = new Date().toISOString();
+  const res = db
+    .prepare(
+      `UPDATE task_attempts
+       SET state = ?, ended_at = ?, error_message = ?
+       WHERE task_id = ? AND state = 'running'`
+    )
+    .run(state, now, errorMessage, taskId);
+  return res.changes > 0;
+}
+
+export interface ArtifactRow {
+  id: string;
+  project_id: string;
+  task_id: string | null;
+  attempt_id: string | null;
+  creator_id: string;
+  kind: string;
+  title: string;
+  summary: string | null;
+  file_path: string | null;
+  created_at: string;
+}
+
+export function storeArtifact(
+  db: Db,
+  opts: {
+    id?: string;
+    projectId: string;
+    taskId?: string | null;
+    attemptId?: string | null;
+    creatorId: string;
+    kind: string;
+    title: string;
+    summary?: string | null;
+    filePath?: string | null;
+  }
+): string {
+  const id = opts.id || `art_${crypto.randomUUID()}`;
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO artifacts (id, project_id, task_id, attempt_id, creator_id, kind, title, summary, file_path, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    opts.projectId,
+    opts.taskId ?? null,
+    opts.attemptId ?? null,
+    opts.creatorId,
+    opts.kind,
+    opts.title,
+    opts.summary ?? null,
+    opts.filePath ?? null,
+    now
+  );
+  return id;
+}
+
+export function getTaskArtifacts(db: Db, taskId: string): ArtifactRow[] {
+  return db
+    .prepare("SELECT * FROM artifacts WHERE task_id = ? ORDER BY created_at ASC")
+    .all(taskId) as ArtifactRow[];
+}
+
+export function getProjectArtifacts(db: Db, projectId: string, limit = 50): ArtifactRow[] {
+  return db
+    .prepare("SELECT * FROM artifacts WHERE project_id = ? ORDER BY created_at DESC LIMIT ?")
+    .all(projectId, limit) as ArtifactRow[];
+}
+
+export function getArtifact(db: Db, id: string): ArtifactRow | undefined {
+  return db.prepare("SELECT * FROM artifacts WHERE id = ?").get(id) as ArtifactRow | undefined;
+}
+
