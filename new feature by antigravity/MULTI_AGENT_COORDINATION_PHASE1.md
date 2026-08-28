@@ -94,12 +94,27 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_project ON artifacts (project_id);
 
 ---
 
-## 4. Verification & Testing
+## 4. Frontend Command Center & Inspector Integration (`apps/web/index.html`)
+
+### A. Command Center Tabs (`Attempts` & `Artifacts`)
+- Added dedicated `Attempts` and `Artifacts` tabs to the Command Center view for all agents.
+- **Attempts Tab (`ccRenderAttempts`)**: Renders chronological execution attempts with status badges (`✓ Completed`, `✕ Failed`, `⏱ Timed Out`, `⊘ Canceled`, `● Running`), duration, exit codes, costs, and expandable error diagnostics.
+- **Artifacts Tab (`ccRenderArtifacts`)**: Displays type badges (`📄 DIFF`, `🧪 TEST REPORT`, `🔍 REVIEW`, `📋 LOG`), inlined summaries, and safe relative file paths.
+- **Race-Condition Protection**: Employs monotonic request tokens (`_activeAttemptsReq`, `_activeArtifactsReq`) to eliminate stale overwrites during rapid agent switching.
+
+### B. Inspector Drawer Sub-Panels (`updateInspector`)
+- Added inline sub-panel switcher (`[Attempts (N)] [Artifacts (N)]`) directly inside the floating `#inspector` drawer.
+- Operators can inspect the active task's retry history and generated outputs immediately upon clicking any agent on the floor without leaving their current view.
+
+---
+
+## 5. Verification & Testing
 
 - Automated unit tests in `apps/server/src/agentCoordination.test.ts` verify:
   - First execution attempt creation and idempotency.
   - History preservation across retries.
   - Active attempt failure on lease timeout.
-  - Artifact creation and project-scoped querying.
+  - Artifact creation, task retrieval, and project-scoped querying.
   - Path traversal protection on artifact paths.
-- Complete test suite: **372 passed tests (100% green)** across all 47 test files.
+  - WebSocket delta event queries, project isolation, and sequence ordering.
+- Complete test suite: **373 passed tests (100% green)** across all 47 test files.
