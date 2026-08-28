@@ -3,6 +3,7 @@ import { lastSeq, recentMemories, tasksForProject, getProjectWorkflows, getProje
 import { getProjectApprovals } from "./approvals.js";
 import { getProjectEscalations } from "./escalations.js";
 import { getProjectDeadLetters } from "./deadLetter.js";
+import { getProjectSequenceFlow } from "./communication/sequenceEvents.js";
 import { recentActivity } from "./activity.js";
 import type { HiveManager } from "./hive.js";
 import {
@@ -424,6 +425,18 @@ export function buildView(db: Db, positions: Positions, meId: string, hive?: Hiv
         createdAt: dl.createdAt,
         resolvedAt: dl.resolvedAt,
         resolvedBy: dl.resolvedBy,
+      })),
+      sequenceEvents: getProjectSequenceFlow(db, p.id, 50).map((se) => ({
+        id: se.id,
+        timestamp: se.timestamp,
+        type: se.type,
+        projectId: se.projectId,
+        source: se.source,
+        target: se.target,
+        taskId: se.taskId,
+        correlationId: se.correlationId,
+        summary: se.summary,
+        metadata: se.metadata,
       })),
     };
   });

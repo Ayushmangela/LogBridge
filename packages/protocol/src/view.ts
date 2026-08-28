@@ -300,6 +300,26 @@ export const DeadLetterView = z.object({
 });
 export type DeadLetterViewT = z.infer<typeof DeadLetterView>;
 
+export const SequenceActorView = z.object({
+  type: z.string(),
+  id: z.string(),
+  label: z.string(),
+});
+
+export const SequenceEventView = z.object({
+  id: z.string(),
+  timestamp: z.string(),
+  type: z.string(),
+  projectId: z.string(),
+  source: SequenceActorView,
+  target: SequenceActorView.optional(),
+  taskId: z.string().optional(),
+  correlationId: z.string().optional(),
+  summary: z.string(),
+  metadata: z.record(z.unknown()).optional(),
+});
+export type SequenceEventViewT = z.infer<typeof SequenceEventView>;
+
 export const Room = z.object({
   id: z.string(),
   name: z.string(),
@@ -322,6 +342,7 @@ export const Room = z.object({
   approvals: z.array(ApprovalView).optional(),
   escalations: z.array(EscalationView).optional(),
   deadLetters: z.array(DeadLetterView).optional(),
+  sequenceEvents: z.array(SequenceEventView).optional(),
 });
 
 export const WorkspaceView = z.object({

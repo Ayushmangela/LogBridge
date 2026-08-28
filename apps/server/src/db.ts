@@ -386,6 +386,85 @@ CREATE TABLE IF NOT EXISTS dead_letter_tasks (
 CREATE INDEX IF NOT EXISTS idx_dead_letter_project ON dead_letter_tasks (project_id, status);
 CREATE INDEX IF NOT EXISTS idx_dead_letter_task ON dead_letter_tasks (task_id);
 
+CREATE TABLE IF NOT EXISTS contract_net_cfps (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  conversation_id TEXT NOT NULL,
+  sender_agent_id TEXT NOT NULL,
+  candidate_agent_ids_json TEXT NOT NULL,
+  requirements_json TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open',
+  selected_proposal_id TEXT,
+  deadline TEXT,
+  correlation_id TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+  FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_cfps_project ON contract_net_cfps (project_id, status);
+CREATE INDEX IF NOT EXISTS idx_cfps_task ON contract_net_cfps (task_id);
+
+CREATE TABLE IF NOT EXISTS agent_proposals (
+  id TEXT PRIMARY KEY,
+  cfp_id TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  approach TEXT NOT NULL,
+  estimated_duration INTEGER,
+  confidence REAL NOT NULL,
+  capability_match REAL,
+  availability_score REAL,
+  reasoning_summary TEXT,
+  score REAL,
+  score_breakdown_json TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  correlation_id TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (cfp_id) REFERENCES contract_net_cfps(id) ON DELETE CASCADE,
+  FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+  FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_proposals_cfp ON agent_proposals (cfp_id, status);
+CREATE INDEX IF NOT EXISTS idx_proposals_agent ON agent_proposals (agent_id);
+
+CREATE TABLE IF NOT EXISTS sequence_events (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  task_id TEXT,
+  correlation_id TEXT,
+  type TEXT NOT NULL,
+  source_type TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  source_label TEXT NOT NULL,
+  target_type TEXT,
+  target_id TEXT,
+  target_label TEXT,
+  summary TEXT NOT NULL,
+  metadata_json TEXT,
+  timestamp TEXT NOT NULL,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_seq_events_project ON sequence_events (project_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_seq_events_task ON sequence_events (task_id);
+
+CREATE TABLE IF NOT EXISTS review_verdicts (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  reviewer_agent_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  comments_json TEXT NOT NULL,
+  artifact_id TEXT,
+  findings_json TEXT,
+  rework_task_id TEXT,
+  correlation_id TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+  FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_review_verdicts_task ON review_verdicts (task_id);
+
 CREATE INDEX IF NOT EXISTS idx_events_project ON events (project_id, seq);
 CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks (agent_id);
 `;
@@ -2331,6 +2410,376 @@ export function removeProjectMember(db: Db, projectId: string, userId: string): 
     .run(projectId, userId);
   return res.changes > 0;
 }
+
+// ─── Contract Net Protocol DB Helpers ────────────────────────────────────────
+
+export interface ContractNetCfpRow {
+  id: string;
+  project_id: string;
+  task_id: string;
+  conversation_id: string;
+  sender_agent_id: string;
+  candidate_agent_ids_json: string;
+  requirements_json: string;
+  status: "open" | "resolved" | "expired" | "cancelled";
+  selected_proposal_id: string | null;
+  deadline: string | null;
+  correlation_id: string | null;
+  created_at: string;
+}
+
+export function createContractNetCfp(
+  db: Db,
+  opts: {
+    id?: string;
+    projectId: string;
+    taskId: string;
+    conversationId?: string;
+    senderAgentId: string;
+    candidateAgentIds: string[];
+    requirements: Record<string, any>;
+    deadline?: string | null;
+    correlationId?: string | null;
+  }
+): ContractNetCfpRow {
+  const id = opts.id ?? `cfp_${crypto.randomUUID()}`;
+  const now = new Date().toISOString();
+  const convId = opts.conversationId ?? `conv_${crypto.randomUUID()}`;
+
+  db.prepare(
+    `INSERT INTO contract_net_cfps (
+      id, project_id, task_id, conversation_id, sender_agent_id,
+      candidate_agent_ids_json, requirements_json, status, deadline, correlation_id, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)`
+  ).run(
+    id,
+    opts.projectId,
+    opts.taskId,
+    convId,
+    opts.senderAgentId,
+    JSON.stringify(opts.candidateAgentIds),
+    JSON.stringify(opts.requirements),
+    opts.deadline ?? null,
+    opts.correlationId ?? null,
+    now
+  );
+
+  return {
+    id,
+    project_id: opts.projectId,
+    task_id: opts.taskId,
+    conversation_id: convId,
+    sender_agent_id: opts.senderAgentId,
+    candidate_agent_ids_json: JSON.stringify(opts.candidateAgentIds),
+    requirements_json: JSON.stringify(opts.requirements),
+    status: "open",
+    selected_proposal_id: null,
+    deadline: opts.deadline ?? null,
+    correlation_id: opts.correlationId ?? null,
+    created_at: now,
+  };
+}
+
+export function getContractNetCfp(db: Db, cfpId: string): ContractNetCfpRow | null {
+  return (db.prepare("SELECT * FROM contract_net_cfps WHERE id = ?").get(cfpId) as ContractNetCfpRow) ?? null;
+}
+
+export function updateCfpStatus(
+  db: Db,
+  cfpId: string,
+  status: "open" | "resolved" | "expired" | "cancelled",
+  selectedProposalId?: string | null
+): boolean {
+  const res = db
+    .prepare("UPDATE contract_net_cfps SET status = ?, selected_proposal_id = COALESCE(?, selected_proposal_id) WHERE id = ?")
+    .run(status, selectedProposalId ?? null, cfpId);
+  return res.changes > 0;
+}
+
+export function getOpenCfps(db: Db, projectId?: string): ContractNetCfpRow[] {
+  if (projectId) {
+    return db.prepare("SELECT * FROM contract_net_cfps WHERE project_id = ? AND status = 'open'").all(projectId) as ContractNetCfpRow[];
+  }
+  return db.prepare("SELECT * FROM contract_net_cfps WHERE status = 'open'").all() as ContractNetCfpRow[];
+}
+
+export interface AgentProposalRow {
+  id: string;
+  cfp_id: string;
+  task_id: string;
+  agent_id: string;
+  approach: string;
+  estimated_duration: number | null;
+  confidence: number;
+  capability_match: number | null;
+  availability_score: number | null;
+  reasoning_summary: string | null;
+  score: number | null;
+  score_breakdown_json: string | null;
+  status: "pending" | "accepted" | "declined" | "expired" | "cancelled";
+  correlation_id: string | null;
+  created_at: string;
+}
+
+export function createAgentProposal(
+  db: Db,
+  opts: {
+    id?: string;
+    cfpId: string;
+    taskId: string;
+    agentId: string;
+    approach: string;
+    estimatedDuration?: number | null;
+    confidence: number;
+    capabilityMatch?: number | null;
+    availabilityScore?: number | null;
+    reasoningSummary?: string | null;
+    score?: number | null;
+    scoreBreakdown?: Record<string, any> | null;
+    correlationId?: string | null;
+  }
+): AgentProposalRow {
+  const id = opts.id ?? `prop_${crypto.randomUUID()}`;
+  const now = new Date().toISOString();
+
+  db.prepare(
+    `INSERT INTO agent_proposals (
+      id, cfp_id, task_id, agent_id, approach, estimated_duration,
+      confidence, capability_match, availability_score, reasoning_summary,
+      score, score_breakdown_json, status, correlation_id, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
+  ).run(
+    id,
+    opts.cfpId,
+    opts.taskId,
+    opts.agentId,
+    opts.approach,
+    opts.estimatedDuration ?? null,
+    opts.confidence,
+    opts.capabilityMatch ?? null,
+    opts.availabilityScore ?? null,
+    opts.reasoningSummary ?? null,
+    opts.score ?? null,
+    opts.scoreBreakdown ? JSON.stringify(opts.scoreBreakdown) : null,
+    opts.correlationId ?? null,
+    now
+  );
+
+  return {
+    id,
+    cfp_id: opts.cfpId,
+    task_id: opts.taskId,
+    agent_id: opts.agentId,
+    approach: opts.approach,
+    estimated_duration: opts.estimatedDuration ?? null,
+    confidence: opts.confidence,
+    capability_match: opts.capabilityMatch ?? null,
+    availability_score: opts.availabilityScore ?? null,
+    reasoning_summary: opts.reasoningSummary ?? null,
+    score: opts.score ?? null,
+    score_breakdown_json: opts.scoreBreakdown ? JSON.stringify(opts.scoreBreakdown) : null,
+    status: "pending",
+    correlation_id: opts.correlationId ?? null,
+    created_at: now,
+  };
+}
+
+export function getAgentProposal(db: Db, proposalId: string): AgentProposalRow | null {
+  return (db.prepare("SELECT * FROM agent_proposals WHERE id = ?").get(proposalId) as AgentProposalRow) ?? null;
+}
+
+export function getCfpProposals(db: Db, cfpId: string): AgentProposalRow[] {
+  return db.prepare("SELECT * FROM agent_proposals WHERE cfp_id = ? ORDER BY score DESC, confidence DESC").all(cfpId) as AgentProposalRow[];
+}
+
+export function updateProposalStatus(
+  db: Db,
+  proposalId: string,
+  status: "pending" | "accepted" | "declined" | "expired" | "cancelled",
+  score?: number | null,
+  scoreBreakdown?: Record<string, any> | null
+): boolean {
+  const res = db
+    .prepare(
+      `UPDATE agent_proposals
+       SET status = ?, score = COALESCE(?, score), score_breakdown_json = COALESCE(?, score_breakdown_json)
+       WHERE id = ?`
+    )
+    .run(status, score ?? null, scoreBreakdown ? JSON.stringify(scoreBreakdown) : null, proposalId);
+  return res.changes > 0;
+}
+
+// ─── Normalized Sequence Events DB Helpers ───────────────────────────────────
+
+export interface SequenceEventRow {
+  id: string;
+  project_id: string;
+  task_id: string | null;
+  correlation_id: string | null;
+  type: string;
+  source_type: string;
+  source_id: string;
+  source_label: string;
+  target_type: string | null;
+  target_id: string | null;
+  target_label: string | null;
+  summary: string;
+  metadata_json: string | null;
+  timestamp: string;
+}
+
+export function insertSequenceEvent(
+  db: Db,
+  event: {
+    id?: string;
+    projectId: string;
+    taskId?: string | null;
+    correlationId?: string | null;
+    type: string;
+    source: { type: string; id: string; label: string };
+    target?: { type: string; id: string; label: string } | null;
+    summary: string;
+    metadata?: Record<string, any> | null;
+    timestamp?: string;
+  }
+): SequenceEventRow {
+  const id = event.id ?? `seq_evt_${crypto.randomUUID()}`;
+  const now = event.timestamp ?? new Date().toISOString();
+
+  db.prepare(
+    `INSERT INTO sequence_events (
+      id, project_id, task_id, correlation_id, type,
+      source_type, source_id, source_label,
+      target_type, target_id, target_label,
+      summary, metadata_json, timestamp
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    event.projectId,
+    event.taskId ?? null,
+    event.correlationId ?? null,
+    event.type,
+    event.source.type,
+    event.source.id,
+    event.source.label,
+    event.target?.type ?? null,
+    event.target?.id ?? null,
+    event.target?.label ?? null,
+    event.summary,
+    event.metadata ? JSON.stringify(event.metadata) : null,
+    now
+  );
+
+  return {
+    id,
+    project_id: event.projectId,
+    task_id: event.taskId ?? null,
+    correlation_id: event.correlationId ?? null,
+    type: event.type,
+    source_type: event.source.type,
+    source_id: event.source.id,
+    source_label: event.source.label,
+    target_type: event.target?.type ?? null,
+    target_id: event.target?.id ?? null,
+    target_label: event.target?.label ?? null,
+    summary: event.summary,
+    metadata_json: event.metadata ? JSON.stringify(event.metadata) : null,
+    timestamp: now,
+  };
+}
+
+export function getSequenceEventsByProject(
+  db: Db,
+  projectId: string,
+  limit: number = 100
+): SequenceEventRow[] {
+  return db
+    .prepare("SELECT * FROM sequence_events WHERE project_id = ? ORDER BY timestamp ASC LIMIT ?")
+    .all(projectId, limit) as SequenceEventRow[];
+}
+
+export function getSequenceEventsByTask(
+  db: Db,
+  taskId: string
+): SequenceEventRow[] {
+  return db
+    .prepare("SELECT * FROM sequence_events WHERE task_id = ? ORDER BY timestamp ASC")
+    .all(taskId) as SequenceEventRow[];
+}
+
+// ─── Review Verdicts DB Helpers ──────────────────────────────────────────────
+
+export interface ReviewVerdictRow {
+  id: string;
+  project_id: string;
+  task_id: string;
+  reviewer_agent_id: string;
+  status: "ACCEPT" | "REJECT";
+  comments_json: string;
+  artifact_id: string | null;
+  findings_json: string | null;
+  rework_task_id: string | null;
+  correlation_id: string | null;
+  created_at: string;
+}
+
+export function createReviewVerdict(
+  db: Db,
+  opts: {
+    id?: string;
+    projectId: string;
+    taskId: string;
+    reviewerAgentId: string;
+    status: "ACCEPT" | "REJECT";
+    comments: string[];
+    artifactId?: string | null;
+    findings?: Array<{ severity: "INFO" | "WARNING" | "ERROR"; message: string; file?: string; line?: number }> | null;
+    reworkTaskId?: string | null;
+    correlationId?: string | null;
+  }
+): ReviewVerdictRow {
+  const id = opts.id ?? `rev_${crypto.randomUUID()}`;
+  const now = new Date().toISOString();
+
+  db.prepare(
+    `INSERT INTO review_verdicts (
+      id, project_id, task_id, reviewer_agent_id, status,
+      comments_json, artifact_id, findings_json, rework_task_id,
+      correlation_id, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    opts.projectId,
+    opts.taskId,
+    opts.reviewerAgentId,
+    opts.status,
+    JSON.stringify(opts.comments),
+    opts.artifactId ?? null,
+    opts.findings ? JSON.stringify(opts.findings) : null,
+    opts.reworkTaskId ?? null,
+    opts.correlationId ?? null,
+    now
+  );
+
+  return {
+    id,
+    project_id: opts.projectId,
+    task_id: opts.taskId,
+    reviewer_agent_id: opts.reviewerAgentId,
+    status: opts.status,
+    comments_json: JSON.stringify(opts.comments),
+    artifact_id: opts.artifactId ?? null,
+    findings_json: opts.findings ? JSON.stringify(opts.findings) : null,
+    rework_task_id: opts.reworkTaskId ?? null,
+    correlation_id: opts.correlationId ?? null,
+    created_at: now,
+  };
+}
+
+export function getTaskReviewVerdicts(db: Db, taskId: string): ReviewVerdictRow[] {
+  return db.prepare("SELECT * FROM review_verdicts WHERE task_id = ? ORDER BY created_at DESC").all(taskId) as ReviewVerdictRow[];
+}
+
 
 
 

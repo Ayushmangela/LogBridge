@@ -44,6 +44,10 @@ import { runRetentionCleanup } from "./retention.js";
 import { createDatabaseBackup, verifyDatabaseBackup } from "./backup.js";
 import { getConfig } from "./config.js";
 import { logger } from "./logger.js";
+import { issueCfp, submitProposal, resolveContractNet } from "./communication/contractNet.js";
+import { delegateHandoff } from "./communication/handoff.js";
+import { processReviewResult } from "./communication/review.js";
+import { getProjectSequenceFlow, getTaskSequenceFlow } from "./communication/sequenceEvents.js";
 import { Positions } from "./view.js";
 import { registerCommandRoutes } from "./commands.js";
 import { registerGateway } from "./gateway.js";
@@ -1813,6 +1817,169 @@ export async function buildServer(
     const days = req.body?.daysToKeep ?? 30;
     const result = runRetentionCleanup(db, days);
     return { ok: true, ...result };
+  });
+
+  // ─── Contract Net Protocol, Handoffs & Sequence Events ──────────────
+
+  app.post<{
+    Body: {
+      projectId: string;
+      taskId: string;
+      senderAgentId?: string;
+      candidateAgentIds?: string[];
+      deadlineSeconds?: number;
+      correlationId?: string;
+    };
+  }>("/api/contract-net/cfp", async (req, reply) => {
+    const { projectId, taskId, senderAgentId, candidateAgentIds, deadlineSeconds, correlationId } = req.body ?? {};
+    if (!projectId || !taskId) return reply.code(400).send({ ok: false, error: "projectId and taskId required" });
+
+    const cfp = issueCfp(db, {
+      projectId,
+      taskId,
+      senderAgentId,
+      candidateAgentIds,
+      deadlineSeconds,
+      correlationId,
+    });
+
+    if (!cfp) return reply.code(400).send({ ok: false, error: "no eligible candidate agents found for CFP" });
+
+    broadcastView();
+    return { ok: true, cfp };
+  });
+
+  app.post<{
+    Body: {
+      cfpId: string;
+      agentId: string;
+      approach: string;
+      confidence: number;
+      estimatedDuration?: number;
+      reasoningSummary?: string;
+      correlationId?: string;
+    };
+  }>("/api/contract-net/propose", async (req, reply) => {
+    const { cfpId, agentId, approach, confidence, estimatedDuration, reasoningSummary, correlationId } = req.body ?? {};
+    if (!cfpId || !agentId || !approach || typeof confidence !== "number") {
+      return reply.code(400).send({ ok: false, error: "cfpId, agentId, approach, and confidence required" });
+    }
+
+    const proposal = submitProposal(db, {
+      cfpId,
+      agentId,
+      approach,
+      confidence,
+      estimatedDuration,
+      reasoningSummary,
+      correlationId,
+    });
+
+    if (!proposal) return reply.code(400).send({ ok: false, error: "failed to submit proposal (CFP not open or agent ineligible)" });
+
+    broadcastView();
+    return { ok: true, proposal };
+  });
+
+  app.post<{
+    Body: {
+      cfpId: string;
+      selectedProposalId?: string;
+    };
+  }>("/api/contract-net/resolve", async (req, reply) => {
+    const { cfpId, selectedProposalId } = req.body ?? {};
+    if (!cfpId) return reply.code(400).send({ ok: false, error: "cfpId required" });
+
+    const result = resolveContractNet(db, cfpId, selectedProposalId);
+    if (!result.winningProposal) {
+      return reply.code(400).send({ ok: false, error: "no proposals available to resolve CFP" });
+    }
+
+    orchestrate(db, nodeSockets, app);
+    broadcastView();
+    return { ok: true, ...result };
+  });
+
+  app.post<{
+    Body: {
+      taskId: string;
+      fromAgentId: string;
+      toAgentId: string;
+      artifacts: Record<string, string | undefined>;
+      contextSummary?: {
+        designDecisions?: string[];
+        filesModified?: string[];
+        knownLimitations?: string[];
+      };
+      correlationId?: string;
+    };
+  }>("/api/handoff/delegate", async (req, reply) => {
+    const { taskId, fromAgentId, toAgentId, artifacts, contextSummary, correlationId } = req.body ?? {};
+    if (!taskId || !fromAgentId || !toAgentId || !artifacts) {
+      return reply.code(400).send({ ok: false, error: "taskId, fromAgentId, toAgentId, and artifacts required" });
+    }
+
+    const handoff = delegateHandoff(db, {
+      taskId,
+      fromAgentId,
+      toAgentId,
+      artifacts,
+      contextSummary,
+      correlationId,
+    });
+
+    if (!handoff) return reply.code(404).send({ ok: false, error: "task not found" });
+
+    broadcastView();
+    return { ok: true, handoff };
+  });
+
+  app.post<{
+    Body: {
+      taskId: string;
+      reviewerAgentId: string;
+      status: "ACCEPT" | "REJECT";
+      comments: string[];
+      artifactId?: string;
+      findings?: any[];
+      maxReworkAttempts?: number;
+      correlationId?: string;
+    };
+  }>("/api/review/verdict", async (req, reply) => {
+    const { taskId, reviewerAgentId, status, comments, artifactId, findings, maxReworkAttempts, correlationId } = req.body ?? {};
+    if (!taskId || !reviewerAgentId || !status || !comments) {
+      return reply.code(400).send({ ok: false, error: "taskId, reviewerAgentId, status, and comments required" });
+    }
+
+    try {
+      const result = processReviewResult(db, {
+        taskId,
+        reviewerAgentId,
+        status,
+        comments,
+        artifactId,
+        findings,
+        maxReworkAttempts,
+        correlationId,
+      });
+
+      orchestrate(db, nodeSockets, app);
+      broadcastView();
+      return { ok: true, ...result };
+    } catch (err: any) {
+      return reply.code(400).send({ ok: false, error: err.message });
+    }
+  });
+
+  app.get<{ Params: { id: string }; Querystring: { limit?: string } }>("/api/projects/:id/sequence-events", async (req) => {
+    const limit = req.query?.limit ? Number(req.query.limit) : 200;
+    const events = getProjectSequenceFlow(db, req.params.id, limit);
+    return { ok: true, events };
+  });
+
+  app.get<{ Params: { id: string } }>("/api/tasks/:id/sequence-events", async (req) => {
+    const events = getTaskSequenceFlow(db, req.params.id);
+    return { ok: true, events };
   });
 
   app.post<{
