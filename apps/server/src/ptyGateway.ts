@@ -216,22 +216,27 @@ export function spawnOrGetPtySession(
   };
   sessions.set(ptyId, session);
 
-  // Automatically send Hive briefing prompt to the terminal using bracketed paste
-  if (initialPrompt) {
-    setTimeout(() => {
-      try {
-        const payload = initialPrompt.includes("\n")
-          ? `\x1b[200~${initialPrompt}\x1b[201~`
-          : initialPrompt;
-        proc.write(payload);
-        setTimeout(() => {
-          try {
-            proc.write("\r");
-          } catch {}
-        }, 200);
-      } catch {}
-    }, isCli ? 3200 : 1000);
-  }
+  let promptSeeded = false;
+  const doSeed = () => {
+    if (promptSeeded || !initialPrompt) return;
+    promptSeeded = true;
+    try {
+      const payload = initialPrompt.includes("\n")
+        ? `\x1b[200~${initialPrompt}\x1b[201~`
+        : initialPrompt;
+      proc.write(payload);
+      setTimeout(() => {
+        try {
+          proc.write("\r");
+        } catch {}
+      }, 250);
+    } catch {}
+  };
+
+  // Fallback timer if no TUI pattern is recognized
+  const seedFallbackTimer = setTimeout(() => {
+    doSeed();
+  }, isCli ? 6000 : 1200);
 
   const currentSession = session;
 
@@ -254,6 +259,25 @@ export function spawnOrGetPtySession(
   }
 
   proc.onData((data: string) => {
+    // Detect when OpenCode / Claude Code is ready for user input
+    if (!promptSeeded && initialPrompt) {
+      if (
+        data.includes("Ask anything") ||
+        data.includes("ctrl+p") ||
+        data.includes("OpenCode") ||
+        data.includes("tab agents") ||
+        data.includes("connected to") ||
+        data.includes("What would you like") ||
+        data.includes("Tip Run /connect") ||
+        data.includes("Tip") ||
+        data.includes("commands")
+      ) {
+        clearTimeout(seedFallbackTimer);
+        setTimeout(() => {
+          doSeed();
+        }, 500);
+      }
+    }
     if (currentSession.scrollback.length > 200_000) {
       currentSession.scrollback = currentSession.scrollback.slice(-100_000);
     }
@@ -341,8 +365,16 @@ export function registerPtyGateway(app: FastifyInstance, db: Db, hive?: HiveMana
       }
 
       if (msg.type === "reseed" && activeSession) {
-        const agent = activeSession.agentId
-          ? (db.prepare("SELECT * FROM agents WHERE id = ?").get(activeSession.agentId) as any)
+        let agentId = activeSession.agentId;
+        if (!agentId && msg.ptyId) {
+          const m = msg.ptyId.match(/-([a-f0-9]{8})$/i);
+          if (m) {
+            const row = db.prepare("SELECT * FROM agents WHERE id LIKE ?").get(`%${m[1]}`) as any;
+            if (row) agentId = row.id;
+          }
+        }
+        const agent = agentId
+          ? (db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId) as any)
           : null;
         let prompt = "";
         const cwd = agent?.folder || agent?.cwd || process.cwd();
@@ -354,7 +386,7 @@ export function registerPtyGateway(app: FastifyInstance, db: Db, hive?: HiveMana
           prompt = buildCommanderHivePrompt({ commanderName: agent?.name || "Michael", folder: cwd });
         } else {
           prompt = buildEmployeeHivePrompt({
-            agentId: activeSession.agentId,
+            agentId: agentId || "agent",
             agentName: agent?.name || "Agent",
             folder: cwd,
             role: agent?.role,
@@ -366,7 +398,7 @@ export function registerPtyGateway(app: FastifyInstance, db: Db, hive?: HiveMana
             activeSession.proc.write(payload);
             setTimeout(() => {
               try { activeSession.proc.write("\r"); } catch {}
-            }, 200);
+            }, 250);
           } catch {}
         }
         return;

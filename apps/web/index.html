@@ -6572,9 +6572,16 @@
       briefingBtn.title = 'Send full Hive Protocol orientation prompt to terminal';
       briefingBtn.onclick = () => {
         const entry = getOrCreateTerminalEntry(ptyName, a);
+        briefingBtn.innerHTML = '<span>⏳</span> Sending…';
         if (entry.ws && entry.ws.readyState === WebSocket.OPEN) {
-          entry.ws.send(JSON.stringify({ type: 'reseed', ptyId: ptyName }));
+          entry.ws.send(JSON.stringify({ type: 'reseed', ptyId: ptyName, agentId: a.id }));
         }
+        setTimeout(() => {
+          briefingBtn.innerHTML = '<span>✅</span> Sent';
+          setTimeout(() => {
+            briefingBtn.innerHTML = '<span>🧭</span> Send Briefing';
+          }, 1500);
+        }, 300);
       };
 
       ctrls.appendChild(briefingBtn);
