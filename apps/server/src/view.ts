@@ -1,5 +1,5 @@
 import type { Db } from "./db.js";
-import { lastSeq, recentMemories, tasksForProject, getProjectWorkflows } from "./db.js";
+import { lastSeq, recentMemories, tasksForProject, getProjectWorkflows, getProjectGoals } from "./db.js";
 import { recentActivity } from "./activity.js";
 import type { HiveManager } from "./hive.js";
 import {
@@ -359,6 +359,20 @@ export function buildView(db: Db, positions: Positions, meId: string, hive?: Hiv
         state: w.state,
         createdAt: w.created_at,
         updatedAt: w.updated_at,
+      })),
+      goals: getProjectGoals(db, p.id).map((g) => ({
+        id: g.id,
+        projectId: g.projectId,
+        title: g.title,
+        description: g.description,
+        state: g.state,
+        workflowId: g.workflowId,
+        creatorId: g.creatorId,
+        createdAt: g.createdAt,
+        updatedAt: g.updatedAt,
+        approvedAt: g.approvedAt,
+        startedAt: g.startedAt,
+        completedAt: g.completedAt,
       })),
     };
   });

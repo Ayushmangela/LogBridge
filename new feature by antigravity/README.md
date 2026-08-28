@@ -24,6 +24,7 @@ LogBridge has been upgraded by **Antigravity** with a next-generation autonomous
 | **14. Phase 1 Multi-Agent Coordination Engine** | Durable execution attempts (`task_attempts`), zero-copy artifact references (`artifacts`), bounded WebSocket reconnection delta replay, and crash-resilient attempt lifecycle tracking. | [MULTI_AGENT_COORDINATION_PHASE1.md](./MULTI_AGENT_COORDINATION_PHASE1.md) |
 | **15. Phase 2 Multi-Agent Workflows & DAG Engine** | Project-scoped workflows, task dependency DAGs with cycle detection, dependency-aware orchestrator dispatch, agent handoffs, and review rework gates. | [MULTI_AGENT_WORKFLOWS_PHASE2.md](./MULTI_AGENT_WORKFLOWS_PHASE2.md) |
 | **16. Phase 3 Autonomous Intelligence, Reliability & Recovery** | Explainable deterministic routing, failure categorization, policy-driven retries, autonomous workflow supervisor, deterministic context builder, and health telemetry. | [AUTONOMOUS_AGENT_INTELLIGENCE_PHASE3.md](./AUTONOMOUS_AGENT_INTELLIGENCE_PHASE3.md) |
+| **17. Phase 4 Autonomous Agent Teams, Planning & Dynamic Replanning** | First-class product engineering Goals, structured multi-role planning, topological parallel execution waves, plan approval lifecycle, and non-destructive dynamic replanning with impact analysis. | [AUTONOMOUS_AGENT_TEAMS_PHASE4.md](./AUTONOMOUS_AGENT_TEAMS_PHASE4.md) |
 
 ---
 

@@ -1,8 +1,8 @@
-// Deterministic Project-Scoped Agent Context Builder (Phase 3).
+// Deterministic Project-Scoped Agent Context Builder (Phase 3 & Phase 4).
 // Layered, prioritized, and bounded context assembly for agent execution.
 
 import type { Db } from "./db.js";
-import { getTask, getTaskDependencies, getTaskArtifacts, recentMemories } from "./db.js";
+import { getTask, getTaskDependencies, getTaskArtifacts, recentMemories, getGoal } from "./db.js";
 
 export interface AgentContextPayload {
   taskId: string;
@@ -10,6 +10,7 @@ export interface AgentContextPayload {
   assembledAt: string;
   totalLength: number;
   sections: {
+    goalSpecification?: string;
     taskDirectives: string;
     dependencyOutputs: string;
     artifactReferences: string;
@@ -25,14 +26,26 @@ export function buildAgentContext(
   agentId?: string | null,
   opts?: { maxChars?: number }
 ): AgentContextPayload | null {
-  const task = getTask(db, taskId);
+  const task = getTask(db, taskId) as any;
   if (!task) return null;
 
   const maxChars = opts?.maxChars ?? 8000;
   const projectId = task.project_id;
 
+  // 0. Priority 0: Goal Specification (if task belongs to a Goal)
+  let goalSpec = "";
+  if (task.goal_id) {
+    const goal = getGoal(db, task.goal_id);
+    if (goal) {
+      goalSpec = `=== PROJECT GOAL ===\nGoal: ${goal.title}\nStatus: ${goal.state.toUpperCase()}\n`;
+      if (goal.description) goalSpec += `Goal Spec: ${goal.description.trim()}\n`;
+    }
+  }
+
   // 1. Priority 1: Task Directives
   let directives = `=== TASK SPECIFICATION ===\nTask ID: ${task.id}\nTitle: ${task.title}\nState: ${task.state}\n`;
+  if (task.suggested_role) directives += `Suggested Role: ${task.suggested_role.toUpperCase()}\n`;
+  if (task.wave) directives += `Execution Wave: Wave ${task.wave}\n`;
   if (task.required_capability) directives += `Required Capability: ${task.required_capability}\n`;
   if (task.budget_seconds) directives += `Budget: ${task.budget_seconds}s ($${task.budget_usd || 1.0})\n`;
   if (task.spec) directives += `\n[Instructions & Spec]:\n${task.spec.trim()}\n`;
@@ -44,7 +57,6 @@ export function buildAgentContext(
     depOutputs = "=== PREDECESSOR DEPENDENCY OUTPUTS ===\n";
     for (const dep of dependencies) {
       depOutputs += `• [${dep.state.toUpperCase()}] ${dep.title} (${dep.dependsOnTaskId})\n`;
-      // Fetch any artifacts or recent event summaries for this dependency
       const depArts = getTaskArtifacts(db, dep.dependsOnTaskId);
       for (const art of depArts) {
         depOutputs += `  - Artifact [${art.kind.toUpperCase()}]: ${art.title} ${art.summary ? `— ${art.summary}` : ""}\n`;
@@ -94,7 +106,9 @@ export function buildAgentContext(
   }
 
   // Assemble with priority truncation
-  let formatted = `${directives}\n`;
+  let formatted = "";
+  if (goalSpec) formatted += `${goalSpec}\n`;
+  formatted += `${directives}\n`;
   if (depOutputs) formatted += `${depOutputs}\n`;
   if (artRefs) formatted += `${artRefs}\n`;
   if (lineage) formatted += `${lineage}\n`;
@@ -110,6 +124,7 @@ export function buildAgentContext(
     assembledAt: new Date().toISOString(),
     totalLength: formatted.length,
     sections: {
+      goalSpecification: goalSpec || undefined,
       taskDirectives: directives,
       dependencyOutputs: depOutputs,
       artifactReferences: artRefs,

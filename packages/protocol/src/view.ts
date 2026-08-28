@@ -230,6 +230,22 @@ export const WorkflowView = z.object({
 });
 export type WorkflowViewT = z.infer<typeof WorkflowView>;
 
+export const GoalView = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  state: z.string(),
+  workflowId: z.string().nullable(),
+  creatorId: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  approvedAt: z.string().nullable(),
+  startedAt: z.string().nullable(),
+  completedAt: z.string().nullable(),
+});
+export type GoalViewT = z.infer<typeof GoalView>;
+
 export const Room = z.object({
   id: z.string(),
   name: z.string(),
@@ -248,6 +264,7 @@ export const Room = z.object({
   activity: z.array(ActivityItem),
   triggers: z.array(TriggerView),
   workflows: z.array(WorkflowView).optional(),
+  goals: z.array(GoalView).optional(),
 });
 
 export const WorkspaceView = z.object({

@@ -272,8 +272,40 @@ CREATE TABLE IF NOT EXISTS retry_policies (
   created_at TEXT NOT NULL,
   FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS idx_retry_policies_project ON retry_policies (project_id);
-CREATE INDEX IF NOT EXISTS idx_retry_policies_task ON retry_policies (task_id);
+CREATE TABLE IF NOT EXISTS goals (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  state TEXT NOT NULL DEFAULT 'draft',
+  workflow_id TEXT,
+  creator_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  approved_at TEXT,
+  started_at TEXT,
+  completed_at TEXT,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+  FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_goals_project ON goals (project_id);
+
+CREATE TABLE IF NOT EXISTS plan_revisions (
+  id TEXT PRIMARY KEY,
+  goal_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  revision_number INTEGER NOT NULL,
+  state TEXT NOT NULL DEFAULT 'draft',
+  summary TEXT,
+  steps_json TEXT NOT NULL,
+  impact_analysis_json TEXT,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  approved_at TEXT,
+  FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE CASCADE,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_plan_revisions_goal ON plan_revisions (goal_id, revision_number);
 
 CREATE INDEX IF NOT EXISTS idx_events_project ON events (project_id, seq);
 CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks (agent_id);
@@ -325,10 +357,13 @@ export function openDb(dbPath?: string): Db {
     "ALTER TABLE agents ADD COLUMN paused INT DEFAULT 0",
     "ALTER TABLE agents ADD COLUMN paused_at TEXT",
     "ALTER TABLE agents ADD COLUMN retired INT DEFAULT 0",
-    "ALTER TABLE agents ADD COLUMN retired_at TEXT",
-    "ALTER TABLE agents ADD COLUMN model TEXT",
-    "ALTER TABLE agents ADD COLUMN steer_context TEXT",
+    "ALTER TABLE agents ADD COLUMN color TEXT",
+    "ALTER TABLE tasks ADD COLUMN parent_task TEXT",
+    "ALTER TABLE tasks ADD COLUMN retry_of TEXT",
     "ALTER TABLE tasks ADD COLUMN workflow_id TEXT",
+    "ALTER TABLE tasks ADD COLUMN suggested_role TEXT",
+    "ALTER TABLE tasks ADD COLUMN wave INTEGER",
+    "ALTER TABLE tasks ADD COLUMN goal_id TEXT",
     "ALTER TABLE agents ADD COLUMN context_used INTEGER",
     "ALTER TABLE agents ADD COLUMN context_limit INTEGER",
     "ALTER TABLE agents ADD COLUMN tool_calls INTEGER",
@@ -1875,6 +1910,279 @@ export function getAgentHistoricalPerformance(db: Db, agentId: string, projectId
     totalAttempts: metrics.totalAttempts,
   };
 }
+
+// ─── Phase 4: Goals, Plans & Revisions ──────────────────────────────
+
+export type GoalState =
+  | "draft"
+  | "planning"
+  | "awaiting_approval"
+  | "approved"
+  | "executing"
+  | "paused"
+  | "replanning"
+  | "completed"
+  | "failed"
+  | "canceled";
+
+export interface GoalRow {
+  id: string;
+  projectId: string;
+  title: string;
+  description: string | null;
+  state: GoalState;
+  workflowId: string | null;
+  creatorId: string;
+  createdAt: string;
+  updatedAt: string;
+  approvedAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+export function createGoal(
+  db: Db,
+  opts: {
+    id?: string;
+    projectId: string;
+    title: string;
+    description?: string | null;
+    creatorId: string;
+    workflowId?: string | null;
+    state?: GoalState;
+  }
+): string {
+  const id = opts.id || `gol_${crypto.randomUUID()}`;
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO goals (id, project_id, title, description, state, workflow_id, creator_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    opts.projectId,
+    opts.title,
+    opts.description ?? null,
+    opts.state ?? "draft",
+    opts.workflowId ?? null,
+    opts.creatorId,
+    now,
+    now
+  );
+  return id;
+}
+
+export function getGoal(db: Db, id: string): GoalRow | null {
+  const row = db.prepare("SELECT * FROM goals WHERE id = ?").get(id) as any;
+  if (!row) return null;
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    title: row.title,
+    description: row.description,
+    state: row.state,
+    workflowId: row.workflow_id,
+    creatorId: row.creator_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    approvedAt: row.approved_at,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+  };
+}
+
+export function getProjectGoals(db: Db, projectId: string): GoalRow[] {
+  const rows = db.prepare("SELECT * FROM goals WHERE project_id = ? ORDER BY created_at DESC").all(projectId) as any[];
+  return rows.map((row) => ({
+    id: row.id,
+    projectId: row.project_id,
+    title: row.title,
+    description: row.description,
+    state: row.state,
+    workflowId: row.workflow_id,
+    creatorId: row.creator_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    approvedAt: row.approved_at,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+  }));
+}
+
+export function setGoalState(
+  db: Db,
+  id: string,
+  state: GoalState,
+  extra?: { approvedAt?: string; startedAt?: string; completedAt?: string; workflowId?: string }
+): boolean {
+  const now = new Date().toISOString();
+  let sql = "UPDATE goals SET state = ?, updated_at = ?";
+  const params: any[] = [state, now];
+
+  if (extra?.approvedAt !== undefined) {
+    sql += ", approved_at = ?";
+    params.push(extra.approvedAt);
+  }
+  if (extra?.startedAt !== undefined) {
+    sql += ", started_at = ?";
+    params.push(extra.startedAt);
+  }
+  if (extra?.completedAt !== undefined) {
+    sql += ", completed_at = ?";
+    params.push(extra.completedAt);
+  }
+  if (extra?.workflowId !== undefined) {
+    sql += ", workflow_id = ?";
+    params.push(extra.workflowId);
+  }
+
+  sql += " WHERE id = ?";
+  params.push(id);
+
+  const res = db.prepare(sql).run(...params);
+  return res.changes > 0;
+}
+
+export function updateGoalWorkflow(db: Db, goalId: string, workflowId: string): boolean {
+  const res = db.prepare("UPDATE goals SET workflow_id = ?, updated_at = ? WHERE id = ?").run(
+    workflowId,
+    new Date().toISOString(),
+    goalId
+  );
+  return res.changes > 0;
+}
+
+export interface PlanRevisionRow {
+  id: string;
+  goalId: string;
+  projectId: string;
+  revisionNumber: number;
+  state: "draft" | "awaiting_approval" | "approved" | "superseded" | "rejected";
+  summary: string | null;
+  stepsJson: string;
+  impactAnalysisJson: string | null;
+  createdBy: string;
+  createdAt: string;
+  approvedAt: string | null;
+}
+
+export function createPlanRevision(
+  db: Db,
+  opts: {
+    id?: string;
+    goalId: string;
+    projectId: string;
+    revisionNumber?: number;
+    state?: "draft" | "awaiting_approval" | "approved" | "superseded" | "rejected";
+    summary?: string | null;
+    steps: any[];
+    impactAnalysis?: any | null;
+    createdBy: string;
+  }
+): string {
+  const id = opts.id || `plnrev_${crypto.randomUUID()}`;
+  const now = new Date().toISOString();
+
+  let revNum = opts.revisionNumber;
+  if (revNum === undefined) {
+    const latest = db
+      .prepare("SELECT MAX(revision_number) as max_rev FROM plan_revisions WHERE goal_id = ?")
+      .get(opts.goalId) as any;
+    revNum = (latest?.max_rev ?? 0) + 1;
+  }
+
+  db.prepare(
+    `INSERT INTO plan_revisions (id, goal_id, project_id, revision_number, state, summary, steps_json, impact_analysis_json, created_by, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    opts.goalId,
+    opts.projectId,
+    revNum,
+    opts.state ?? "draft",
+    opts.summary ?? null,
+    JSON.stringify(opts.steps),
+    opts.impactAnalysis ? JSON.stringify(opts.impactAnalysis) : null,
+    opts.createdBy,
+    now
+  );
+  return id;
+}
+
+export function getPlanRevision(db: Db, id: string): PlanRevisionRow | null {
+  const row = db.prepare("SELECT * FROM plan_revisions WHERE id = ?").get(id) as any;
+  if (!row) return null;
+  return {
+    id: row.id,
+    goalId: row.goal_id,
+    projectId: row.project_id,
+    revisionNumber: Number(row.revision_number),
+    state: row.state,
+    summary: row.summary,
+    stepsJson: row.steps_json,
+    impactAnalysisJson: row.impact_analysis_json,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    approvedAt: row.approved_at,
+  };
+}
+
+export function getLatestPlanRevision(db: Db, goalId: string): PlanRevisionRow | null {
+  const row = db
+    .prepare("SELECT * FROM plan_revisions WHERE goal_id = ? ORDER BY revision_number DESC LIMIT 1")
+    .get(goalId) as any;
+  if (!row) return null;
+  return {
+    id: row.id,
+    goalId: row.goal_id,
+    projectId: row.project_id,
+    revisionNumber: Number(row.revision_number),
+    state: row.state,
+    summary: row.summary,
+    stepsJson: row.steps_json,
+    impactAnalysisJson: row.impact_analysis_json,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    approvedAt: row.approved_at,
+  };
+}
+
+export function getPlanRevisions(db: Db, goalId: string): PlanRevisionRow[] {
+  const rows = db
+    .prepare("SELECT * FROM plan_revisions WHERE goal_id = ? ORDER BY revision_number ASC")
+    .all(goalId) as any[];
+  return rows.map((row) => ({
+    id: row.id,
+    goalId: row.goal_id,
+    projectId: row.project_id,
+    revisionNumber: Number(row.revision_number),
+    state: row.state,
+    summary: row.summary,
+    stepsJson: row.steps_json,
+    impactAnalysisJson: row.impact_analysis_json,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    approvedAt: row.approved_at,
+  }));
+}
+
+export function setPlanRevisionState(
+  db: Db,
+  id: string,
+  state: "draft" | "awaiting_approval" | "approved" | "superseded" | "rejected",
+  approvedAt?: string
+): boolean {
+  let sql = "UPDATE plan_revisions SET state = ?";
+  const params: any[] = [state];
+  if (approvedAt !== undefined) {
+    sql += ", approved_at = ?";
+    params.push(approvedAt);
+  }
+  sql += " WHERE id = ?";
+  params.push(id);
+  const res = db.prepare(sql).run(...params);
+  return res.changes > 0;
+}
+
 
 
 

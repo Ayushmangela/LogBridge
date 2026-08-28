@@ -3223,6 +3223,7 @@
         { id: 'terminal', label: '>_ Terminal', surface: 'both' },
         { id: 'code', label: '</> Code', surface: 'both' },
         { id: 'tasks', label: 'Tasks', surface: 'both' },
+        { id: 'goals', label: '🎯 Goals', surface: 'both' },
         { id: 'workflows', label: 'Workflows', surface: 'both' },
         { id: 'attempts', label: 'Attempts', surface: 'both' },
         { id: 'artifacts', label: 'Artifacts', surface: 'both' },
@@ -3355,6 +3356,7 @@
       else if (ccTab === 'memory') ccRenderMemory(body, a);
       else if (ccTab === 'triggers') ccRenderTriggers(body, a);
       else if (ccTab === 'tasks') ccRenderTasks(body, a);
+      else if (ccTab === 'goals') ccRenderGoals(body, a);
       else if (ccTab === 'workflows') ccRenderWorkflows(body, a);
       else if (ccTab === 'attempts') ccRenderAttempts(body, a);
       else if (ccTab === 'artifacts') ccRenderArtifacts(body, a);
@@ -3805,7 +3807,228 @@
         });
     }
 
-    let _activeArtifactsReq = 0;
+    let _activeGoalsReq = 0;
+    function ccRenderGoals(body, a) {
+      const curReq = ++_activeGoalsReq;
+      const room = activeRoom();
+      const prjId = room ? room.id : (a ? a.projectId : null);
+      if (!prjId) {
+        body.innerHTML = '<div class="empty-note">No active project room selected.</div>';
+        return;
+      }
+
+      body.innerHTML = '';
+      const topBar = document.createElement('div');
+      topBar.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border-soft);';
+      const title = document.createElement('div');
+      title.style.cssText = 'font-weight:700;font-size:15px;color:var(--text);display:flex;align-items:center;gap:8px;';
+      title.innerHTML = '<span>🎯</span> Autonomous Agent Teams & Planning Engine';
+
+      const newGoalBtn = document.createElement('button');
+      newGoalBtn.className = 'btn-primary';
+      newGoalBtn.style.cssText = 'padding:6px 14px;font-size:12px;cursor:pointer;';
+      newGoalBtn.textContent = '+ New Goal';
+      newGoalBtn.onclick = () => window.promptCreateGoal(prjId);
+      topBar.append(title, newGoalBtn);
+      body.appendChild(topBar);
+
+      fetch(`/api/projects/${prjId}/goals`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (curReq !== _activeGoalsReq) return;
+          const goals = data.goals || [];
+          if (goals.length === 0) {
+            body.innerHTML += `
+              <div style="background:var(--surface-1);border:1px dashed var(--border-soft);border-radius:10px;padding:32px 20px;text-align:center;">
+                <div style="font-size:28px;margin-bottom:10px;">🎯</div>
+                <div style="font-size:14px;font-weight:600;margin-bottom:6px;">No Execution Goals Yet</div>
+                <div style="font-size:12px;color:var(--text-faint);max-width:440px;margin:0 auto 16px;line-height:1.45;">
+                  Define a high-level product engineering goal. The autonomous planning engine will formulate a structured multi-role execution plan across parallel waves.
+                </div>
+                <button class="btn-primary" style="padding:6px 16px;font-size:12px;" onclick="window.promptCreateGoal('${escapeHtml(prjId)}')">+ Create First Goal</button>
+              </div>`;
+            return;
+          }
+
+          const gList = document.createElement('div');
+          gList.style.cssText = 'display:flex;flex-direction:column;gap:16px;';
+
+          for (const g of goals) {
+            const card = document.createElement('div');
+            card.style.cssText = 'background:var(--surface-1);border:1px solid var(--border-soft);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:12px;';
+
+            const head = document.createElement('div');
+            head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;';
+            const hLeft = document.createElement('div');
+            hLeft.style.cssText = 'display:flex;align-items:center;gap:10px;';
+
+            const stPill = document.createElement('span');
+            stPill.style.cssText = 'font-size:10.5px;font-weight:800;letter-spacing:.4px;padding:3px 9px;border-radius:12px;text-transform:uppercase;';
+            if (g.state === 'executing' || g.state === 'approved') stPill.style.cssText += 'background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid rgba(34,197,94,0.3);';
+            else if (g.state === 'awaiting_approval' || g.state === 'planning') stPill.style.cssText += 'background:rgba(234,179,8,0.15);color:#fde047;border:1px solid rgba(234,179,8,0.3);';
+            else if (g.state === 'replanning') stPill.style.cssText += 'background:rgba(249,115,22,0.15);color:#fb923c;border:1px solid rgba(249,115,22,0.3);';
+            else if (g.state === 'completed') stPill.style.cssText += 'background:rgba(99,102,241,0.15);color:#818cf8;border:1px solid rgba(99,102,241,0.3);';
+            else stPill.style.cssText += 'background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3);';
+            stPill.textContent = g.state;
+
+            const gTitle = document.createElement('span');
+            gTitle.style.cssText = 'font-weight:700;font-size:15px;color:var(--text);';
+            gTitle.textContent = g.title;
+            hLeft.append(stPill, gTitle);
+
+            const hRight = document.createElement('div');
+            hRight.style.cssText = 'display:flex;gap:6px;';
+
+            if (g.state === 'draft') {
+              const genBtn = document.createElement('button');
+              genBtn.className = 'btn-primary';
+              genBtn.style.cssText = 'padding:4px 10px;font-size:11.5px;';
+              genBtn.textContent = '⚡ Generate Plan';
+              genBtn.onclick = () => {
+                fetch(`/api/goals/${g.id}/generate-plan`, { method: 'POST' }).then(() => renderCommandCenter());
+              };
+              hRight.appendChild(genBtn);
+            } else if (g.state === 'awaiting_approval') {
+              const appBtn = document.createElement('button');
+              appBtn.className = 'btn-primary';
+              appBtn.style.cssText = 'padding:4px 10px;font-size:11.5px;';
+              appBtn.textContent = '🚀 Approve & Execute';
+              appBtn.onclick = () => {
+                fetch(`/api/goals/${g.id}/plan/approve`, { method: 'POST' }).then(() => renderCommandCenter());
+              };
+              hRight.appendChild(appBtn);
+            } else if (g.state === 'executing') {
+              const replanBtn = document.createElement('button');
+              replanBtn.className = 'cc-tab';
+              replanBtn.style.cssText = 'padding:4px 10px;font-size:11px;color:var(--accent);';
+              replanBtn.textContent = '🔄 Dynamic Replan';
+              replanBtn.onclick = () => window.promptDynamicReplan(g.id);
+              hRight.appendChild(replanBtn);
+            }
+
+            head.append(hLeft, hRight);
+            card.appendChild(head);
+
+            if (g.description) {
+              const desc = document.createElement('div');
+              desc.style.cssText = 'font-size:12.5px;color:var(--text-muted);';
+              desc.textContent = g.description;
+              card.appendChild(desc);
+            }
+
+            const planDetails = document.createElement('div');
+            planDetails.id = `goal-plan-${g.id}`;
+            card.appendChild(planDetails);
+
+            // Fetch goal plan details
+            fetch(`/api/goals/${g.id}`)
+              .then((r) => r.json())
+              .then((gData) => {
+                const plan = gData.plan;
+                if (!plan || !plan.steps || plan.steps.length === 0) return;
+
+                planDetails.innerHTML = '';
+                const pBox = document.createElement('div');
+                pBox.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding-top:8px;border-top:1px dashed var(--border-soft);';
+
+                const pHead = document.createElement('div');
+                pHead.style.cssText = 'font-size:12px;font-weight:700;color:var(--text);';
+                pHead.textContent = `📋 Plan Revision #${plan.revisionNumber}: ${plan.summary || ''}`;
+                pBox.appendChild(pHead);
+
+                // Group steps by execution waves
+                const waves = new Map();
+                for (const s of plan.steps) {
+                  const w = s.wave || 1;
+                  if (!waves.has(w)) waves.set(w, []);
+                  waves.get(w).push(s);
+                }
+
+                const waveGrid = document.createElement('div');
+                waveGrid.style.cssText = 'display:flex;flex-direction:column;gap:8px;';
+
+                const sortedWaves = Array.from(waves.keys()).sort((a, b) => a - b);
+                for (const wNum of sortedWaves) {
+                  const wSteps = waves.get(wNum);
+                  const wRow = document.createElement('div');
+                  wRow.style.cssText = 'background:var(--surface-2);border-radius:8px;padding:8px 10px;border:1px solid var(--border-soft);';
+
+                  const wTitle = document.createElement('div');
+                  wTitle.style.cssText = 'font-size:11px;font-weight:800;letter-spacing:.3px;color:var(--accent);margin-bottom:6px;';
+                  wTitle.textContent = `🌊 WAVE ${wNum} (${wSteps.length} Parallel Steps)`;
+                  wRow.appendChild(wTitle);
+
+                  const sList = document.createElement('div');
+                  sList.style.cssText = 'display:flex;flex-direction:column;gap:5px;';
+                  for (const s of wSteps) {
+                    const sCard = document.createElement('div');
+                    sCard.style.cssText = 'display:flex;justify-content:space-between;align-items:center;background:rgba(0,0,0,0.15);padding:5px 8px;border-radius:5px;font-size:11.5px;';
+                    const left = document.createElement('div');
+                    left.innerHTML = `<strong>#${s.stepNumber}</strong> ${escapeHtml(s.title)} <span style="font-size:9.5px;padding:1px 5px;border-radius:8px;background:rgba(99,102,241,0.2);color:#818cf8;margin-left:6px;">${s.suggestedRole}</span>`;
+                    const right = document.createElement('div');
+                    right.style.cssText = 'font-size:10.5px;color:var(--text-faint);';
+                    right.textContent = s.dependencies && s.dependencies.length > 0 ? `Deps: ${s.dependencies.join(', ')}` : 'Ready';
+                    sCard.append(left, right);
+                    sList.appendChild(sCard);
+                  }
+                  wRow.appendChild(sList);
+                  waveGrid.appendChild(wRow);
+                }
+                pBox.appendChild(waveGrid);
+                planDetails.appendChild(pBox);
+              })
+              .catch(() => {});
+
+            gList.appendChild(card);
+          }
+          body.appendChild(gList);
+        })
+        .catch((err) => {
+          body.innerHTML = `<div class="empty-note">Failed to load goals: ${err.message || err}</div>`;
+        });
+    }
+
+    window.promptCreateGoal = function (prjId) {
+      const title = prompt('Enter Goal Title (e.g. "Add Google OAuth authentication"):');
+      if (!title || !title.trim()) return;
+      const description = prompt('Enter detailed goal description / requirements:') || '';
+
+      fetch(`/api/projects/${prjId}/goals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title.trim(), description: description.trim(), creatorId: 'human' }),
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.ok && data.goalId) {
+            fetch(`/api/goals/${data.goalId}/generate-plan`, { method: 'POST' }).then(() => renderCommandCenter());
+          } else {
+            renderCommandCenter();
+          }
+        })
+        .catch((err) => alert(`Failed creating goal: ${err.message || err}`));
+    };
+
+    window.promptDynamicReplan = function (goalId) {
+      fetch(`/api/goals/${goalId}/impact`)
+        .then((r) => r.json())
+        .then((impact) => {
+          if (!impact.ok || !impact.options || impact.options.length === 0) {
+            alert('No active impact/failure detected requiring replanning.');
+            return;
+          }
+          const opt = impact.options[0];
+          const confirmReplan = confirm(`Impact detected: ${impact.blockedTasks.length} downstream tasks blocked.\n\nRecommended Option: "${opt.title}"\n${opt.description}\n\nApply this revised plan?`);
+          if (confirmReplan) {
+            fetch(`/api/goals/${goalId}/replan`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ optionId: opt.optionId }),
+            }).then(() => renderCommandCenter());
+          }
+        })
+        .catch((err) => alert(`Replanning error: ${err.message || err}`));
+    };
     function ccRenderArtifacts(body, a) {
       body.innerHTML = '';
       const reqId = ++_activeArtifactsReq;
