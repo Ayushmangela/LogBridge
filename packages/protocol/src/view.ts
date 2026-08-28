@@ -283,6 +283,23 @@ export const EscalationView = z.object({
 });
 export type EscalationViewT = z.infer<typeof EscalationView>;
 
+export const DeadLetterView = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  taskId: z.string(),
+  workflowId: z.string().nullable().optional(),
+  goalId: z.string().nullable().optional(),
+  failureCategory: z.string(),
+  retryAttempts: z.number(),
+  lastError: z.string().nullable().optional(),
+  recommendedAction: z.string(),
+  status: z.string(),
+  createdAt: z.string(),
+  resolvedAt: z.string().nullable().optional(),
+  resolvedBy: z.string().nullable().optional(),
+});
+export type DeadLetterViewT = z.infer<typeof DeadLetterView>;
+
 export const Room = z.object({
   id: z.string(),
   name: z.string(),
@@ -304,6 +321,7 @@ export const Room = z.object({
   goals: z.array(GoalView).optional(),
   approvals: z.array(ApprovalView).optional(),
   escalations: z.array(EscalationView).optional(),
+  deadLetters: z.array(DeadLetterView).optional(),
 });
 
 export const WorkspaceView = z.object({

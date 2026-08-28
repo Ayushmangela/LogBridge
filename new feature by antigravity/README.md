@@ -26,6 +26,7 @@ LogBridge has been upgraded by **Antigravity** with a next-generation autonomous
 | **16. Phase 3 Autonomous Intelligence, Reliability & Recovery** | Explainable deterministic routing, failure categorization, policy-driven retries, autonomous workflow supervisor, deterministic context builder, and health telemetry. | [AUTONOMOUS_AGENT_INTELLIGENCE_PHASE3.md](./AUTONOMOUS_AGENT_INTELLIGENCE_PHASE3.md) |
 | **17. Phase 4 Autonomous Agent Teams, Planning & Dynamic Replanning** | First-class product engineering Goals, structured multi-role planning, topological parallel execution waves, plan approval lifecycle, and non-destructive dynamic replanning with impact analysis. | [AUTONOMOUS_AGENT_TEAMS_PHASE4.md](./AUTONOMOUS_AGENT_TEAMS_PHASE4.md) |
 | **18. Phase 5 Human Collaboration, Approvals, Governance & Permissions** | First-class human approval requests (`approval_requests`), centralized policy engine (`policyEngine.ts`), project-scoped RBAC (`authorization.ts`), immutable audit logs (`audit_logs`), and supervisor escalations. | [HUMAN_GOVERNANCE_PHASE5.md](./HUMAN_GOVERNANCE_PHASE5.md) |
+| **19. Phase 6 Production Reliability, Scaling & Enterprise Readiness** | System health probes (`/health/live`, `/health/ready`), startup recovery (`recovery.ts`), dead-letter queue (`deadLetter.ts`), backpressure & concurrency controls (`concurrency.ts`), rate limiting (`rateLimit.ts`), Prometheus metrics (`/metrics`), structured correlation logging, and safe retention/backups. | [PRODUCTION_RELIABILITY_PHASE6.md](./PRODUCTION_RELIABILITY_PHASE6.md) |
 
 ---
 

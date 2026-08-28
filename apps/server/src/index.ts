@@ -34,6 +34,16 @@ import { evaluatePolicy } from "./policyEngine.js";
 import { createApprovalRequest, getApprovalRequest, getProjectApprovals, resolveApprovalRequest } from "./approvals.js";
 import { recordAuditLog, getProjectAuditLogs } from "./audit.js";
 import { createEscalation, resolveEscalation, getProjectEscalations } from "./escalations.js";
+import { checkLiveness, checkReadiness } from "./health.js";
+import { recoverServerState } from "./recovery.js";
+import { moveToDeadLetter, getProjectDeadLetters, reprocessDeadLetter } from "./deadLetter.js";
+import { checkDispatchConcurrency } from "./concurrency.js";
+import { rateLimiter } from "./rateLimit.js";
+import { getSystemMetrics, formatPrometheusMetrics } from "./metrics.js";
+import { runRetentionCleanup } from "./retention.js";
+import { createDatabaseBackup, verifyDatabaseBackup } from "./backup.js";
+import { getConfig } from "./config.js";
+import { logger } from "./logger.js";
 import { Positions } from "./view.js";
 import { registerCommandRoutes } from "./commands.js";
 import { registerGateway } from "./gateway.js";
@@ -1736,6 +1746,75 @@ export async function buildServer(
     return { ok: true, projectId, userId };
   });
 
+  // ─── Phase 6: Production Reliability, Health, Metrics & Ops ────────
+
+  // Health Probes
+  app.get("/health", async () => checkReadiness(db));
+  app.get("/health/live", async () => checkLiveness());
+  app.get("/health/ready", async () => checkReadiness(db));
+
+  // Operational Metrics
+  app.get("/metrics", async (_req, reply) => {
+    const metrics = getSystemMetrics(db);
+    const text = formatPrometheusMetrics(metrics);
+    reply.header("Content-Type", "text/plain; version=0.0.4");
+    return text;
+  });
+
+  app.get("/api/system/metrics", async () => {
+    const metrics = getSystemMetrics(db);
+    return { ok: true, ...metrics };
+  });
+
+  // Dead Letter Queue
+  app.get<{ Params: { id: string }; Querystring: { status?: string } }>("/api/projects/:id/dead-letter", async (req, reply) => {
+    const projectId = req.params.id;
+    const project = db.prepare("SELECT id FROM projects WHERE id = ?").get(projectId);
+    if (!project) return reply.code(404).send({ ok: false, error: "project not found" });
+
+    const deadLetters = getProjectDeadLetters(db, projectId, req.query?.status as any);
+    return { ok: true, deadLetters };
+  });
+
+  app.post<{
+    Params: { id: string };
+    Body: { action: any; userId?: string; notes?: string };
+  }>("/api/dead-letter/:id/reprocess", async (req, reply) => {
+    const deadLetterId = req.params.id;
+    const { action, userId, notes } = req.body ?? {};
+    if (!action) return reply.code(400).send({ ok: false, error: "action required" });
+
+    const result = reprocessDeadLetter(db, deadLetterId, action, userId ?? "human", notes);
+    if (!result.ok) return reply.code(400).send(result);
+
+    orchestrate(db, nodeSockets, app);
+    broadcastView();
+    return { ok: true, deadLetterId, ...result };
+  });
+
+  // Backups & Retention
+  app.post<{ Body: { targetPath: string } }>("/api/system/backup", async (req, reply) => {
+    const { targetPath } = req.body ?? {};
+    if (!targetPath) return reply.code(400).send({ ok: false, error: "targetPath required" });
+
+    const result = await createDatabaseBackup(db, targetPath);
+    return result;
+  });
+
+  app.post<{ Body: { backupPath: string } }>("/api/system/verify-backup", async (req, reply) => {
+    const { backupPath } = req.body ?? {};
+    if (!backupPath) return reply.code(400).send({ ok: false, error: "backupPath required" });
+
+    const result = verifyDatabaseBackup(backupPath);
+    return { ok: true, ...result };
+  });
+
+  app.post<{ Body: { daysToKeep?: number } }>("/api/system/cleanup", async (req) => {
+    const days = req.body?.daysToKeep ?? 30;
+    const result = runRetentionCleanup(db, days);
+    return { ok: true, ...result };
+  });
+
   app.post<{
     Body: {
       projectId: string;
@@ -2298,8 +2377,11 @@ export async function buildServer(
     };
   });
 
-  return { app, db, nodeSockets, browserSockets, hive };
-}
+    // Reconcile and recover any in-flight interrupted state upon startup
+    recoverServerState(db);
+
+    return { app, db, nodeSockets, browserSockets, hive };
+  }
 
 async function main() {
   const PORT = Number(process.env.PORT ?? 8787);

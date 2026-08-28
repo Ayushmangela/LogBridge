@@ -364,6 +364,28 @@ CREATE TABLE IF NOT EXISTS escalations (
 );
 CREATE INDEX IF NOT EXISTS idx_escalations_project ON escalations (project_id, state);
 
+CREATE TABLE IF NOT EXISTS dead_letter_tasks (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  workflow_id TEXT,
+  goal_id TEXT,
+  failure_category TEXT NOT NULL,
+  retry_attempts INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  artifact_refs_json TEXT,
+  recommended_action TEXT NOT NULL DEFAULT 'RETRY',
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT NOT NULL,
+  resolved_at TEXT,
+  resolved_by TEXT,
+  resolution_notes TEXT,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+  FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_dead_letter_project ON dead_letter_tasks (project_id, status);
+CREATE INDEX IF NOT EXISTS idx_dead_letter_task ON dead_letter_tasks (task_id);
+
 CREATE INDEX IF NOT EXISTS idx_events_project ON events (project_id, seq);
 CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks (agent_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_workflow ON tasks (workflow_id);

@@ -2,6 +2,7 @@ import type { Db } from "./db.js";
 import { lastSeq, recentMemories, tasksForProject, getProjectWorkflows, getProjectGoals } from "./db.js";
 import { getProjectApprovals } from "./approvals.js";
 import { getProjectEscalations } from "./escalations.js";
+import { getProjectDeadLetters } from "./deadLetter.js";
 import { recentActivity } from "./activity.js";
 import type { HiveManager } from "./hive.js";
 import {
@@ -408,6 +409,21 @@ export function buildView(db: Db, positions: Positions, meId: string, hive?: Hiv
         createdAt: e.createdAt,
         resolvedAt: e.resolvedAt,
         resolvedBy: e.resolvedBy,
+      })),
+      deadLetters: getProjectDeadLetters(db, p.id).map((dl) => ({
+        id: dl.id,
+        projectId: dl.projectId,
+        taskId: dl.taskId,
+        workflowId: dl.workflowId,
+        goalId: dl.goalId,
+        failureCategory: dl.failureCategory,
+        retryAttempts: dl.retryAttempts,
+        lastError: dl.lastError,
+        recommendedAction: dl.recommendedAction,
+        status: dl.status,
+        createdAt: dl.createdAt,
+        resolvedAt: dl.resolvedAt,
+        resolvedBy: dl.resolvedBy,
       })),
     };
   });

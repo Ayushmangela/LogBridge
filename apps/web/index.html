@@ -3225,6 +3225,7 @@
         { id: 'tasks', label: 'Tasks', surface: 'both' },
         { id: 'goals', label: '🎯 Goals', surface: 'both' },
         { id: 'approvals', label: '🛡️ Approvals', surface: 'both' },
+        { id: 'ops', label: '📊 System Ops', surface: 'both' },
         { id: 'workflows', label: 'Workflows', surface: 'both' },
         { id: 'attempts', label: 'Attempts', surface: 'both' },
         { id: 'artifacts', label: 'Artifacts', surface: 'both' },
@@ -3359,6 +3360,7 @@
       else if (ccTab === 'tasks') ccRenderTasks(body, a);
       else if (ccTab === 'goals') ccRenderGoals(body, a);
       else if (ccTab === 'approvals') ccRenderApprovals(body, a);
+      else if (ccTab === 'ops') ccRenderOps(body, a);
       else if (ccTab === 'workflows') ccRenderWorkflows(body, a);
       else if (ccTab === 'attempts') ccRenderAttempts(body, a);
       else if (ccTab === 'artifacts') ccRenderArtifacts(body, a);
@@ -4251,6 +4253,169 @@
         .then(() => renderCommandCenter())
         .catch((err) => alert(`Failed creating approval request: ${err.message || err}`));
     };
+    let _activeOpsReq = 0;
+    function ccRenderOps(body, a) {
+      const curReq = ++_activeOpsReq;
+      const room = activeRoom();
+      const prjId = room ? room.id : (a ? a.projectId : null);
+      if (!prjId) {
+        body.innerHTML = '<div class="empty-note">No active project room selected.</div>';
+        return;
+      }
+
+      body.innerHTML = '';
+      const topBar = document.createElement('div');
+      topBar.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border-soft);';
+      const title = document.createElement('div');
+      title.style.cssText = 'font-weight:700;font-size:15px;color:var(--text);display:flex;align-items:center;gap:8px;';
+      title.innerHTML = '<span>📊</span> Production Telemetry, Health & Dead Letter Queue';
+
+      const opsActions = document.createElement('div');
+      opsActions.style.cssText = 'display:flex;gap:8px;';
+
+      const cleanBtn = document.createElement('button');
+      cleanBtn.className = 'btn-primary';
+      cleanBtn.style.cssText = 'padding:5px 12px;font-size:11.5px;';
+      cleanBtn.textContent = '🧹 Run Retention Cleanup';
+      cleanBtn.onclick = () => {
+        if (confirm('Run safe retention cleanup for stale resolved records older than 30 days?')) {
+          fetch('/api/system/cleanup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ daysToKeep: 30 }),
+          })
+            .then((r) => r.json())
+            .then((res) => alert(`Cleanup complete: purged ${res.purgedApprovalsCount} approvals, ${res.purgedEscalationsCount} escalations.`));
+        }
+      };
+
+      opsActions.appendChild(cleanBtn);
+      topBar.append(title, opsActions);
+      body.appendChild(topBar);
+
+      // Fetch health, metrics, and dead letters
+      Promise.all([
+        fetch('/health/ready').then((r) => r.json()),
+        fetch('/api/system/metrics').then((r) => r.json()),
+        fetch(`/api/projects/${prjId}/dead-letter`).then((r) => r.json()),
+      ])
+        .then(([health, metrics, dlData]) => {
+          if (curReq !== _activeOpsReq) return;
+          const deadLetters = dlData.deadLetters || [];
+
+          // 1. Health & Status Summary Cards
+          const statGrid = document.createElement('div');
+          statGrid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:12px;margin-bottom:20px;';
+
+          statGrid.innerHTML = `
+            <div style="background:var(--surface-1);border:1px solid var(--border-soft);border-radius:8px;padding:12px;">
+              <div style="font-size:11px;font-weight:700;color:var(--text-faint);margin-bottom:4px;text-transform:uppercase;">System Health</div>
+              <div style="font-size:18px;font-weight:800;color:${health.status === 'healthy' ? '#4ade80' : '#f87171'};">${escapeHtml(health.status.toUpperCase())}</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Uptime: ${health.uptimeSeconds}s · Latency: ${health.checks?.database?.latencyMs ?? 0}ms</div>
+            </div>
+            <div style="background:var(--surface-1);border:1px solid var(--border-soft);border-radius:8px;padding:12px;">
+              <div style="font-size:11px;font-weight:700;color:var(--text-faint);margin-bottom:4px;text-transform:uppercase;">Tasks Pipeline</div>
+              <div style="font-size:18px;font-weight:800;color:var(--accent);">${metrics.tasks?.total ?? 0} Total</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${metrics.tasks?.working ?? 0} active · ${metrics.tasks?.completed ?? 0} completed · ${metrics.tasks?.failed ?? 0} failed</div>
+            </div>
+            <div style="background:var(--surface-1);border:1px solid var(--border-soft);border-radius:8px;padding:12px;">
+              <div style="font-size:11px;font-weight:700;color:var(--text-faint);margin-bottom:4px;text-transform:uppercase;">Memory & Resources</div>
+              <div style="font-size:18px;font-weight:800;color:var(--text);">${metrics.memory?.rssMb ?? 0} MB</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Heap: ${metrics.memory?.heapUsedMb ?? 0} MB / ${metrics.memory?.heapTotalMb ?? 0} MB</div>
+            </div>
+            <div style="background:var(--surface-1);border:1px solid var(--border-soft);border-radius:8px;padding:12px;">
+              <div style="font-size:11px;font-weight:700;color:var(--text-faint);margin-bottom:4px;text-transform:uppercase;">Dead Letter Queue</div>
+              <div style="font-size:18px;font-weight:800;color:${deadLetters.length > 0 ? '#f87171' : '#4ade80'};">${deadLetters.length} Blocked</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${deadLetters.filter((d) => d.status === 'pending').length} pending human review</div>
+            </div>
+          `;
+          body.appendChild(statGrid);
+
+          // 2. Dead Letter Queue Table
+          const dlSection = document.createElement('div');
+          dlSection.innerHTML = '<div style="font-size:13px;font-weight:800;letter-spacing:.3px;margin-bottom:10px;display:flex;align-items:center;gap:6px;"><span>☠️</span> DEAD LETTER QUEUE (UNRECOVERABLE TASKS)</div>';
+
+          if (deadLetters.length === 0) {
+            dlSection.innerHTML += '<div style="background:var(--surface-1);border:1px dashed var(--border-soft);border-radius:8px;padding:16px;font-size:12px;color:var(--text-faint);text-align:center;">No tasks in the Dead Letter Queue. All execution is healthy or self-recovering.</div>';
+          } else {
+            const dlList = document.createElement('div');
+            dlList.style.cssText = 'display:flex;flex-direction:column;gap:10px;';
+
+            for (const dl of deadLetters) {
+              const card = document.createElement('div');
+              card.style.cssText = 'background:var(--surface-1);border:1px solid var(--border-soft);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;';
+
+              const head = document.createElement('div');
+              head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;';
+
+              const left = document.createElement('div');
+              left.style.cssText = 'display:flex;align-items:center;gap:8px;';
+
+              const catBadge = document.createElement('span');
+              catBadge.style.cssText = 'font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;background:rgba(239,68,68,0.2);color:#f87171;border:1px solid rgba(239,68,68,0.4);text-transform:uppercase;';
+              catBadge.textContent = dl.failureCategory;
+
+              const taskTitle = document.createElement('strong');
+              taskTitle.style.cssText = 'font-size:13px;color:var(--text);';
+              taskTitle.textContent = `Task ${dl.taskId} (${dl.retryAttempts} retries)`;
+              left.append(catBadge, taskTitle);
+
+              const right = document.createElement('div');
+              right.style.cssText = 'display:flex;gap:6px;';
+
+              if (dl.status === 'pending') {
+                const retryBtn = document.createElement('button');
+                retryBtn.className = 'btn-primary';
+                retryBtn.style.cssText = 'padding:3px 10px;font-size:11px;';
+                retryBtn.textContent = '🔄 Retry';
+                retryBtn.onclick = () => {
+                  fetch(`/api/dead-letter/${dl.id}/reprocess`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'RETRY' }),
+                  }).then(() => renderCommandCenter());
+                };
+
+                const dismissBtn = document.createElement('button');
+                dismissBtn.className = 'cc-tab';
+                dismissBtn.style.cssText = 'padding:3px 10px;font-size:11px;';
+                dismissBtn.textContent = 'Dismiss';
+                dismissBtn.onclick = () => {
+                  fetch(`/api/dead-letter/${dl.id}/reprocess`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'DISMISS' }),
+                  }).then(() => renderCommandCenter());
+                };
+
+                right.append(retryBtn, dismissBtn);
+              } else {
+                const st = document.createElement('span');
+                st.style.cssText = 'font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;';
+                st.textContent = dl.status;
+                right.appendChild(st);
+              }
+
+              head.append(left, right);
+              card.appendChild(head);
+
+              if (dl.lastError) {
+                const errBox = document.createElement('div');
+                errBox.style.cssText = 'font-size:11.5px;color:#fca5a5;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);padding:6px 10px;border-radius:6px;';
+                errBox.textContent = `Error: ${dl.lastError}`;
+                card.appendChild(errBox);
+              }
+
+              dlList.appendChild(card);
+            }
+            dlSection.appendChild(dlList);
+          }
+          body.appendChild(dlSection);
+        })
+        .catch((err) => {
+          body.innerHTML = `<div class="empty-note">Failed to load system ops: ${err.message || err}</div>`;
+        });
+    }
     function ccRenderArtifacts(body, a) {
       body.innerHTML = '';
       const reqId = ++_activeArtifactsReq;
