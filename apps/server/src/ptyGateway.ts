@@ -4,8 +4,8 @@ import * as pty from "node-pty";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
-import type { Db } from "./db.js";
 import { getAgentOutput } from "./db.js";
+import { buildCommanderHivePrompt, buildEmployeeHivePrompt } from "./hivePrompt.js";
 
 interface PtySession {
   id: string;
@@ -61,6 +61,225 @@ function resolveExecutable(cmd: string): string | null {
 }
 
 import type { HiveManager } from "./hive.js";
+import type { Db } from "./db.js";
+
+export function spawnOrGetPtySession(
+  db: Db,
+  ptyId: string,
+  agentId: string,
+  cols = 100,
+  rows = 30,
+  hive?: HiveManager
+): PtySession {
+  let session = sessions.get(ptyId);
+  if (session) return session;
+
+  const agent = agentId
+    ? (db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId) as any)
+    : null;
+
+  const inferred = ptyId.toLowerCase().includes("opencode")
+    ? "opencode"
+    : ptyId.toLowerCase().includes("claude")
+    ? "claude"
+    : "";
+  const provider = (agent?.provider || inferred).toLowerCase();
+  let title = "Claude Code";
+  let ver = "v2.1.241";
+  let desc = (agent?.model || "Opus 4.8") + " (" + (agent?.context_limit ? Math.round(agent.context_limit / 1000) + "k" : "1M") + " context) with xhigh effort · Claude Max";
+  let accent = "#d97757";
+
+  let exeCmd = "";
+  let exeArgs: string[] = [];
+  let isCli = false;
+
+  if (provider === "opencode") {
+    const bin = resolveExecutable("opencode");
+    if (bin) {
+      exeCmd = bin;
+      exeArgs = [];
+      isCli = true;
+    }
+    title = "OpenCode";
+    ver = "v1.0.8";
+    desc = (agent?.model || "Qwen 2.5 Coder 32B") + " · Local Ollama/vLLM Harness";
+    accent = "#10b981";
+  } else if (provider === "claude") {
+    const bin = resolveExecutable("claude");
+    if (bin) {
+      exeCmd = bin;
+      exeArgs = [];
+      isCli = true;
+    }
+  } else if (provider === "gemini" || provider === "antigravity") {
+    const bin = resolveExecutable("agy") || resolveExecutable("gemini");
+    if (bin) {
+      exeCmd = bin;
+      exeArgs = [];
+      isCli = true;
+    }
+    title = provider === "antigravity" ? "Antigravity · Gemini" : "Google Gemini CLI";
+    ver = "v1.12.0";
+    desc = (agent?.model || "Gemini 2.5 Pro (2M context)") + " · Thinking Budget 32k";
+    accent = "#3b82f6";
+  } else if (provider === "codex") {
+    const bin = resolveExecutable("codex");
+    if (bin) {
+      exeCmd = bin;
+      exeArgs = [];
+      isCli = true;
+    }
+    title = "Codex · GPT";
+    ver = "v0.9.4";
+    desc = (agent?.model || "GPT-4o (128k context)") + " · OpenAI Native CLI";
+    accent = "#10a37f";
+  } else if (agent?.color) {
+    title = (agent.provider || agent.name || "Agent") + " CLI";
+    ver = "v1.0.0";
+    desc = (agent.model || "Autonomous Coding Agent") + " · Standard Harness";
+    accent = agent.color;
+  }
+
+  let cwd = agent?.folder || agent?.cwd || process.cwd();
+  if (typeof cwd === "string" && cwd.startsWith("~/")) {
+    cwd = (process.env.HOME || "") + cwd.slice(1);
+  }
+  if (!existsSync(cwd)) cwd = process.cwd();
+
+  const isCommander = (agent?.name && agent.name.toLowerCase().includes("commander")) ||
+                      (agent?.role && agent.role.toLowerCase().includes("commander")) ||
+                      (agent?.role === "planner") ||
+                      agent?.isGod;
+
+  let initialPrompt = "";
+  if (agent && cwd && existsSync(cwd)) {
+    try {
+      if (isCommander) {
+        initialPrompt = buildCommanderHivePrompt({
+          commanderName: agent.name || "Michael",
+          folder: cwd,
+        });
+      } else {
+        initialPrompt = buildEmployeeHivePrompt({
+          agentId: agentId || agent.id,
+          agentName: agent.name || "Agent",
+          folder: cwd,
+          role: agent.role,
+        });
+      }
+      const agentsMdPath = join(cwd, "AGENTS.md");
+      writeFileSync(agentsMdPath, initialPrompt, "utf8");
+    } catch {}
+  }
+
+  if (!exeCmd) {
+    exeCmd = process.env.SHELL || (process.platform === "win32" ? "cmd.exe" : "/bin/zsh");
+    exeArgs = [];
+  }
+
+  const userPath = [
+    "/Users/ayush/.nvm/versions/node/v22.14.0/bin",
+    "/opt/homebrew/bin",
+    "/opt/homebrew/sbin",
+    "/usr/local/bin",
+    process.env.PATH || ""
+  ].join(":");
+
+  const proc = pty.spawn(exeCmd, exeArgs, {
+    name: "xterm-256color",
+    cols,
+    rows,
+    cwd,
+    env: {
+      ...process.env,
+      PATH: userPath,
+      TERM: "xterm-256color",
+      COLORTERM: "truecolor",
+      FORCE_COLOR: "1",
+      LANG: process.env.LANG ?? "en_US.UTF-8",
+      LC_ALL: process.env.LC_ALL ?? "en_US.UTF-8",
+      AGENT_ID: agentId,
+      AGENT_NAME: agent?.name || "",
+      HIVE_ROOT: hive ? hive.root() : "",
+      AGENT_DIR: (hive && agentId) ? hive.agentDir(agentId) : "",
+    } as Record<string, string>,
+  });
+
+  session = {
+    id: ptyId,
+    agentId,
+    proc,
+    scrollback: "",
+    clients: new Set(),
+    cols,
+    rows,
+  };
+  sessions.set(ptyId, session);
+
+  // Automatically send Hive briefing prompt to the terminal using bracketed paste
+  if (initialPrompt) {
+    setTimeout(() => {
+      try {
+        const payload = initialPrompt.includes("\n")
+          ? `\x1b[200~${initialPrompt}\x1b[201~`
+          : initialPrompt;
+        proc.write(payload);
+        setTimeout(() => {
+          try {
+            proc.write("\r");
+          } catch {}
+        }, 200);
+      } catch {}
+    }, isCli ? 3200 : 1000);
+  }
+
+  const currentSession = session;
+
+  // If fallback to shell, write initial banner into scrollback
+  if (!isCli) {
+    const banner = formatBanner(title, ver, desc, cwd, accent);
+    currentSession.scrollback += banner;
+  }
+
+  // If agent has prior outputs/events, replay them cleanly
+  if (agentId) {
+    const history = getAgentOutput(db, agentId, 100);
+    if (history.output && history.output.length > 0) {
+      currentSession.scrollback += `\r\n\x1b[2m─── agent history (${history.output.length} lines) ───\x1b[0m\r\n`;
+      for (const line of history.output) {
+        currentSession.scrollback += `${line}\r\n`;
+      }
+      currentSession.scrollback += `\x1b[2m──────────────────────────────────────────\x1b[0m\r\n\r\n`;
+    }
+  }
+
+  proc.onData((data: string) => {
+    if (currentSession.scrollback.length > 200_000) {
+      currentSession.scrollback = currentSession.scrollback.slice(-100_000);
+    }
+    currentSession.scrollback += data;
+    const payload = JSON.stringify({ type: "data", ptyId, data });
+    for (const client of currentSession.clients) {
+      if (client.readyState === client.OPEN) {
+        client.send(payload);
+      }
+    }
+  });
+
+  proc.onExit(({ exitCode, signal }) => {
+    const exitMsg = `\r\n\x1b[2m─ process exited (code ${exitCode}${signal ? `, signal ${signal}` : ""}) ─\x1b[0m\r\n`;
+    currentSession.scrollback += exitMsg;
+    const payload = JSON.stringify({ type: "exit", ptyId, exitCode, signal });
+    for (const client of currentSession.clients) {
+      if (client.readyState === client.OPEN) {
+        client.send(payload);
+      }
+    }
+    sessions.delete(ptyId);
+  });
+
+  return session;
+}
 
 export function registerPtyGateway(app: FastifyInstance, db: Db, hive?: HiveManager) {
   app.get("/pty-ws", { websocket: true }, (socket: WebSocket) => {
@@ -88,195 +307,7 @@ export function registerPtyGateway(app: FastifyInstance, db: Db, hive?: HiveMana
         }
 
         if (!session) {
-          const agent = agentId
-            ? (db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId) as any)
-            : null;
-
-          const inferred = ptyId.toLowerCase().includes("opencode")
-            ? "opencode"
-            : ptyId.toLowerCase().includes("claude")
-            ? "claude"
-            : "";
-          const provider = (agent?.provider || inferred).toLowerCase();
-          let title = "Claude Code";
-          let ver = "v2.1.241";
-          let desc = (agent?.model || "Opus 4.8") + " (" + (agent?.context_limit ? Math.round(agent.context_limit / 1000) + "k" : "1M") + " context) with xhigh effort · Claude Max";
-          let accent = "#d97757";
-
-          let exeCmd = "";
-          let exeArgs: string[] = [];
-          let isCli = false;
-
-          if (provider === "opencode") {
-            const bin = resolveExecutable("opencode");
-            if (bin) {
-              exeCmd = bin;
-              exeArgs = [];
-              isCli = true;
-            }
-            title = "OpenCode";
-            ver = "v1.0.8";
-            desc = (agent?.model || "Qwen 2.5 Coder 32B") + " · Local Ollama/vLLM Harness";
-            accent = "#10b981";
-          } else if (provider === "claude") {
-            const bin = resolveExecutable("claude");
-            if (bin) {
-              exeCmd = bin;
-              exeArgs = [];
-              isCli = true;
-            }
-          } else if (provider === "gemini" || provider === "antigravity") {
-            const bin = resolveExecutable("agy") || resolveExecutable("gemini");
-            if (bin) {
-              exeCmd = bin;
-              exeArgs = [];
-              isCli = true;
-            }
-            title = provider === "antigravity" ? "Antigravity · Gemini" : "Google Gemini CLI";
-            ver = "v1.12.0";
-            desc = (agent?.model || "Gemini 2.5 Pro (2M context)") + " · Thinking Budget 32k";
-            accent = "#3b82f6";
-          } else if (provider === "codex") {
-            const bin = resolveExecutable("codex");
-            if (bin) {
-              exeCmd = bin;
-              exeArgs = [];
-              isCli = true;
-            }
-            title = "Codex · GPT";
-            ver = "v0.9.4";
-            desc = (agent?.model || "GPT-4o (128k context)") + " · OpenAI Native CLI";
-            accent = "#10a37f";
-          } else if (agent?.color) {
-            title = (agent.provider || agent.name || "Agent") + " CLI";
-            ver = "v1.0.0";
-            desc = (agent.model || "Autonomous Coding Agent") + " · Standard Harness";
-            accent = agent.color;
-          }
-
-          let cwd = agent?.folder || agent?.cwd || process.cwd();
-          if (typeof cwd === "string" && cwd.startsWith("~/")) {
-            cwd = (process.env.HOME || "") + cwd.slice(1);
-          }
-          if (!existsSync(cwd)) cwd = process.cwd();
-
-          if (agent && cwd && existsSync(cwd) && hive) {
-            try {
-              const agentsMdPath = join(cwd, "AGENTS.md");
-              const isCommander = (agent.name && agent.name.toLowerCase().includes("commander")) ||
-                                  (agent.role && agent.role.toLowerCase().includes("commander")) ||
-                                  agent.isGod;
-              if (isCommander) {
-                const roster = hive.getRegistry();
-                const subordinates = Object.values(roster.agents || {}).filter((sub: any) => sub.id !== agentId);
-                const subList = subordinates.map((s: any) => `- **${s.name}** (ID: \`${s.id}\`, Role: ${s.role || "Specialist"})`).join("\n");
-
-                const content = `# SYSTEM DIRECTIVE: CENTRAL OPERATIONS COMMANDER\n\n` +
-                  `You are **${agent.name}**, the Central Operations Commander.\n\n` +
-                  `**CRITICAL OPERATIONAL CONSTRAINT**:\n` +
-                  `- **DO NOT WRITE SOURCE CODE DIRECTLY.**\n` +
-                  `- You are the Commander, NOT a worker bee. Your mission is to analyze requests, formulate architecture on \`~/workspace/hive/board.md\`, log tasks on \`~/workspace/hive/tasks.json\`, and delegate missions to your subordinate employees.\n\n` +
-                  `### YOUR SUBORDINATE EMPLOYEES:\n` +
-                  `${subList || "- No other agents registered yet."}\n\n` +
-                  `### HOW TO DELEGATE TASKS:\n` +
-                  `1. Write tasks to the Kanban ledger at \`~/workspace/hive/tasks.json\`.\n` +
-                  `2. Send delegation orders by writing a JSON message to your outbox at \`${hive.agentDir(agentId)}/outbox/<id>.json\`:\n` +
-                  `   \`{"from": "${agentId}", "to": "<employee-id>", "act": "request", "subject": "...", "body": "..."}\`\n` +
-                  `3. Wait for your employees to complete work and report back to your inbox at \`${hive.agentDir(agentId)}/inbox/\`.\n` +
-                  `4. Inspect their deliverables and issue final sign-off!\n`;
-                writeFileSync(agentsMdPath, content, "utf8");
-              }
-            } catch {}
-          }
-
-          if (!exeCmd) {
-            exeCmd = process.env.SHELL || (process.platform === "win32" ? "cmd.exe" : "/bin/zsh");
-            exeArgs = [];
-          }
-
-          const userPath = [
-            "/Users/ayush/.nvm/versions/node/v22.14.0/bin",
-            "/opt/homebrew/bin",
-            "/opt/homebrew/sbin",
-            "/usr/local/bin",
-            process.env.PATH || ""
-          ].join(":");
-
-          const proc = pty.spawn(exeCmd, exeArgs, {
-            name: "xterm-256color",
-            cols,
-            rows,
-            cwd,
-            env: {
-              ...process.env,
-              PATH: userPath,
-              TERM: "xterm-256color",
-              COLORTERM: "truecolor",
-              FORCE_COLOR: "1",
-              LANG: process.env.LANG ?? "en_US.UTF-8",
-              LC_ALL: process.env.LC_ALL ?? "en_US.UTF-8",
-              AGENT_ID: agentId,
-              AGENT_NAME: agent?.name || "",
-              HIVE_ROOT: hive ? hive.root() : "",
-              AGENT_DIR: (hive && agentId) ? hive.agentDir(agentId) : "",
-            } as Record<string, string>,
-          });
-
-          session = {
-            id: ptyId,
-            agentId,
-            proc,
-            scrollback: "",
-            clients: new Set(),
-            cols,
-            rows,
-          };
-          sessions.set(ptyId, session);
-
-          const currentSession = session;
-
-          // If fallback to shell, write initial banner into scrollback
-          if (!isCli) {
-            const banner = formatBanner(title, ver, desc, cwd, accent);
-            currentSession.scrollback += banner;
-          }
-
-          // If agent has prior outputs/events, replay them cleanly
-          if (agentId) {
-            const history = getAgentOutput(db, agentId, 100);
-            if (history.output && history.output.length > 0) {
-              currentSession.scrollback += `\r\n\x1b[2m─── agent history (${history.output.length} lines) ───\x1b[0m\r\n`;
-              for (const line of history.output) {
-                currentSession.scrollback += `${line}\r\n`;
-              }
-              currentSession.scrollback += `\x1b[2m──────────────────────────────────────────\x1b[0m\r\n\r\n`;
-            }
-          }
-
-          proc.onData((data: string) => {
-            if (currentSession.scrollback.length > 200_000) {
-              currentSession.scrollback = currentSession.scrollback.slice(-100_000);
-            }
-            currentSession.scrollback += data;
-            const payload = JSON.stringify({ type: "data", ptyId, data });
-            for (const client of currentSession.clients) {
-              if (client.readyState === client.OPEN) {
-                client.send(payload);
-              }
-            }
-          });
-
-          proc.onExit(({ exitCode, signal }) => {
-            const exitMsg = `\r\n\x1b[2m─ process exited (code ${exitCode}${signal ? `, signal ${signal}` : ""}) ─\x1b[0m\r\n`;
-            currentSession.scrollback += exitMsg;
-            const payload = JSON.stringify({ type: "exit", ptyId, exitCode, signal });
-            for (const client of currentSession.clients) {
-              if (client.readyState === client.OPEN) {
-                client.send(payload);
-              }
-            }
-            sessions.delete(ptyId);
-          });
+          session = spawnOrGetPtySession(db, ptyId, agentId, cols, rows, hive);
         }
 
         if (!session) return;
@@ -294,6 +325,52 @@ export function registerPtyGateway(app: FastifyInstance, db: Db, hive?: HiveMana
       }
 
       const activeSession = attachedSession || (msg.ptyId ? sessions.get(msg.ptyId) : null);
+
+      if (msg.type === "submitPrompt" && activeSession) {
+        const text = String(msg.text || "").trim();
+        if (text) {
+          try {
+            const payload = text.includes("\n") ? `\x1b[200~${text}\x1b[201~` : text;
+            activeSession.proc.write(payload);
+            setTimeout(() => {
+              try { activeSession.proc.write("\r"); } catch {}
+            }, 180);
+          } catch {}
+        }
+        return;
+      }
+
+      if (msg.type === "reseed" && activeSession) {
+        const agent = activeSession.agentId
+          ? (db.prepare("SELECT * FROM agents WHERE id = ?").get(activeSession.agentId) as any)
+          : null;
+        let prompt = "";
+        const cwd = agent?.folder || agent?.cwd || process.cwd();
+        const isCommander = (agent?.name && agent.name.toLowerCase().includes("commander")) ||
+                            (agent?.role && agent.role.toLowerCase().includes("commander")) ||
+                            (agent?.role === "planner") ||
+                            agent?.isGod;
+        if (isCommander) {
+          prompt = buildCommanderHivePrompt({ commanderName: agent?.name || "Michael", folder: cwd });
+        } else {
+          prompt = buildEmployeeHivePrompt({
+            agentId: activeSession.agentId,
+            agentName: agent?.name || "Agent",
+            folder: cwd,
+            role: agent?.role,
+          });
+        }
+        if (prompt) {
+          try {
+            const payload = `\x1b[200~${prompt}\x1b[201~`;
+            activeSession.proc.write(payload);
+            setTimeout(() => {
+              try { activeSession.proc.write("\r"); } catch {}
+            }, 200);
+          } catch {}
+        }
+        return;
+      }
 
       if (msg.type === "data" && activeSession) {
         try {

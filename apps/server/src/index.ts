@@ -4,7 +4,10 @@ import websocket from "@fastify/websocket";
 import { fileURLToPath } from "node:url";
 import { dirname, join, isAbsolute, normalize, relative, resolve } from "node:path";
 import { readdir, readFile, writeFile, stat, mkdir } from "node:fs/promises";
-import { existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, writeFileSync, mkdirSync, readdirSync, statSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
 import { randomBytes, scryptSync } from "node:crypto";
 import type { WebSocket } from "ws";
 import {
@@ -47,7 +50,7 @@ import { logger } from "./logger.js";
 import { issueCfp, submitProposal, resolveContractNet } from "./communication/contractNet.js";
 import { delegateHandoff } from "./communication/handoff.js";
 import { processReviewResult } from "./communication/review.js";
-import { getProjectSequenceFlow, getTaskSequenceFlow } from "./communication/sequenceEvents.js";
+import { getProjectSequenceFlow, getTaskSequenceFlow, emitSequenceEvent } from "./communication/sequenceEvents.js";
 import { Positions } from "./view.js";
 import { registerCommandRoutes } from "./commands.js";
 import { registerGateway } from "./gateway.js";
@@ -58,8 +61,9 @@ import {
 } from "./nodeGateway.js";
 import { createTrigger, deleteTrigger, setTriggerEnabled, startEventLoop, startTriggerLoop } from "./triggers.js";
 import { TriggerCreate, TriggerDelete, TriggerEnable } from "@logbridge/protocol";
-import { registerPtyGateway } from "./ptyGateway.js";
-import { HiveManager } from "./hive.js";
+import { registerPtyGateway, spawnOrGetPtySession } from "./ptyGateway.js";
+import { HiveManager, ensureProjectHive, registerAgentInProjectHive } from "./hive.js";
+import { buildCommanderHivePrompt } from "./hivePrompt.js";
 
 export interface BuiltServer {
   app: ReturnType<typeof Fastify>;
@@ -80,22 +84,42 @@ export async function buildServer(
   const browserSockets = new Set<WebSocket>();
   const nodeSockets: NodeSockets = new Map();
 
-  const hiveHome = opts.dbPath === ":memory:"
-    ? join(dirname(fileURLToPath(import.meta.url)), "..", ".test-hive-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7))
+  const isTest = opts.dbPath === ":memory:";
+  const hiveHome = isTest
+    ? join(tmpdir(), ".test-hive-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7))
     : process.env.HIVE_HOME || join(process.env.HOME || "", "workspace", "hive");
 
   let broadcastViewRef: (() => void) | null = null;
-  const hive = new HiveManager(hiveHome, (ev) => {
-    const payload = JSON.stringify({ type: "hive:event", event: ev });
-    for (const ws of browserSockets) {
-      if (ws.readyState === ws.OPEN) {
-        ws.send(payload);
+  const hive = new HiveManager(
+    hiveHome,
+    (ev) => {
+      const payload = JSON.stringify({ type: "hive:event", event: ev });
+      for (const ws of browserSockets) {
+        if (ws.readyState === ws.OPEN) {
+          ws.send(payload);
+        }
       }
+      if (ev.kind === "meeting" || ev.kind === "message" || ev.kind === "task") {
+        try { broadcastViewRef?.(); } catch {}
+      }
+    },
+    (msg, fromId, toId) => {
+      try {
+        const sender = db.prepare("SELECT * FROM agents WHERE id = ?").get(fromId) as any;
+        const receiver = db.prepare("SELECT * FROM agents WHERE id = ?").get(toId) as any;
+        const projectId = sender?.project_id || receiver?.project_id || (db.prepare("SELECT id FROM projects LIMIT 1").get() as any)?.id || "prj_main";
+
+        emitSequenceEvent(db, {
+          projectId,
+          type: msg.act === "request" ? "delegation_offer" : (msg.act === "done" ? "handoff_completed" : "info_share"),
+          source: { type: "agent", id: fromId, label: sender?.name || fromId },
+          target: { type: "agent", id: toId, label: receiver?.name || toId },
+          summary: `[${msg.act.toUpperCase()}] ${msg.subject || msg.body?.slice(0, 80) || "Hive message"}`,
+          metadata: msg,
+        });
+      } catch {}
     }
-    if (ev.kind === "meeting" || ev.kind === "message" || ev.kind === "task") {
-      try { broadcastViewRef?.(); } catch {}
-    }
-  });
+  );
 
   if (process.env.NODE_ENV !== "test" || opts.dbPath !== ":memory:") {
     hive.startRouter(1500);
@@ -121,6 +145,9 @@ export async function buildServer(
 
   app.addHook("onClose", async () => {
     hive.stopRouter();
+    if (isTest) {
+      try { rmSync(hiveHome, { recursive: true, force: true }); } catch {}
+    }
   });
 
   await app.register(websocket);
@@ -2114,14 +2141,34 @@ export async function buildServer(
     });
     broadcastView(); // success path already published a card; refresh either way
     if (result.ok && result.agentId) {
+      const proj = db.prepare("SELECT gh_repo FROM projects WHERE id = ?").get(b.projectId) as any;
+      const targetFolder = b.folder || proj?.gh_repo || undefined;
+
+      if (targetFolder && existsSync(targetFolder)) {
+        try {
+          registerAgentInProjectHive(targetFolder, {
+            id: result.agentId,
+            name: String(b.name).slice(0, 64),
+            role: b.role ?? "developer",
+            provider: b.provider ?? "cli",
+            model: b.model ?? "default",
+          });
+        } catch {}
+      }
+
       hive.registerAgent({
         id: result.agentId,
         name: String(b.name).slice(0, 64),
         role: b.role ?? "developer",
         provider: b.provider ?? "cli",
         model: b.model ?? "default",
-        folder: b.folder ?? undefined,
+        folder: targetFolder,
       });
+
+      const ptyName = 'pty-' + String(b.name).toLowerCase().replace(/[^a-z0-9]/g, '') + '-' + result.agentId.slice(-8);
+      try {
+        spawnOrGetPtySession(db, ptyName, result.agentId, 100, 30, hive);
+      } catch {}
     }
     return reply.code(result.ok ? 200 : 409).send(result);
   });
@@ -2222,7 +2269,35 @@ export async function buildServer(
     return { ok: true, content: body.content };
   });
 
-  app.get("/api/hive/tasks", async () => {
+  app.get("/api/hive/tasks", async (req) => {
+    const q = req.query as any;
+    const projectId = q?.projectId;
+    const agentId = q?.agentId;
+    if (projectId) {
+      const proj = db.prepare("SELECT gh_repo FROM projects WHERE id = ?").get(projectId) as any;
+      if (proj?.gh_repo) {
+        const pTasksPath = join(proj.gh_repo, "hive", "tasks.json");
+        if (existsSync(pTasksPath)) {
+          try {
+            const data = JSON.parse(readFileSync(pTasksPath, "utf8"));
+            return { tasks: data.tasks || [] };
+          } catch {}
+        }
+      }
+    }
+    if (agentId) {
+      const agt = db.prepare("SELECT folder, project_id FROM agents WHERE id = ?").get(agentId) as any;
+      const targetFolder = agt?.folder || (agt?.project_id ? (db.prepare("SELECT gh_repo FROM projects WHERE id = ?").get(agt.project_id) as any)?.gh_repo : null);
+      if (targetFolder) {
+        const pTasksPath = join(targetFolder, "hive", "tasks.json");
+        if (existsSync(pTasksPath)) {
+          try {
+            const data = JSON.parse(readFileSync(pTasksPath, "utf8"));
+            return { tasks: data.tasks || [] };
+          } catch {}
+        }
+      }
+    }
     return { tasks: hive.getTasks() };
   });
 
@@ -2230,6 +2305,26 @@ export async function buildServer(
     const body = req.body as any;
     if (!body?.title) return reply.code(400).send({ error: "title required" });
     const task = hive.upsertTask(body);
+
+    const projectId = body?.projectId;
+    if (projectId) {
+      const proj = db.prepare("SELECT gh_repo FROM projects WHERE id = ?").get(projectId) as any;
+      if (proj?.gh_repo) {
+        const pTasksPath = join(proj.gh_repo, "hive", "tasks.json");
+        try {
+          let tasksObj: { tasks: any[] } = { tasks: [] };
+          if (existsSync(pTasksPath)) {
+            tasksObj = JSON.parse(readFileSync(pTasksPath, "utf8"));
+          }
+          if (!Array.isArray(tasksObj.tasks)) tasksObj.tasks = [];
+          const idx = tasksObj.tasks.findIndex((t: any) => t.id === task.id);
+          if (idx >= 0) tasksObj.tasks[idx] = task;
+          else tasksObj.tasks.push(task);
+          writeFileSync(pTasksPath, JSON.stringify(tasksObj, null, 2), "utf8");
+        } catch {}
+      }
+    }
+
     return { ok: true, task };
   });
 
@@ -2301,6 +2396,79 @@ export async function buildServer(
     return { projects: result };
   });
 
+  app.get("/api/fs/directories", async (req, reply) => {
+    const query = req.query as any;
+    let target = query?.path ? String(query.path).trim() : (process.env.HOME || "/");
+    if (target.startsWith("~/")) {
+      target = join(process.env.HOME || "", target.slice(2));
+    } else if (target === "~") {
+      target = process.env.HOME || "/";
+    }
+    try {
+      if (!existsSync(target)) {
+        return reply.code(404).send({ error: "Directory not found: " + target });
+      }
+      const entries = readdirSync(target, { withFileTypes: true });
+      const dirs = entries
+        .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+        .map((e) => ({
+          name: e.name,
+          path: join(target, e.name),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .slice(0, 100);
+
+      const parent = dirname(target) !== target ? dirname(target) : null;
+      return { current: target, parent, directories: dirs };
+    } catch (err: any) {
+      return reply.code(400).send({ error: err.message });
+    }
+  });
+
+  app.post("/api/fs/mkdir", async (req, reply) => {
+    const body = req.body as any;
+    let target = String(body?.path || "").trim();
+    if (!target) return reply.code(400).send({ error: "Path is required" });
+    if (target.startsWith("~/")) {
+      target = join(process.env.HOME || "", target.slice(2));
+    }
+    try {
+      if (!existsSync(target)) {
+        mkdirSync(target, { recursive: true });
+      }
+      return { success: true, path: target };
+    } catch (err: any) {
+      return reply.code(500).send({ error: err.message });
+    }
+  });
+
+  const execAsync = promisify(exec);
+
+  app.post("/api/fs/choose-folder", async (req, reply) => {
+    try {
+      if (process.platform === "darwin") {
+        const { stdout } = await execAsync(
+          `osascript -e 'POSIX path of (choose folder with prompt "Select Project Working Directory:")'`
+        );
+        const folderPath = stdout.trim().replace(/\/+$/, "");
+        return { path: folderPath };
+      } else if (process.platform === "win32") {
+        const { stdout } = await execAsync(
+          `powershell -Command "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; if ($f.ShowDialog() -eq 'OK') { $f.SelectedPath }"`
+        );
+        const folderPath = stdout.trim();
+        return { path: folderPath };
+      } else {
+        return reply.code(400).send({ error: "Native folder picker not supported on this OS" });
+      }
+    } catch (err: any) {
+      if (err.message && (err.message.includes("User canceled") || err.message.includes("-128"))) {
+        return { canceled: true };
+      }
+      return reply.code(500).send({ error: err.message });
+    }
+  });
+
   app.post("/api/projects", async (req, reply) => {
     const body = req.body as any;
     const name = String(body?.name || "").trim();
@@ -2332,53 +2500,59 @@ export async function buildServer(
     // 2. Automatically spawn EXACTLY ONE Central Commander agent
     const commanderId = "agt_" + randomBytes(4).toString("hex");
     const commanderName = String(body?.commanderName || "").trim() || `${slug}-commander`;
-    const model = body.model || "qwen2.5-coder:32b";
+    const provider = String(body?.provider || "opencode").toLowerCase();
+    const model = body.model || (provider === "claude" ? "claude-3-7-sonnet-20250219" : "Nemotron 3.5 Lightning Free");
 
     const machineId = (db.prepare("SELECT id FROM machines WHERE online = 1 LIMIT 1").get() as any)?.id
                    || (db.prepare("SELECT id FROM machines LIMIT 1").get() as any)?.id
                    || "node_primary";
     const ownerId = (db.prepare("SELECT id FROM users LIMIT 1").get() as any)?.id || "usr_ayush";
 
+    const commanderPrompt = buildCommanderHivePrompt({
+      commanderName,
+      folder,
+      projectName: name,
+    });
+
     db.prepare(`
       INSERT INTO agents (id, machine_id, owner_id, project_id, name, role, provider, model, folder, description, goal, character, status)
-      VALUES (?, ?, ?, ?, ?, 'planner', 'opencode', ?, ?, ?, ?, 'adam', 'idle')
+      VALUES (?, ?, ?, ?, ?, 'planner', ?, ?, ?, ?, ?, 'adam', 'idle')
     `).run(
       commanderId,
       machineId,
       ownerId,
       projectId,
       commanderName,
+      provider,
       model,
       folder,
       `Central Operations Commander for ${name}`,
-      `Direct missions, analyze requirements, formulate architecture, and delegate to employee agents.`
+      commanderPrompt
     );
+
+    // Initialize project-scoped Hive directory on disk
+    try {
+      ensureProjectHive(folder, name, commanderId, commanderName);
+    } catch {}
 
     // Register with Hive
     hive.registerAgent({
       id: commanderId,
       name: commanderName,
       role: "planner",
-      provider: "opencode",
+      provider,
       model,
       folder,
       isGod: true,
     });
 
-    // Invert directive: Write initial AGENTS.md in project folder
+    // Write initial AGENTS.md in project folder with the Commander Hive prompt
     try {
       const agentsMdPath = join(folder, "AGENTS.md");
-      const directive = `# SYSTEM DIRECTIVE: CENTRAL OPERATIONS COMMANDER\n\n` +
-        `You are **${commanderName}**, the Central Operations Commander for **${name}**.\n\n` +
-        `**CRITICAL OPERATIONAL CONSTRAINT**:\n` +
-        `- **DO NOT WRITE APPLICATION SOURCE CODE DIRECTLY.**\n` +
-        `- You are the Commander, NOT a worker bee.\n` +
-        `- Your mission is to analyze user requests, author master architecture on \`~/workspace/hive/board.md\`, log tasks on \`~/workspace/hive/tasks.json\`, and delegate missions to specialized subordinate employees.\n\n` +
-        `Stand ready for the operator's first directive!\n`;
-      writeFileSync(agentsMdPath, directive, "utf8");
+      writeFileSync(agentsMdPath, commanderPrompt, "utf8");
     } catch {}
 
-    // 3. Initialize Commander's private memory and deliver orientation message to inbox
+    // 3. Initialize Commander's memory and deliver orientation message to inbox
     try {
       const memoryContent = `# Central Operations Commander Memory: ${name}\n\n` +
         `- [${new Date().toISOString()}] Commissioned as Central Operations Commander for "${name}".\n` +
@@ -2394,11 +2568,17 @@ export async function buildServer(
         body: `Welcome, Commander. You have been appointed Central Operations Commander for project "${name}". Your workspace is at ${folder}.\n\n` +
           `HIVE PROTOCOL:\n` +
           `1. Maintain situational awareness of the project.\n` +
-          `2. Formulate master architecture on ~/workspace/hive/board.md.\n` +
-          `3. Track deliverables on ~/workspace/hive/tasks.json.\n` +
+          `2. Formulate master architecture on ${folder}/hive/board.md.\n` +
+          `3. Track deliverables on ${folder}/hive/tasks.json.\n` +
           `4. Delegate missions to specialized subordinate agents.\n` +
           `Stand ready for operator directives.`
       }, "operator");
+    } catch {}
+
+    // Auto-start Commander terminal session in background
+    const ptyName = 'pty-' + commanderName.toLowerCase().replace(/[^a-z0-9]/g, '') + '-' + commanderId.slice(-8);
+    try {
+      spawnOrGetPtySession(db, ptyName, commanderId, 100, 30, hive);
     } catch {}
 
     // Add all existing users directly into this new project

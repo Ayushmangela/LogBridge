@@ -1,0 +1,54 @@
+[
+  {
+    "id": "agt_commando_master",
+    "name": "Commando",
+    "role": "planner",
+    "capabilities": ["orchestration", "planning", "delegation", "code_review", "system_architecture"],
+    "projects": ["prj_main"],
+    "provider": "opencode",
+    "model": "opencode-v1",
+    "description": "Central Orchestrator & Multi-Agent Executive Commander",
+    "character": "adam",
+    "color": "#6366f1",
+    "folder": "LogBridge"
+  },
+  {
+    "id": "agt_alpha_dev",
+    "name": "Agent-Alpha",
+    "role": "developer",
+    "capabilities": ["frontend", "ui_design", "react", "vanilla_css", "pixi_rendering"],
+    "projects": ["prj_main"],
+    "provider": "opencode",
+    "model": "opencode-v1",
+    "description": "Frontend Specialist & Interface Motion Engineer",
+    "character": "bob",
+    "color": "#10b981",
+    "folder": "apps/web"
+  },
+  {
+    "id": "agt_beta_dev",
+    "name": "Agent-Beta",
+    "role": "developer",
+    "capabilities": ["backend", "fastify", "sqlite", "websocket", "api_design"],
+    "projects": ["prj_main"],
+    "provider": "opencode",
+    "model": "opencode-v1",
+    "description": "Backend Infrastructure & Real-Time Sync Engineer",
+    "character": "lucy",
+    "color": "#f59e0b",
+    "folder": "apps/server"
+  },
+  {
+    "id": "agt_gamma_dev",
+    "name": "Agent-Gamma",
+    "role": "developer",
+    "capabilities": ["qa", "testing", "vitest", "verification", "ci_cd"],
+    "projects": ["prj_main"],
+    "provider": "opencode",
+    "model": "opencode-v1",
+    "description": "QA, Automated Verification & CI/CD Pipeline Specialist",
+    "character": "edward",
+    "color": "#38bdf8",
+    "folder": "packages/protocol"
+  }
+]

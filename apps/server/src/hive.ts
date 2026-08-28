@@ -133,11 +133,17 @@ export class HiveManager {
   private _root: string;
   private routerTimer: NodeJS.Timeout | null = null;
   private onEventCallback?: (event: HiveEvent) => void;
+  private onMessageCallback?: (msg: HiveMessage, sourceId: string, targetId: string) => void;
   private activeMeetings = new Map<string, ActiveMeeting>();
 
-  constructor(rootDir: string, onEvent?: (event: HiveEvent) => void) {
+  constructor(
+    rootDir: string,
+    onEvent?: (event: HiveEvent) => void,
+    onMessage?: (msg: HiveMessage, sourceId: string, targetId: string) => void
+  ) {
     this._root = rootDir;
     this.onEventCallback = onEvent;
+    this.onMessageCallback = onMessage;
     this.initHive();
   }
 
@@ -542,6 +548,14 @@ export class HiveManager {
       }
     }
 
+    if (this.onMessageCallback) {
+      for (const targetId of targetIds) {
+        try {
+          this.onMessageCallback(msg, msg.from, targetId);
+        } catch {}
+      }
+    }
+
     this.emitEvent({
       ts: new Date().toISOString(),
       kind: "message",
@@ -671,4 +685,112 @@ export class HiveManager {
       } catch {}
     }
   }
+}
+
+export function ensureProjectHive(
+  projectFolder: string,
+  projectName: string,
+  commanderId: string,
+  commanderName: string
+): void {
+  const hiveDir = join(projectFolder, "hive");
+  mkdirSync(join(hiveDir, "agents", commanderId, "inbox", ".done"), { recursive: true });
+  mkdirSync(join(hiveDir, "agents", commanderId, "outbox"), { recursive: true });
+  mkdirSync(join(hiveDir, "agents", "god", "inbox", ".done"), { recursive: true });
+  mkdirSync(join(hiveDir, "agents", "god", "outbox"), { recursive: true });
+
+  const protocolPath = join(hiveDir, "PROTOCOL.md");
+  writeFileSync(protocolPath, PROTOCOL_MD, "utf8");
+
+  const boardPath = join(hiveDir, "board.md");
+  if (!existsSync(boardPath)) {
+    writeFileSync(
+      boardPath,
+      `# ${projectName} — Project Blackboard\n\n**Commander**: \`${commanderName}\` (${commanderId})\n\n_Shared architectural plans, current objectives, and specifications._\n\n## Objectives\n- [ ] Formulate master architecture for ${projectName}\n- [ ] Delegate tasks to project agents\n- [ ] Complete deliverables\n`,
+      "utf8"
+    );
+  }
+
+  const tasksPath = join(hiveDir, "tasks.json");
+  if (!existsSync(tasksPath)) {
+    writeFileSync(tasksPath, JSON.stringify({ tasks: [] }, null, 2), "utf8");
+  }
+
+  const registryPath = join(hiveDir, "registry.json");
+  const registry: HiveRegistry = {
+    godId: commanderId,
+    agents: {
+      [commanderId]: {
+        id: commanderId,
+        name: commanderName,
+        role: "planner",
+        folder: projectFolder,
+        isGod: true,
+      },
+    },
+  };
+  writeFileSync(registryPath, JSON.stringify(registry, null, 2), "utf8");
+
+  const fleetPath = join(hiveDir, "fleet.json");
+  if (!existsSync(fleetPath)) {
+    writeFileSync(fleetPath, JSON.stringify({ agents: [] }, null, 2), "utf8");
+  }
+
+  // Memory & Identity for Commander & God
+  const memoryContent = `# Central Operations Commander Memory: ${projectName}\n\n- [${new Date().toISOString()}] Commissioned as Central Operations Commander for "${projectName}".\n- Project Directory: ${projectFolder}\n- Standing Protocol: Analyze objectives, draft architecture on board.md, log tasks on tasks.json, recruit/delegate to project subordinates.\n`;
+
+  for (const targetId of [commanderId, "god"]) {
+    const aDir = join(hiveDir, "agents", targetId);
+    writeFileSync(join(aDir, "memory.md"), memoryContent, "utf8");
+    writeFileSync(
+      join(aDir, "identity.md"),
+      `# Agent Identity: ${commanderName}\n\n- **ID**: \`${commanderId}\`\n- **Role**: Central Operations Commander\n- **Project**: ${projectName}\n\nFloor Orchestrator (God Agent). You run the floor, coordinate tasks, clarify requirements, and direct project agents.\n`,
+      "utf8"
+    );
+    writeFileSync(join(aDir, "cursor.json"), JSON.stringify({ lastProcessedId: null }), "utf8");
+  }
+}
+
+export function registerAgentInProjectHive(
+  projectFolder: string,
+  agent: { id: string; name: string; role?: string; provider?: string; model?: string }
+): void {
+  const hiveDir = join(projectFolder, "hive");
+  const aDir = join(hiveDir, "agents", agent.id);
+  mkdirSync(join(aDir, "inbox", ".done"), { recursive: true });
+  mkdirSync(join(aDir, "outbox"), { recursive: true });
+
+  writeFileSync(
+    join(aDir, "identity.md"),
+    `# Agent Identity: ${agent.name}\n\n- **ID**: \`${agent.id}\`\n- **Role**: ${agent.role || "Developer"}\n- **Provider**: ${agent.provider || "cli"}\n- **Model**: ${agent.model || "default"}\n\nRead \`PROTOCOL.md\` in the hive root to communicate with other agents via \`inbox/\` and \`outbox/\`.\n`,
+    "utf8"
+  );
+
+  const memPath = join(aDir, "memory.md");
+  if (!existsSync(memPath)) {
+    writeFileSync(
+      memPath,
+      `# Long-Term Memory: ${agent.name}\n\n_Durable facts, architectural findings, and learned project context._\n\n- [${new Date().toISOString()}] Initialized agent workspace in ${projectFolder}.\n`,
+      "utf8"
+    );
+  }
+
+  writeFileSync(join(aDir, "cursor.json"), JSON.stringify({ lastProcessedId: null }), "utf8");
+
+  const regPath = join(hiveDir, "registry.json");
+  try {
+    let reg: HiveRegistry = { godId: null, agents: {} };
+    if (existsSync(regPath)) {
+      reg = JSON.parse(readFileSync(regPath, "utf8"));
+    }
+    reg.agents[agent.id] = {
+      id: agent.id,
+      name: agent.name,
+      role: agent.role || "developer",
+      provider: agent.provider,
+      model: agent.model,
+      folder: projectFolder,
+    };
+    writeFileSync(regPath, JSON.stringify(reg, null, 2), "utf8");
+  } catch {}
 }

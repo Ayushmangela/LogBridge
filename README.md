@@ -56,6 +56,7 @@ Glance at it and you know the day: *cafeteria full = quiet · **one person's cab
 
 | Doc | What |
 |---|---|
+| **[ARCHITECTURE.md](ARCHITECTURE.md)** | **Full System Architecture, monorepo design, security model & subsystem deep dive** |
 | **[PLAN.md](PLAN.md)** | Full architecture and research. The long one — read when you need the *why* |
 | **[DECISIONS.md](DECISIONS.md)** | Settled questions and what would reopen them. **Read before proposing a change** |
 
