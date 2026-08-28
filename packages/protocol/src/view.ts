@@ -218,6 +218,18 @@ export const MachineView = z.object({
   allowUnsandboxed: z.boolean(),
 });
 
+export const WorkflowView = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  creatorId: z.string(),
+  state: z.enum(["active", "paused", "completed", "failed", "canceled"]),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type WorkflowViewT = z.infer<typeof WorkflowView>;
+
 export const Room = z.object({
   id: z.string(),
   name: z.string(),
@@ -235,6 +247,7 @@ export const Room = z.object({
   memories: z.array(MemoryView),
   activity: z.array(ActivityItem),
   triggers: z.array(TriggerView),
+  workflows: z.array(WorkflowView).optional(),
 });
 
 export const WorkspaceView = z.object({

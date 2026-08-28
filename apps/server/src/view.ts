@@ -1,5 +1,5 @@
 import type { Db } from "./db.js";
-import { lastSeq, recentMemories, tasksForProject } from "./db.js";
+import { lastSeq, recentMemories, tasksForProject, getProjectWorkflows } from "./db.js";
 import { recentActivity } from "./activity.js";
 import type { HiveManager } from "./hive.js";
 import {
@@ -11,6 +11,7 @@ import {
   type PullViewT,
   type RoomT,
   type TriggerViewT,
+  type WorkflowViewT,
   type WorkspaceViewT,
   type HumanViewT,
 } from "@logbridge/protocol";
@@ -349,6 +350,16 @@ export function buildView(db: Db, positions: Positions, meId: string, hive?: Hiv
       activity: recentActivity(db, p.id, 30),
       pulls: recentPulls(db, p.id, 20),
       triggers: roomTriggers,
+      workflows: getProjectWorkflows(db, p.id).map((w) => ({
+        id: w.id,
+        projectId: w.project_id,
+        title: w.title,
+        description: w.description,
+        creatorId: w.creator_id,
+        state: w.state,
+        createdAt: w.created_at,
+        updatedAt: w.updated_at,
+      })),
     };
   });
 

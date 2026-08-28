@@ -31,6 +31,10 @@ import {
   finishTaskAttempt,
   getActiveTaskAttempt,
   failActiveTaskAttempt,
+  isTaskDependenciesSatisfied,
+  getTaskDependents,
+  getWorkflow,
+  updateWorkflowStatusFromTasks,
 } from "./db.js";
 import { makeChallenge, verifySignature } from "./nodeAuth.js";
 import { parsePlan } from "./plan.js";
@@ -659,6 +663,14 @@ export function taskCancelEnvelope(taskId: string, projectId: string, machineId:
 export function sendTaskOffer(db: Db, nodeSockets: NodeSockets, taskId: string): boolean {
   const task = getTask(db, taskId);
   if (!task || !task.agent_id) return false;
+  // If task belongs to a workflow, workflow must be active
+  if (task.workflow_id) {
+    const wf = getWorkflow(db, task.workflow_id);
+    if (!wf || wf.state !== "active") return false;
+  }
+  // Check if all task dependencies are satisfied
+  if (!isTaskDependenciesSatisfied(db, task.id)) return false;
+
   const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(task.agent_id) as any;
   if (!agent) return false;
   const socket = nodeSockets.get(agent.machine_id);
@@ -1115,6 +1127,37 @@ function handleNodeEnvelope(
     }
     if (t.agent_id) setAgentStatus(db, t.agent_id, "idle", null);
     appendEvent(db, t.project_id, t.id, "task.result", body);
+
+    // Re-evaluate dependent tasks and workflows
+    if (body.state === "completed") {
+      const dependents = getTaskDependents(db, t.id);
+      for (const dep of dependents) {
+        if (isTaskDependenciesSatisfied(db, dep.taskId)) {
+          appendEvent(db, t.project_id, dep.taskId, "task.dependency_satisfied", {
+            completedDependency: t.id,
+            taskId: dep.taskId,
+          });
+          const depTask = getTask(db, dep.taskId);
+          if (depTask && depTask.state === "submitted" && depTask.agent_id) {
+            sendTaskOffer(db, nodeSockets, depTask.id);
+          }
+        }
+      }
+    } else if (["failed", "canceled", "rejected"].includes(body.state)) {
+      const dependents = getTaskDependents(db, t.id);
+      for (const dep of dependents) {
+        appendEvent(db, t.project_id, dep.taskId, "task.dependency_blocked", {
+          failedDependency: t.id,
+          state: body.state,
+          taskId: dep.taskId,
+        });
+      }
+    }
+
+    if (t.workflow_id) {
+      updateWorkflowStatusFromTasks(db, t.workflow_id);
+    }
+
     orchestrate(db, nodeSockets, app); // that agent just freed up — drain the queue
     onChange();
     return;

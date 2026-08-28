@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   ended_at TEXT,
   parent_task TEXT,
   retry_of TEXT,
+  workflow_id TEXT,
   idem TEXT UNIQUE
 );
 CREATE TABLE IF NOT EXISTS events (
@@ -236,8 +237,33 @@ CREATE TABLE IF NOT EXISTS artifacts (
 CREATE INDEX IF NOT EXISTS idx_artifacts_task ON artifacts (task_id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_project ON artifacts (project_id);
 
+CREATE TABLE IF NOT EXISTS workflows (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  creator_id TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'active', -- 'active' | 'paused' | 'completed' | 'failed' | 'canceled'
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_workflows_project ON workflows (project_id);
+
+CREATE TABLE IF NOT EXISTS task_dependencies (
+  task_id TEXT NOT NULL,
+  depends_on_task_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (task_id, depends_on_task_id),
+  FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+  FOREIGN KEY (depends_on_task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_task_deps_task ON task_dependencies (task_id);
+CREATE INDEX IF NOT EXISTS idx_task_deps_dep ON task_dependencies (depends_on_task_id);
+
 CREATE INDEX IF NOT EXISTS idx_events_project ON events (project_id, seq);
 CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks (agent_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_workflow ON tasks (workflow_id);
 `;
 
 export function openDb(dbPath?: string): Db {
@@ -288,6 +314,7 @@ export function openDb(dbPath?: string): Db {
     "ALTER TABLE agents ADD COLUMN retired_at TEXT",
     "ALTER TABLE agents ADD COLUMN model TEXT",
     "ALTER TABLE agents ADD COLUMN steer_context TEXT",
+    "ALTER TABLE tasks ADD COLUMN workflow_id TEXT",
     "ALTER TABLE agents ADD COLUMN context_used INTEGER",
     "ALTER TABLE agents ADD COLUMN context_limit INTEGER",
     "ALTER TABLE agents ADD COLUMN tool_calls INTEGER",
@@ -545,6 +572,8 @@ export function createTask(
     requiredCapability?: string | null;
     kind?: string | null;           // 'plan' = its output is a task list
     parentTask?: string | null;     // subtask link to parent goal
+    retryOf?: string | null;
+    workflowId?: string | null;
     budgetSeconds?: number;
     budgetUsd?: number;
     /** Idempotency key. A second call with the same key returns the FIRST
@@ -568,12 +597,12 @@ export function createTask(
   }
   const taskId = `tsk_${crypto.randomUUID()}`;
   db.prepare(
-    `INSERT INTO tasks (id, project_id, title, spec, creator_id, agent_id, state, budget_seconds, budget_usd, cost_usd, required_capability, created_at, kind, parent_task, idem)
-     VALUES (?, ?, ?, ?, ?, ?, 'submitted', ?, ?, 0, ?, ?, ?, ?, ?)`
+    `INSERT INTO tasks (id, project_id, title, spec, creator_id, agent_id, state, budget_seconds, budget_usd, cost_usd, required_capability, created_at, kind, parent_task, retry_of, workflow_id, idem)
+     VALUES (?, ?, ?, ?, ?, ?, 'submitted', ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     taskId, opts.projectId, opts.title, opts.spec ?? null, opts.creatorId, opts.agentId ?? null,
     opts.budgetSeconds ?? 60, opts.budgetUsd ?? 1.0, opts.requiredCapability ?? null, new Date().toISOString(),
-    opts.kind ?? null, opts.parentTask ?? null, opts.idem ?? null
+    opts.kind ?? null, opts.parentTask ?? null, opts.retryOf ?? null, opts.workflowId ?? null, opts.idem ?? null
   );
   return taskId;
 }
@@ -613,13 +642,23 @@ export function setAgentWaitingOnHuman(db: Db, agentId: string, humanName: strin
  *  and falling back to a random UUID would make the "queue" arbitrary rather
  *  than FIFO. rowid is insertion order by definition. */
 export function pendingUnassignedTasks(db: Db) {
-  return db
+  const tasks = db
     .prepare(
-      `SELECT id, project_id, required_capability FROM tasks
+      `SELECT id, project_id, required_capability, workflow_id FROM tasks
        WHERE state = 'submitted' AND agent_id IS NULL
        ORDER BY created_at ASC, rowid ASC`
     )
-    .all() as { id: string; project_id: string; required_capability: string | null }[];
+    .all() as { id: string; project_id: string; required_capability: string | null; workflow_id: string | null }[];
+
+  return tasks.filter((t) => {
+    // If task is in a workflow, workflow must be active
+    if (t.workflow_id) {
+      const wf = db.prepare("SELECT state FROM workflows WHERE id = ?").get(t.workflow_id) as any;
+      if (!wf || wf.state !== "active") return false;
+    }
+    // All dependencies must be satisfied (completed)
+    return isTaskDependenciesSatisfied(db, t.id);
+  });
 }
 
 /** How much each agent is already carrying. Only non-terminal, actually-held
@@ -1305,4 +1344,266 @@ export function getProjectArtifacts(db: Db, projectId: string, limit = 50): Arti
 export function getArtifact(db: Db, id: string): ArtifactRow | undefined {
   return db.prepare("SELECT * FROM artifacts WHERE id = ?").get(id) as ArtifactRow | undefined;
 }
+
+// ─── Workflows & Task Dependencies (Phase 2) ─────────────────────────
+
+export interface WorkflowRow {
+  id: string;
+  project_id: string;
+  title: string;
+  description: string | null;
+  creator_id: string;
+  state: "active" | "paused" | "completed" | "failed" | "canceled";
+  created_at: string;
+  updated_at: string;
+}
+
+export function createWorkflow(
+  db: Db,
+  opts: {
+    id?: string;
+    projectId: string;
+    title: string;
+    description?: string | null;
+    creatorId: string;
+  }
+): string {
+  const project = db.prepare("SELECT id FROM projects WHERE id = ?").get(opts.projectId);
+  if (!project) throw new Error(`Project "${opts.projectId}" does not exist`);
+
+  const id = opts.id || `wf_${crypto.randomUUID()}`;
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO workflows (id, project_id, title, description, creator_id, state, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 'active', ?, ?)`
+  ).run(id, opts.projectId, opts.title.trim(), opts.description?.trim() ?? null, opts.creatorId, now, now);
+  return id;
+}
+
+export function getWorkflow(db: Db, id: string): WorkflowRow | undefined {
+  return db.prepare("SELECT * FROM workflows WHERE id = ?").get(id) as WorkflowRow | undefined;
+}
+
+export function getProjectWorkflows(db: Db, projectId: string): WorkflowRow[] {
+  return db
+    .prepare("SELECT * FROM workflows WHERE project_id = ? ORDER BY created_at DESC")
+    .all(projectId) as WorkflowRow[];
+}
+
+export function setWorkflowState(
+  db: Db,
+  id: string,
+  state: "active" | "paused" | "completed" | "failed" | "canceled"
+): boolean {
+  const res = db
+    .prepare("UPDATE workflows SET state = ?, updated_at = ? WHERE id = ?")
+    .run(state, new Date().toISOString(), id);
+  return res.changes > 0;
+}
+
+export function updateTaskWorkflow(db: Db, taskId: string, workflowId: string | null): boolean {
+  const res = db.prepare("UPDATE tasks SET workflow_id = ? WHERE id = ?").run(workflowId, taskId);
+  return res.changes > 0;
+}
+
+export function hasDependencyCycle(db: Db, taskId: string, dependsOnTaskId: string): boolean {
+  if (taskId === dependsOnTaskId) return true;
+  const visited = new Set<string>();
+  const queue: string[] = [dependsOnTaskId];
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (current === taskId) return true;
+    if (visited.has(current)) continue;
+    visited.add(current);
+
+    const deps = db
+      .prepare("SELECT depends_on_task_id FROM task_dependencies WHERE task_id = ?")
+      .all(current) as { depends_on_task_id: string }[];
+
+    for (const d of deps) {
+      if (!visited.has(d.depends_on_task_id)) {
+        queue.push(d.depends_on_task_id);
+      }
+    }
+  }
+  return false;
+}
+
+export function addTaskDependency(
+  db: Db,
+  taskId: string,
+  dependsOnTaskId: string
+): { ok: boolean; error?: string } {
+  if (taskId === dependsOnTaskId) {
+    return { ok: false, error: "Task cannot depend on itself" };
+  }
+  const task = getTask(db, taskId);
+  if (!task) return { ok: false, error: `Task "${taskId}" not found` };
+  const depTask = getTask(db, dependsOnTaskId);
+  if (!depTask) return { ok: false, error: `Dependency task "${dependsOnTaskId}" not found` };
+
+  if (task.project_id !== depTask.project_id) {
+    return { ok: false, error: "Cross-project dependencies are forbidden" };
+  }
+
+  if (hasDependencyCycle(db, taskId, dependsOnTaskId)) {
+    return { ok: false, error: "Circular dependency detected" };
+  }
+
+  db.prepare(
+    `INSERT OR IGNORE INTO task_dependencies (task_id, depends_on_task_id, created_at)
+     VALUES (?, ?, ?)`
+  ).run(taskId, dependsOnTaskId, new Date().toISOString());
+
+  return { ok: true };
+}
+
+export function removeTaskDependency(db: Db, taskId: string, dependsOnTaskId: string): boolean {
+  const res = db
+    .prepare("DELETE FROM task_dependencies WHERE task_id = ? AND depends_on_task_id = ?")
+    .run(taskId, dependsOnTaskId);
+  return res.changes > 0;
+}
+
+export function getTaskDependencies(
+  db: Db,
+  taskId: string
+): Array<{ taskId: string; dependsOnTaskId: string; title: string; state: string; agentId: string | null }> {
+  return db
+    .prepare(
+      `SELECT d.task_id AS taskId, d.depends_on_task_id AS dependsOnTaskId, t.title, t.state, t.agent_id AS agentId
+       FROM task_dependencies d
+       JOIN tasks t ON t.id = d.depends_on_task_id
+       WHERE d.task_id = ?`
+    )
+    .all(taskId) as any[];
+}
+
+export function getTaskDependents(
+  db: Db,
+  taskId: string
+): Array<{ taskId: string; dependsOnTaskId: string; title: string; state: string; agentId: string | null }> {
+  return db
+    .prepare(
+      `SELECT d.task_id AS taskId, d.depends_on_task_id AS dependsOnTaskId, t.title, t.state, t.agent_id AS agentId
+       FROM task_dependencies d
+       JOIN tasks t ON t.id = d.task_id
+       WHERE d.depends_on_task_id = ?`
+    )
+    .all(taskId) as any[];
+}
+
+export function isTaskDependenciesSatisfied(db: Db, taskId: string): boolean {
+  const deps = db
+    .prepare(
+      `SELECT t.state FROM task_dependencies d
+       JOIN tasks t ON t.id = d.depends_on_task_id
+       WHERE d.task_id = ?`
+    )
+    .all(taskId) as { state: string }[];
+
+  if (deps.length === 0) return true;
+  return deps.every((d) => d.state === "completed");
+}
+
+export function getTaskDependencyStatus(db: Db, taskId: string) {
+  const deps = db
+    .prepare(
+      `SELECT d.depends_on_task_id AS dependsOnTaskId, t.title, t.state, t.agent_id AS agentId
+       FROM task_dependencies d
+       JOIN tasks t ON t.id = d.depends_on_task_id
+       WHERE d.task_id = ?`
+    )
+    .all(taskId) as Array<{ dependsOnTaskId: string; title: string; state: string; agentId: string | null }>;
+
+  const completedCount = deps.filter((d) => d.state === "completed").length;
+  const failedCount = deps.filter((d) => ["failed", "canceled", "rejected"].includes(d.state)).length;
+  const pendingCount = deps.length - completedCount - failedCount;
+  const isSatisfied = deps.length === 0 || completedCount === deps.length;
+  const isBlocked = failedCount > 0;
+
+  return {
+    satisfied: isSatisfied,
+    blocked: isBlocked,
+    totalDependencies: deps.length,
+    completedCount,
+    failedCount,
+    pendingCount,
+    dependencies: deps,
+  };
+}
+
+export function getWorkflowGraph(db: Db, workflowId: string) {
+  const wf = getWorkflow(db, workflowId);
+  if (!wf) return null;
+
+  const tasks = db
+    .prepare(
+      `SELECT t.*, a.name AS agent_name FROM tasks t
+       LEFT JOIN agents a ON a.id = t.agent_id
+       WHERE t.workflow_id = ?
+       ORDER BY t.created_at ASC`
+    )
+    .all(workflowId) as any[];
+
+  const taskIds = tasks.map((t) => t.id);
+  let dependencies: Array<{ taskId: string; dependsOnTaskId: string }> = [];
+  if (taskIds.length > 0) {
+    const placeholders = taskIds.map(() => "?").join(",");
+    dependencies = db
+      .prepare(
+        `SELECT task_id AS taskId, depends_on_task_id AS dependsOnTaskId
+         FROM task_dependencies
+         WHERE task_id IN (${placeholders})`
+      )
+      .all(...taskIds) as any[];
+  }
+
+  const nodes = tasks.map((t) => {
+    const depStatus = getTaskDependencyStatus(db, t.id);
+    let derivedStatus = t.state;
+    if (t.state === "submitted") {
+      if (depStatus.blocked) derivedStatus = "blocked";
+      else if (!depStatus.satisfied) derivedStatus = "waiting";
+      else derivedStatus = "ready";
+    }
+    return {
+      ...t,
+      derivedStatus,
+      dependencyStatus: depStatus,
+    };
+  });
+
+  return {
+    workflow: wf,
+    tasks: nodes,
+    edges: dependencies,
+  };
+}
+
+export function updateWorkflowStatusFromTasks(db: Db, workflowId: string): string {
+  const wf = getWorkflow(db, workflowId);
+  if (!wf || wf.state === "paused" || wf.state === "canceled") return wf?.state ?? "active";
+
+  const tasks = db.prepare("SELECT state FROM tasks WHERE workflow_id = ?").all(workflowId) as { state: string }[];
+  if (tasks.length === 0) return wf.state;
+
+  const allCompleted = tasks.every((t) => t.state === "completed");
+  const anyFailed = tasks.some((t) => t.state === "failed" || t.state === "rejected");
+
+  let newState = wf.state;
+  if (allCompleted) {
+    newState = "completed";
+  } else if (anyFailed) {
+    const allTerminal = tasks.every((t) => ["completed", "failed", "canceled", "rejected"].includes(t.state));
+    if (allTerminal) newState = "failed";
+  }
+
+  if (newState !== wf.state) {
+    setWorkflowState(db, workflowId, newState as any);
+  }
+  return newState;
+}
+
 

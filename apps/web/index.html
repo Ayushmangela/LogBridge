@@ -3221,6 +3221,7 @@
         { id: 'terminal', label: '>_ Terminal', surface: 'both' },
         { id: 'code', label: '</> Code', surface: 'both' },
         { id: 'tasks', label: 'Tasks', surface: 'both' },
+        { id: 'workflows', label: 'Workflows', surface: 'both' },
         { id: 'attempts', label: 'Attempts', surface: 'both' },
         { id: 'artifacts', label: 'Artifacts', surface: 'both' },
         { id: 'messages', label: 'Messages', surface: 'both' },
@@ -3352,6 +3353,7 @@
       else if (ccTab === 'memory') ccRenderMemory(body, a);
       else if (ccTab === 'triggers') ccRenderTriggers(body, a);
       else if (ccTab === 'tasks') ccRenderTasks(body, a);
+      else if (ccTab === 'workflows') ccRenderWorkflows(body, a);
       else if (ccTab === 'attempts') ccRenderAttempts(body, a);
       else if (ccTab === 'artifacts') ccRenderArtifacts(body, a);
       else if (ccTab === 'steer') ccRenderSteer(body, a);
@@ -3919,6 +3921,334 @@
           placeholder.textContent = `Failed loading artifacts: ${err.message || err}`;
         });
     }
+
+    let _activeWfReq = 0;
+    function ccRenderWorkflows(body, a) {
+      const curReq = ++_activeWfReq;
+      const room = activeRoom();
+      const prjId = room ? room.id : (a ? a.projectId : null);
+      if (!prjId) {
+        body.innerHTML = '<div class="empty-note">No active project room selected.</div>';
+        return;
+      }
+
+      body.innerHTML = '';
+      const topBar = document.createElement('div');
+      topBar.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border-soft);';
+      const title = document.createElement('div');
+      title.style.cssText = 'font-weight:700;font-size:15px;color:var(--text);display:flex;align-items:center;gap:8px;';
+      title.innerHTML = '<span>⚡</span> Multi-Agent Workflows & DAG Engine';
+
+      const newWfBtn = document.createElement('button');
+      newWfBtn.className = 'btn-primary';
+      newWfBtn.style.cssText = 'padding:6px 14px;font-size:12px;cursor:pointer;';
+      newWfBtn.textContent = '+ New Workflow';
+      newWfBtn.onclick = () => promptCreateWorkflow(prjId);
+      topBar.append(title, newWfBtn);
+      body.appendChild(topBar);
+
+      const placeholder = document.createElement('div');
+      placeholder.className = 'empty-note';
+      placeholder.textContent = 'Loading workflows\u2026';
+      body.appendChild(placeholder);
+
+      fetch(`/api/projects/${encodeURIComponent(prjId)}/workflows`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (curReq !== _activeWfReq) return;
+          const workflows = data.workflows || [];
+          placeholder.remove();
+
+          if (workflows.length === 0) {
+            body.innerHTML += `
+              <div class="empty-note" style="padding:32px 0;">
+                <div style="font-size:32px;margin-bottom:10px;">🕸️</div>
+                <div style="font-weight:600;font-size:14px;color:var(--text);margin-bottom:4px;">No active workflows in this project</div>
+                <div style="font-size:12px;color:var(--text-faint);max-width:360px;margin:0 auto 16px;">
+                  Create a structured multi-agent workflow with task dependencies, automated handoffs, and review gates.
+                </div>
+                <button class="btn-primary" style="padding:6px 16px;font-size:12px;" onclick="window.promptCreateWorkflow('${escapeHtml(prjId)}')">+ Create First Workflow</button>
+              </div>`;
+            return;
+          }
+
+          const wfList = document.createElement('div');
+          wfList.style.cssText = 'display:flex;flex-direction:column;gap:16px;';
+
+          for (const wf of workflows) {
+            const card = document.createElement('div');
+            card.style.cssText = 'background:var(--surface-1);border:1px solid var(--border-soft);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:12px;';
+
+            const head = document.createElement('div');
+            head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;';
+            const hLeft = document.createElement('div');
+            hLeft.style.cssText = 'display:flex;align-items:center;gap:10px;';
+
+            const stPill = document.createElement('span');
+            stPill.style.cssText = 'font-size:10.5px;font-weight:800;letter-spacing:.4px;padding:3px 9px;border-radius:12px;text-transform:uppercase;';
+            if (wf.state === 'active') stPill.style.cssText += 'background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid rgba(34,197,94,0.3);';
+            else if (wf.state === 'paused') stPill.style.cssText += 'background:rgba(234,179,8,0.15);color:#fde047;border:1px solid rgba(234,179,8,0.3);';
+            else if (wf.state === 'completed') stPill.style.cssText += 'background:rgba(99,102,241,0.15);color:#818cf8;border:1px solid rgba(99,102,241,0.3);';
+            else stPill.style.cssText += 'background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3);';
+            stPill.textContent = wf.state;
+
+            const wfTitle = document.createElement('span');
+            wfTitle.style.cssText = 'font-weight:700;font-size:15px;color:var(--text);';
+            wfTitle.textContent = wf.title;
+
+            hLeft.append(stPill, wfTitle);
+
+            const hRight = document.createElement('div');
+            hRight.style.cssText = 'display:flex;gap:6px;';
+
+            if (wf.state === 'active') {
+              const pauseBtn = document.createElement('button');
+              pauseBtn.className = 'btn-ghost';
+              pauseBtn.style.cssText = 'padding:4px 8px;font-size:11px;';
+              pauseBtn.textContent = '⏸ Pause';
+              pauseBtn.onclick = () => {
+                fetch(`/api/workflows/${wf.id}/pause`, { method: 'POST' }).then(() => renderCommandCenter());
+              };
+              hRight.appendChild(pauseBtn);
+            } else if (wf.state === 'paused') {
+              const resumeBtn = document.createElement('button');
+              resumeBtn.className = 'btn-ghost';
+              resumeBtn.style.cssText = 'padding:4px 8px;font-size:11px;';
+              resumeBtn.textContent = '▶ Resume';
+              resumeBtn.onclick = () => {
+                fetch(`/api/workflows/${wf.id}/resume`, { method: 'POST' }).then(() => renderCommandCenter());
+              };
+              hRight.appendChild(resumeBtn);
+            }
+
+            if (wf.state === 'active' || wf.state === 'paused') {
+              const cancelBtn = document.createElement('button');
+              cancelBtn.className = 'btn-ghost';
+              cancelBtn.style.cssText = 'padding:4px 8px;font-size:11px;color:var(--red);';
+              cancelBtn.textContent = '✕ Cancel';
+              cancelBtn.onclick = () => {
+                if (confirm('Cancel this workflow and all pending steps?')) {
+                  fetch(`/api/workflows/${wf.id}/cancel`, { method: 'POST' }).then(() => renderCommandCenter());
+                }
+              };
+              hRight.appendChild(cancelBtn);
+            }
+
+            const addTaskBtn = document.createElement('button');
+            addTaskBtn.className = 'btn-primary';
+            addTaskBtn.style.cssText = 'padding:4px 10px;font-size:11px;';
+            addTaskBtn.textContent = '+ Add Step';
+            addTaskBtn.onclick = () => promptAddTaskToWorkflow(wf.id);
+            hRight.appendChild(addTaskBtn);
+
+            head.append(hLeft, hRight);
+            card.appendChild(head);
+
+            if (wf.description) {
+              const desc = document.createElement('div');
+              desc.style.cssText = 'font-size:12.5px;color:var(--text-muted);';
+              desc.textContent = wf.description;
+              card.appendChild(desc);
+            }
+
+            // Load DAG graph for this workflow
+            const dagContainer = document.createElement('div');
+            dagContainer.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding-top:6px;border-top:1px dashed var(--border-soft);';
+            dagContainer.innerHTML = '<div style="color:var(--text-faint);font-size:11px;">Loading steps\u2026</div>';
+            card.appendChild(dagContainer);
+
+            fetch(`/api/workflows/${wf.id}`)
+              .then((r) => r.json())
+              .then((graph) => {
+                const tasks = graph.tasks || [];
+                dagContainer.innerHTML = '';
+                if (tasks.length === 0) {
+                  dagContainer.innerHTML = '<div style="color:var(--text-faint);font-size:11.5px;padding:4px 0;">No tasks attached to this workflow yet. Click "+ Add Step" to create one.</div>';
+                  return;
+                }
+
+                for (let i = 0; i < tasks.length; i++) {
+                  const t = tasks[i];
+                  const stepRow = document.createElement('div');
+                  stepRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;background:var(--surface-2);padding:8px 12px;border-radius:7px;border:1px solid var(--border-soft);font-size:12px;gap:10px;';
+
+                  const left = document.createElement('div');
+                  left.style.cssText = 'display:flex;align-items:center;gap:8px;flex:1;overflow:hidden;';
+
+                  const stepNum = document.createElement('span');
+                  stepNum.style.cssText = 'font-weight:700;color:var(--text-faint);font-size:11px;';
+                  stepNum.textContent = `#${i + 1}`;
+
+                  const stBadge = document.createElement('span');
+                  stBadge.style.cssText = 'font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;';
+                  if (t.state === 'completed') {
+                    stBadge.textContent = '✓ Done';
+                    stBadge.style.cssText += 'background:rgba(34,197,94,0.15);color:#4ade80;';
+                  } else if (t.state === 'working') {
+                    stBadge.textContent = '● Working';
+                    stBadge.style.cssText += 'background:rgba(59,130,246,0.15);color:#60a5fa;';
+                  } else if (t.derivedStatus === 'waiting') {
+                    stBadge.textContent = '○ Waiting';
+                    stBadge.style.cssText += 'background:rgba(234,179,8,0.15);color:#fde047;';
+                  } else if (t.derivedStatus === 'blocked') {
+                    stBadge.textContent = '⊘ Blocked';
+                    stBadge.style.cssText += 'background:rgba(239,68,68,0.15);color:#f87171;';
+                  } else {
+                    stBadge.textContent = '● Ready';
+                    stBadge.style.cssText += 'background:rgba(148,163,184,0.15);color:#94a3b8;';
+                  }
+
+                  const titleText = document.createElement('span');
+                  titleText.style.cssText = 'font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                  titleText.textContent = t.title;
+
+                  const agentBadge = document.createElement('span');
+                  agentBadge.style.cssText = 'font-size:10.5px;color:var(--text-faint);background:var(--surface-1);padding:2px 6px;border-radius:4px;border:1px solid var(--border-soft);';
+                  agentBadge.textContent = t.agent_name ? `🤖 ${t.agent_name}` : 'Unassigned';
+
+                  left.append(stepNum, stBadge, titleText, agentBadge);
+
+                  const right = document.createElement('div');
+                  right.style.cssText = 'display:flex;gap:4px;align-items:center;';
+
+                  if (t.dependencyStatus && t.dependencyStatus.totalDependencies > 0) {
+                    const depBadge = document.createElement('span');
+                    depBadge.style.cssText = 'font-size:10px;color:var(--text-faint);';
+                    depBadge.textContent = `deps: ${t.dependencyStatus.completedCount}/${t.dependencyStatus.totalDependencies}`;
+                    right.appendChild(depBadge);
+                  }
+
+                  const handoffBtn = document.createElement('button');
+                  handoffBtn.className = 'btn-ghost';
+                  handoffBtn.style.cssText = 'padding:2px 6px;font-size:10.5px;';
+                  handoffBtn.textContent = '🤝 Handoff';
+                  handoffBtn.onclick = () => promptHandoff(t.id, t.title);
+                  right.appendChild(handoffBtn);
+
+                  const reviewBtn = document.createElement('button');
+                  reviewBtn.className = 'btn-ghost';
+                  reviewBtn.style.cssText = 'padding:2px 6px;font-size:10.5px;';
+                  reviewBtn.textContent = '🔍 Review';
+                  reviewBtn.onclick = () => promptReview(t.id, t.title);
+                  right.appendChild(reviewBtn);
+
+                  stepRow.append(left, right);
+                  dagContainer.appendChild(stepRow);
+                }
+              });
+
+            wfList.appendChild(card);
+          }
+          body.appendChild(wfList);
+        })
+        .catch((err) => {
+          if (curReq !== _activeWfReq) return;
+          placeholder.textContent = `Failed loading workflows: ${err.message || err}`;
+        });
+    }
+
+    window.promptCreateWorkflow = function (projectId) {
+      const title = prompt('Enter Workflow Title (e.g. "OAuth 2.0 Integration"):');
+      if (!title || !title.trim()) return;
+      const description = prompt('Enter Workflow Description / Goal:') || '';
+      fetch(`/api/projects/${encodeURIComponent(projectId)}/workflows`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title.trim(), description: description.trim() }),
+      })
+        .then((r) => r.json())
+        .then((res) => {
+          if (res.ok) renderCommandCenter();
+          else alert(`Error: ${res.error}`);
+        })
+        .catch((err) => alert(`Failed creating workflow: ${err.message}`));
+    };
+
+    window.promptAddTaskToWorkflow = function (workflowId) {
+      const title = prompt('Enter Step Title (e.g. "Design DB Schema"):');
+      if (!title || !title.trim()) return;
+      const spec = prompt('Enter Task Spec / Requirements:') || '';
+      fetch(`/api/workflows/${encodeURIComponent(workflowId)}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title.trim(), spec: spec.trim() }),
+      })
+        .then((r) => r.json())
+        .then((res) => {
+          if (res.ok) renderCommandCenter();
+          else alert(`Error: ${res.error}`);
+        })
+        .catch((err) => alert(`Failed adding task: ${err.message}`));
+    };
+
+    window.promptHandoff = function (taskId, title) {
+      const room = activeRoom();
+      const agents = room ? room.agents || [] : [];
+      if (agents.length === 0) {
+        alert('No agents found in this project to hand off to.');
+        return;
+      }
+      const agentNames = agents.map((a, i) => `${i + 1}. ${a.name} (${a.role})`).join('\n');
+      const choice = prompt(`Select recipient agent for "${title}":\n\n${agentNames}\n\nEnter number (1-${agents.length}):`);
+      const idx = parseInt(choice, 10) - 1;
+      if (isNaN(idx) || idx < 0 || idx >= agents.length) return;
+      const toAgent = agents[idx];
+      const meAgent = ccAgent();
+      const fromAgentId = meAgent ? meAgent.id : (agents.find(a => a.id !== toAgent.id)?.id || toAgent.id);
+
+      const summary = prompt(`Enter handoff instructions / context for ${toAgent.name}:`, 'Please proceed with this task.') || '';
+      if (!summary.trim()) return;
+
+      fetch(`/api/tasks/${encodeURIComponent(taskId)}/handoff`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fromAgentId,
+          toAgentId: toAgent.id,
+          summary: summary.trim(),
+        }),
+      })
+        .then((r) => r.json())
+        .then((res) => {
+          if (res.ok) {
+            alert(`Task successfully handed off to ${toAgent.name}!`);
+            renderCommandCenter();
+          } else {
+            alert(`Handoff failed: ${res.error}`);
+          }
+        })
+        .catch((err) => alert(`Handoff error: ${err.message}`));
+    };
+
+    window.promptReview = function (taskId, title) {
+      const meAgent = ccAgent();
+      const reviewerId = meAgent ? meAgent.id : 'reviewer';
+      const verdictChoice = prompt(`Submit Code Review for "${title}":\n\nEnter 1 for "Approved"\nEnter 2 for "Changes Requested"`);
+      if (verdictChoice !== '1' && verdictChoice !== '2') return;
+      const verdict = verdictChoice === '1' ? 'approved' : 'changes_requested';
+      const summary = prompt(verdict === 'approved' ? 'Enter approval comments:' : 'Enter requested changes:');
+      if (!summary || !summary.trim()) return;
+
+      fetch(`/api/tasks/${encodeURIComponent(taskId)}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reviewerId,
+          verdict,
+          summary: summary.trim(),
+        }),
+      })
+        .then((r) => r.json())
+        .then((res) => {
+          if (res.ok) {
+            alert(`Review submitted (${verdict})!${res.reworkTaskId ? ` Spawned follow-up rework task #${res.reworkTaskId}` : ''}`);
+            renderCommandCenter();
+          } else {
+            alert(`Review failed: ${res.error}`);
+          }
+        })
+        .catch((err) => alert(`Review error: ${err.message}`));
+    };
 
     function ccRenderSteer(body, a) {
       body.innerHTML = '';

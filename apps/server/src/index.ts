@@ -14,6 +14,9 @@ import {
   getAgentTraces, getAgentOutput, getProjectGraph,
   pauseTask, resumeTask, haltTask, getAgentTasks, getTaskTraces,
   getTask, getTaskAttempts, getTaskArtifacts, getProjectArtifacts, getArtifact, storeArtifact,
+  createWorkflow, getWorkflow, getProjectWorkflows, setWorkflowState, updateTaskWorkflow,
+  getWorkflowGraph, addTaskDependency, removeTaskDependency, getTaskDependencies, getTaskDependents,
+  getTaskDependencyStatus, isTaskDependenciesSatisfied,
   type Db
 } from "./db.js";
 import { Positions } from "./view.js";
@@ -746,6 +749,337 @@ export async function buildServer(
     const limit = req.query.limit ? Number(req.query.limit) : 50;
     const tasks = getAgentTasks(db, agentId, limit);
     return { ok: true, agentId, tasks };
+  });
+
+  // ─── Workflows (Phase 2) ──────────────────────────────────────────
+
+  app.post<{
+    Params: { id: string };
+    Body: { title: string; description?: string | null; creatorId?: string };
+  }>("/api/projects/:id/workflows", async (req, reply) => {
+    const projectId = req.params.id;
+    const { title, description, creatorId } = req.body ?? {};
+    if (!title || !title.trim()) return reply.code(400).send({ ok: false, error: "title is required" });
+
+    try {
+      const workflowId = createWorkflow(db, {
+        projectId,
+        title: title.trim(),
+        description: description ?? null,
+        creatorId: creatorId ?? "user",
+      });
+      appendEvent(db, projectId, null, "workflow.created", { workflowId, title: title.trim() });
+      broadcastView();
+      return { ok: true, workflowId };
+    } catch (err: any) {
+      return reply.code(404).send({ ok: false, error: err.message });
+    }
+  });
+
+  app.get<{ Params: { id: string } }>("/api/projects/:id/workflows", async (req, reply) => {
+    const projectId = req.params.id;
+    const project = db.prepare("SELECT id FROM projects WHERE id = ?").get(projectId) as any;
+    if (!project) return reply.code(404).send({ ok: false, error: "project not found" });
+    const workflows = getProjectWorkflows(db, projectId);
+    return { ok: true, projectId, workflows };
+  });
+
+  app.get<{ Params: { id: string } }>("/api/workflows/:id", async (req, reply) => {
+    const workflowId = req.params.id;
+    const graph = getWorkflowGraph(db, workflowId);
+    if (!graph) return reply.code(404).send({ ok: false, error: "workflow not found" });
+    return { ok: true, ...graph };
+  });
+
+  app.post<{
+    Params: { id: string };
+    Body: {
+      taskId?: string;
+      title?: string;
+      spec?: string | null;
+      agentId?: string | null;
+      requiredCapability?: string | null;
+      budgetSeconds?: number;
+      budgetUsd?: number;
+      dependsOn?: string[];
+    };
+  }>("/api/workflows/:id/tasks", async (req, reply) => {
+    const workflowId = req.params.id;
+    const wf = getWorkflow(db, workflowId);
+    if (!wf) return reply.code(404).send({ ok: false, error: "workflow not found" });
+
+    const { taskId, title, spec, agentId, requiredCapability, budgetSeconds, budgetUsd, dependsOn } = req.body ?? {};
+
+    let effectiveTaskId = taskId;
+    if (!effectiveTaskId) {
+      if (!title || !title.trim()) {
+        return reply.code(400).send({ ok: false, error: "title or taskId required" });
+      }
+      effectiveTaskId = createTask(db, {
+        projectId: wf.project_id,
+        title: title.trim(),
+        spec: spec ?? null,
+        creatorId: wf.creator_id,
+        agentId: agentId ?? null,
+        requiredCapability: requiredCapability ?? null,
+        workflowId,
+        budgetSeconds: budgetSeconds ?? 60,
+        budgetUsd: budgetUsd ?? 1.0,
+      });
+    } else {
+      const existingTask = getTask(db, effectiveTaskId);
+      if (!existingTask) return reply.code(404).send({ ok: false, error: "task not found" });
+      if (existingTask.project_id !== wf.project_id) {
+        return reply.code(400).send({ ok: false, error: "task and workflow must belong to the same project" });
+      }
+      updateTaskWorkflow(db, effectiveTaskId, workflowId);
+    }
+
+    if (Array.isArray(dependsOn)) {
+      for (const depId of dependsOn) {
+        const depResult = addTaskDependency(db, effectiveTaskId, depId);
+        if (!depResult.ok) {
+          return reply.code(400).send({ ok: false, error: depResult.error });
+        }
+      }
+    }
+
+    if (agentId) {
+      sendTaskOffer(db, nodeSockets, effectiveTaskId);
+    } else {
+      orchestrate(db, nodeSockets, app);
+    }
+    broadcastView();
+    return { ok: true, workflowId, taskId: effectiveTaskId };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/workflows/:id/pause", async (req, reply) => {
+    const workflowId = req.params.id;
+    const wf = getWorkflow(db, workflowId);
+    if (!wf) return reply.code(404).send({ ok: false, error: "workflow not found" });
+    setWorkflowState(db, workflowId, "paused");
+    appendEvent(db, wf.project_id, null, "workflow.paused", { workflowId });
+    broadcastView();
+    return { ok: true, state: "paused" };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/workflows/:id/resume", async (req, reply) => {
+    const workflowId = req.params.id;
+    const wf = getWorkflow(db, workflowId);
+    if (!wf) return reply.code(404).send({ ok: false, error: "workflow not found" });
+    setWorkflowState(db, workflowId, "active");
+    appendEvent(db, wf.project_id, null, "workflow.resumed", { workflowId });
+    orchestrate(db, nodeSockets, app);
+    broadcastView();
+    return { ok: true, state: "active" };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/workflows/:id/cancel", async (req, reply) => {
+    const workflowId = req.params.id;
+    const wf = getWorkflow(db, workflowId);
+    if (!wf) return reply.code(404).send({ ok: false, error: "workflow not found" });
+    setWorkflowState(db, workflowId, "canceled");
+    // Cancel any submitted tasks in this workflow
+    const tasks = db.prepare("SELECT id FROM tasks WHERE workflow_id = ? AND state = 'submitted'").all(workflowId) as any[];
+    for (const t of tasks) {
+      haltTask(db, t.id, "workflow canceled");
+    }
+    appendEvent(db, wf.project_id, null, "workflow.canceled", { workflowId });
+    broadcastView();
+    return { ok: true, state: "canceled" };
+  });
+
+  // ─── Task Dependencies (Phase 2) ──────────────────────────────────
+
+  app.post<{
+    Params: { id: string };
+    Body: { dependsOnTaskId: string };
+  }>("/api/tasks/:id/dependencies", async (req, reply) => {
+    const taskId = req.params.id;
+    const { dependsOnTaskId } = req.body ?? {};
+    if (!dependsOnTaskId) return reply.code(400).send({ ok: false, error: "dependsOnTaskId is required" });
+
+    const task = getTask(db, taskId);
+    if (!task) return reply.code(404).send({ ok: false, error: "task not found" });
+
+    const result = addTaskDependency(db, taskId, dependsOnTaskId);
+    if (!result.ok) {
+      return reply.code(400).send({ ok: false, error: result.error });
+    }
+    appendEvent(db, task.project_id, taskId, "task.dependency_added", { taskId, dependsOnTaskId });
+    broadcastView();
+    return { ok: true };
+  });
+
+  app.get<{ Params: { id: string } }>("/api/tasks/:id/dependencies", async (req, reply) => {
+    const taskId = req.params.id;
+    const task = getTask(db, taskId);
+    if (!task) return reply.code(404).send({ ok: false, error: "task not found" });
+
+    const dependencies = getTaskDependencies(db, taskId);
+    const dependents = getTaskDependents(db, taskId);
+    const status = getTaskDependencyStatus(db, taskId);
+
+    return { ok: true, taskId, dependencies, dependents, status };
+  });
+
+  app.delete<{
+    Params: { id: string; depId: string };
+  }>("/api/tasks/:id/dependencies/:depId", async (req, reply) => {
+    const { id: taskId, depId: dependsOnTaskId } = req.params;
+    const ok = removeTaskDependency(db, taskId, dependsOnTaskId);
+    if (!ok) return reply.code(404).send({ ok: false, error: "dependency link not found" });
+    broadcastView();
+    return { ok: true };
+  });
+
+  // ─── Agent Handoffs & Reviews (Phase 2) ────────────────────────────
+
+  app.post<{
+    Params: { id: string };
+    Body: {
+      fromAgentId: string;
+      toAgentId: string;
+      summary: string;
+      instructions?: string;
+      artifactRefs?: string[];
+    };
+  }>("/api/tasks/:id/handoff", async (req, reply) => {
+    const taskId = req.params.id;
+    const task = getTask(db, taskId);
+    if (!task) return reply.code(404).send({ ok: false, error: "task not found" });
+
+    const { fromAgentId, toAgentId, summary, instructions, artifactRefs } = req.body ?? {};
+    if (!fromAgentId || !toAgentId || !summary) {
+      return reply.code(400).send({ ok: false, error: "fromAgentId, toAgentId, and summary are required" });
+    }
+
+    const fromAgent = db.prepare("SELECT * FROM agents WHERE id = ?").get(fromAgentId) as any;
+    const toAgent = db.prepare("SELECT * FROM agents WHERE id = ?").get(toAgentId) as any;
+    if (!fromAgent || !toAgent) {
+      return reply.code(404).send({ ok: false, error: "one or both agents not found" });
+    }
+
+    if (fromAgent.project_id !== task.project_id || toAgent.project_id !== task.project_id) {
+      return reply.code(400).send({ ok: false, error: "Cross-project handoffs are forbidden" });
+    }
+
+    // Verify any referenced artifacts belong to this project
+    if (Array.isArray(artifactRefs)) {
+      for (const artId of artifactRefs) {
+        const art = getArtifact(db, artId);
+        if (!art || art.project_id !== task.project_id) {
+          return reply.code(400).send({ ok: false, error: `Invalid or cross-project artifact reference "${artId}"` });
+        }
+      }
+    }
+
+    // Post to recipient's Hive mailbox
+    if (hive) {
+      try {
+        hive.postMessage({
+          to: toAgentId,
+          act: "request",
+          subject: `Handoff: ${task.title}`,
+          body: `${summary}\n\n${instructions || ""}\n\n[Task ID: ${taskId}]`,
+        }, fromAgentId);
+      } catch {}
+    }
+
+    // Append handoff event
+    appendEvent(db, task.project_id, taskId, "agent.handoff", {
+      fromAgentId,
+      toAgentId,
+      taskId,
+      summary,
+      instructions: instructions ?? null,
+      artifactRefs: artifactRefs ?? [],
+    });
+
+    // Re-assign task to recipient
+    db.prepare("UPDATE tasks SET agent_id = ? WHERE id = ?").run(toAgentId, taskId);
+
+    // If task is ready, dispatch to recipient runner
+    if (task.state === "submitted" && isTaskDependenciesSatisfied(db, taskId)) {
+      sendTaskOffer(db, nodeSockets, taskId);
+    }
+    broadcastView();
+    return { ok: true, taskId, handedTo: toAgentId };
+  });
+
+  app.post<{
+    Params: { id: string };
+    Body: {
+      reviewerId: string;
+      verdict: "approved" | "changes_requested";
+      summary: string;
+      diffPath?: string | null;
+      score?: number | null;
+    };
+  }>("/api/tasks/:id/review", async (req, reply) => {
+    const taskId = req.params.id;
+    const task = getTask(db, taskId);
+    if (!task) return reply.code(404).send({ ok: false, error: "task not found" });
+
+    const { reviewerId, verdict, summary, diffPath, score } = req.body ?? {};
+    if (!reviewerId || !verdict || !summary) {
+      return reply.code(400).send({ ok: false, error: "reviewerId, verdict, and summary are required" });
+    }
+
+    if (verdict !== "approved" && verdict !== "changes_requested") {
+      return reply.code(400).send({ ok: false, error: "verdict must be 'approved' or 'changes_requested'" });
+    }
+
+    const reviewer = db.prepare("SELECT * FROM agents WHERE id = ?").get(reviewerId) as any;
+    if (reviewer && reviewer.project_id !== task.project_id) {
+      return reply.code(400).send({ ok: false, error: "Reviewer must belong to the same project" });
+    }
+
+    // Store review artifact
+    const artifactId = storeArtifact(db, {
+      projectId: task.project_id,
+      taskId: task.id,
+      creatorId: reviewerId,
+      kind: "review",
+      title: `Review: ${verdict === "approved" ? "Approved" : "Changes Requested"}`,
+      summary,
+      filePath: diffPath ?? null,
+    });
+
+    appendEvent(db, task.project_id, taskId, "agent.review_completed", {
+      reviewerId,
+      verdict,
+      summary,
+      artifactId,
+      score: score ?? null,
+    });
+
+    let reworkTaskId: string | null = null;
+    if (verdict === "changes_requested") {
+      // Spawn follow-up rework task linked via parent_task & retry_of
+      reworkTaskId = createTask(db, {
+        projectId: task.project_id,
+        title: `[Rework] ${task.title}`,
+        spec: `Changes requested by ${reviewerId}:\n\n${summary}\n\nOriginal Spec:\n${task.spec || ""}`,
+        creatorId: reviewerId,
+        parentTask: task.id,
+        retryOf: task.id,
+        agentId: task.agent_id,
+        workflowId: task.workflow_id,
+      });
+
+      // Link dependency so the rework task depends on the review conclusion
+      addTaskDependency(db, reworkTaskId, task.id);
+
+      if (task.agent_id) {
+        sendTaskOffer(db, nodeSockets, reworkTaskId);
+      } else {
+        orchestrate(db, nodeSockets, app);
+      }
+    }
+
+    broadcastView();
+    return { ok: true, taskId, verdict, artifactId, reworkTaskId };
   });
 
   app.post<{
