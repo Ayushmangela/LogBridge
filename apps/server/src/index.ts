@@ -61,7 +61,7 @@ import {
 } from "./nodeGateway.js";
 import { createTrigger, deleteTrigger, setTriggerEnabled, startEventLoop, startTriggerLoop } from "./triggers.js";
 import { TriggerCreate, TriggerDelete, TriggerEnable } from "@logbridge/protocol";
-import { registerPtyGateway, spawnOrGetPtySession } from "./ptyGateway.js";
+import { registerPtyGateway, spawnOrGetPtySession, submitPromptToAgent } from "./ptyGateway.js";
 import { HiveManager, ensureProjectHive, registerAgentInProjectHive } from "./hive.js";
 import { buildCommanderHivePrompt } from "./hivePrompt.js";
 
@@ -671,6 +671,10 @@ export async function buildServer(
 
     if (targetAgentId) {
       sendTaskOffer(db, nodeSockets, taskId);
+      const promptText = title.trim() + (spec && spec.trim() ? `\n\n${spec.trim()}` : '');
+      try {
+        submitPromptToAgent(targetAgentId, promptText);
+      } catch {}
     } else {
       orchestrate(db, nodeSockets, app);
     }

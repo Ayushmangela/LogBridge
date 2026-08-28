@@ -3459,6 +3459,18 @@
         if (!res.ok || !data.ok) {
           throw new Error(data.error || 'Failed to dispatch task');
         }
+
+        // Directly type and submit the task into the agent's interactive terminal!
+        const taskPrompt = title + (spec ? `\n\n${spec}` : '');
+        const targetAgent = activeRoom()?.agents?.find(x => x.id === agentId) || ccAgent();
+        if (targetAgent) {
+          const ptyName = 'pty-' + (targetAgent.name || 'agent').toLowerCase().replace(/[^a-z0-9]/g, '') + '-' + (targetAgent.id || '000').slice(-8);
+          const entry = getOrCreateTerminalEntry(ptyName, targetAgent);
+          if (entry.ws && entry.ws.readyState === WebSocket.OPEN) {
+            entry.ws.send(JSON.stringify({ type: 'submitPrompt', ptyId: ptyName, text: taskPrompt }));
+          }
+        }
+
         closeDispatchTaskModal();
         closeAgentPopup();
         if (viewMode === 'agent') renderCommandCenter();

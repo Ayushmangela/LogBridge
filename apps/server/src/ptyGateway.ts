@@ -441,3 +441,20 @@ export function registerPtyGateway(app: FastifyInstance, db: Db, hive?: HiveMana
     });
   });
 }
+
+export function submitPromptToAgent(agentId: string, text: string): boolean {
+  if (!text) return false;
+  for (const session of sessions.values()) {
+    if (session.agentId === agentId || session.id.endsWith(agentId.slice(-8))) {
+      try {
+        const payload = text.includes("\n") ? `\x1b[200~${text}\x1b[201~` : text;
+        session.proc.write(payload);
+        setTimeout(() => {
+          try { session.proc.write("\r"); } catch {}
+        }, 250);
+        return true;
+      } catch {}
+    }
+  }
+  return false;
+}
