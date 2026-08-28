@@ -6665,7 +6665,22 @@
           const txt = document.createElement('span');
           txt.className = 'term-queue-item-text';
           txt.textContent = t.spec || t.title || 'Untitled task';
-          txt.title = t.spec || t.title || '';
+          txt.style.cursor = 'pointer';
+          txt.title = 'Click to send this task directly to the terminal now';
+          txt.onclick = async () => {
+            const val = t.spec || t.title;
+            if (val && entry.ws && entry.ws.readyState === WebSocket.OPEN) {
+              entry.ws.send(JSON.stringify({ type: 'submitPrompt', ptyId: ptyName, text: val }));
+            }
+            try {
+              await fetch('/debug/stop-task', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ taskId: t.id, reason: 'Dispatched to terminal' })
+              });
+            } catch {}
+            renderCommandCenter();
+          };
 
           const del = document.createElement('button');
           del.className = 'term-queue-del';

@@ -97,7 +97,7 @@ export function spawnOrGetPtySession(
     const bin = resolveExecutable("opencode");
     if (bin) {
       exeCmd = bin;
-      exeArgs = [];
+      exeArgs = ["--auto"];
       isCli = true;
     }
     title = "OpenCode";
@@ -108,7 +108,7 @@ export function spawnOrGetPtySession(
     const bin = resolveExecutable("claude");
     if (bin) {
       exeCmd = bin;
-      exeArgs = [];
+      exeArgs = ["--dangerously-skip-permissions"];
       isCli = true;
     }
   } else if (provider === "gemini" || provider === "antigravity") {
