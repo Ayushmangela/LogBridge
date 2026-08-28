@@ -2130,6 +2130,7 @@ export async function buildServer(
         if (existsSync(candidate)) targetFolder = candidate;
       }
     }
+    const validFolder = targetFolder && existsSync(targetFolder) ? targetFolder : null;
 
     const result = await requestAgentCreate(db, nodeSockets, {
       machineId: b.machineId,
@@ -2139,10 +2140,10 @@ export async function buildServer(
       provider: b.provider ?? null,
       model: b.model ?? null,
       capabilities: Array.isArray(b.capabilities) ? b.capabilities : [],
-      cwd: b.cwd || targetFolder || null,
+      cwd: b.cwd || validFolder || null,
       character: b.character ?? null,
       color: b.color ?? null,
-      folder: targetFolder || null,
+      folder: b.folder || validFolder || null,
       isolation: b.isolation ?? null,
       bypassPermissions: Boolean(b.bypassPermissions),
       // Trimmed and capped here rather than in the browser — a request can
