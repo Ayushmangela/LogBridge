@@ -246,6 +246,43 @@ export const GoalView = z.object({
 });
 export type GoalViewT = z.infer<typeof GoalView>;
 
+export const ApprovalView = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  workflowId: z.string().nullable().optional(),
+  goalId: z.string().nullable().optional(),
+  taskId: z.string().nullable().optional(),
+  requesterId: z.string(),
+  requesterType: z.string(),
+  approvalType: z.string(),
+  title: z.string(),
+  description: z.string().nullable().optional(),
+  reason: z.string(),
+  riskLevel: z.string(),
+  state: z.string(),
+  requestedAt: z.string(),
+  resolvedAt: z.string().nullable().optional(),
+  resolvedBy: z.string().nullable().optional(),
+});
+export type ApprovalViewT = z.infer<typeof ApprovalView>;
+
+export const EscalationView = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  workflowId: z.string().nullable().optional(),
+  taskId: z.string().nullable().optional(),
+  goalId: z.string().nullable().optional(),
+  agentId: z.string().nullable().optional(),
+  urgency: z.string(),
+  title: z.string(),
+  reason: z.string(),
+  state: z.string(),
+  createdAt: z.string(),
+  resolvedAt: z.string().nullable().optional(),
+  resolvedBy: z.string().nullable().optional(),
+});
+export type EscalationViewT = z.infer<typeof EscalationView>;
+
 export const Room = z.object({
   id: z.string(),
   name: z.string(),
@@ -265,6 +302,8 @@ export const Room = z.object({
   triggers: z.array(TriggerView),
   workflows: z.array(WorkflowView).optional(),
   goals: z.array(GoalView).optional(),
+  approvals: z.array(ApprovalView).optional(),
+  escalations: z.array(EscalationView).optional(),
 });
 
 export const WorkspaceView = z.object({

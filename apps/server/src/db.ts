@@ -305,7 +305,64 @@ CREATE TABLE IF NOT EXISTS plan_revisions (
   FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE CASCADE,
   FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS idx_plan_revisions_goal ON plan_revisions (goal_id, revision_number);
+CREATE TABLE IF NOT EXISTS approval_requests (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  workflow_id TEXT,
+  goal_id TEXT,
+  task_id TEXT,
+  requester_id TEXT NOT NULL,
+  requester_type TEXT NOT NULL DEFAULT 'agent',
+  approval_type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  reason TEXT NOT NULL,
+  risk_level TEXT NOT NULL DEFAULT 'medium',
+  proposed_action_json TEXT,
+  state TEXT NOT NULL DEFAULT 'pending',
+  requested_at TEXT NOT NULL,
+  resolved_at TEXT,
+  resolved_by TEXT,
+  resolution_comment TEXT,
+  expires_at TEXT,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_approvals_project ON approval_requests (project_id, state);
+CREATE INDEX IF NOT EXISTS idx_approvals_task ON approval_requests (task_id);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  actor_type TEXT NOT NULL,
+  actor_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  resource_type TEXT NOT NULL,
+  resource_id TEXT NOT NULL,
+  metadata_json TEXT,
+  timestamp TEXT NOT NULL,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_audit_project ON audit_logs (project_id, timestamp);
+
+CREATE TABLE IF NOT EXISTS escalations (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  workflow_id TEXT,
+  task_id TEXT,
+  goal_id TEXT,
+  agent_id TEXT,
+  urgency TEXT NOT NULL DEFAULT 'medium',
+  title TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'open',
+  recommended_actions_json TEXT,
+  created_at TEXT NOT NULL,
+  resolved_at TEXT,
+  resolved_by TEXT,
+  resolution_notes TEXT,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_escalations_project ON escalations (project_id, state);
 
 CREATE INDEX IF NOT EXISTS idx_events_project ON events (project_id, seq);
 CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks (agent_id);
@@ -2182,6 +2239,72 @@ export function setPlanRevisionState(
   const res = db.prepare(sql).run(...params);
   return res.changes > 0;
 }
+
+// ─── Phase 5: Project Membership & Roles ────────────────────────────
+
+export interface ProjectMemberRow {
+  projectId: string;
+  userId: string;
+  name: string;
+  ghLogin: string;
+  avatar: number;
+  role: string;
+  joinedAt: string;
+}
+
+export function getProjectMembers(db: Db, projectId: string): ProjectMemberRow[] {
+  const rows = db
+    .prepare(
+      `SELECT pm.project_id AS projectId, pm.user_id AS userId, pm.role, pm.joined_at AS joinedAt,
+              u.name, u.gh_login AS ghLogin, u.avatar
+       FROM project_members pm
+       JOIN users u ON u.id = pm.user_id
+       WHERE pm.project_id = ?
+       ORDER BY pm.joined_at ASC`
+    )
+    .all(projectId) as any[];
+  return rows.map((r) => ({
+    projectId: r.projectId,
+    userId: r.userId,
+    name: r.name,
+    ghLogin: r.ghLogin,
+    avatar: Number(r.avatar ?? 0),
+    role: r.role,
+    joinedAt: r.joinedAt,
+  }));
+}
+
+export function getUserProjectRole(db: Db, projectId: string, userId: string): string | null {
+  const row = db
+    .prepare("SELECT role FROM project_members WHERE project_id = ? AND user_id = ?")
+    .get(projectId, userId) as any;
+  return row?.role ?? null;
+}
+
+export function setProjectMember(
+  db: Db,
+  projectId: string,
+  userId: string,
+  role: string = "member"
+): boolean {
+  const now = new Date().toISOString();
+  const res = db
+    .prepare(
+      `INSERT INTO project_members (project_id, user_id, role, joined_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(project_id, user_id) DO UPDATE SET role = excluded.role`
+    )
+    .run(projectId, userId, role, now);
+  return res.changes > 0;
+}
+
+export function removeProjectMember(db: Db, projectId: string, userId: string): boolean {
+  const res = db
+    .prepare("DELETE FROM project_members WHERE project_id = ? AND user_id = ?")
+    .run(projectId, userId);
+  return res.changes > 0;
+}
+
 
 
 

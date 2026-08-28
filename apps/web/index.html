@@ -3224,6 +3224,7 @@
         { id: 'code', label: '</> Code', surface: 'both' },
         { id: 'tasks', label: 'Tasks', surface: 'both' },
         { id: 'goals', label: '🎯 Goals', surface: 'both' },
+        { id: 'approvals', label: '🛡️ Approvals', surface: 'both' },
         { id: 'workflows', label: 'Workflows', surface: 'both' },
         { id: 'attempts', label: 'Attempts', surface: 'both' },
         { id: 'artifacts', label: 'Artifacts', surface: 'both' },
@@ -3357,6 +3358,7 @@
       else if (ccTab === 'triggers') ccRenderTriggers(body, a);
       else if (ccTab === 'tasks') ccRenderTasks(body, a);
       else if (ccTab === 'goals') ccRenderGoals(body, a);
+      else if (ccTab === 'approvals') ccRenderApprovals(body, a);
       else if (ccTab === 'workflows') ccRenderWorkflows(body, a);
       else if (ccTab === 'attempts') ccRenderAttempts(body, a);
       else if (ccTab === 'artifacts') ccRenderArtifacts(body, a);
@@ -4028,6 +4030,226 @@
           }
         })
         .catch((err) => alert(`Replanning error: ${err.message || err}`));
+    };
+    let _activeApprovalsReq = 0;
+    function ccRenderApprovals(body, a) {
+      const curReq = ++_activeApprovalsReq;
+      const room = activeRoom();
+      const prjId = room ? room.id : (a ? a.projectId : null);
+      if (!prjId) {
+        body.innerHTML = '<div class="empty-note">No active project room selected.</div>';
+        return;
+      }
+
+      body.innerHTML = '';
+      const topBar = document.createElement('div');
+      topBar.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border-soft);';
+      const title = document.createElement('div');
+      title.style.cssText = 'font-weight:700;font-size:15px;color:var(--text);display:flex;align-items:center;gap:8px;';
+      title.innerHTML = '<span>🛡️</span> Human Governance, Approvals & Audit';
+
+      const reqApprBtn = document.createElement('button');
+      reqApprBtn.className = 'btn-primary';
+      reqApprBtn.style.cssText = 'padding:6px 14px;font-size:12px;cursor:pointer;';
+      reqApprBtn.textContent = '+ New Approval Request';
+      reqApprBtn.onclick = () => window.promptCreateApproval(prjId);
+      topBar.append(title, reqApprBtn);
+      body.appendChild(topBar);
+
+      // Fetch approvals, escalations, and audit logs in parallel
+      Promise.all([
+        fetch(`/api/projects/${prjId}/approvals`).then((r) => r.json()),
+        fetch(`/api/projects/${prjId}/escalations`).then((r) => r.json()),
+        fetch(`/api/projects/${prjId}/audit?limit=25`).then((r) => r.json()),
+        fetch(`/api/projects/${prjId}/members`).then((r) => r.json()),
+      ])
+        .then(([apprData, escData, audData, memData]) => {
+          if (curReq !== _activeApprovalsReq) return;
+          const approvals = apprData.approvals || [];
+          const escalations = escData.escalations || [];
+          const auditLogs = audData.logs || [];
+          const members = memData.members || [];
+
+          // 1. Pending Approvals Section
+          const apprSection = document.createElement('div');
+          apprSection.style.cssText = 'margin-bottom:20px;';
+          apprSection.innerHTML = '<div style="font-size:13px;font-weight:800;letter-spacing:.3px;margin-bottom:10px;display:flex;align-items:center;gap:6px;"><span>📋</span> PENDING HUMAN APPROVALS</div>';
+
+          if (approvals.length === 0) {
+            apprSection.innerHTML += '<div style="background:var(--surface-1);border:1px dashed var(--border-soft);border-radius:8px;padding:16px;font-size:12px;color:var(--text-faint);text-align:center;">No pending approval requests. Autonomous agents are authorized to operate.</div>';
+          } else {
+            const aList = document.createElement('div');
+            aList.style.cssText = 'display:flex;flex-direction:column;gap:10px;';
+
+            for (const app of approvals) {
+              const aCard = document.createElement('div');
+              aCard.style.cssText = 'background:var(--surface-1);border:1px solid var(--border-soft);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;';
+
+              const head = document.createElement('div');
+              head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;';
+
+              const left = document.createElement('div');
+              left.style.cssText = 'display:flex;align-items:center;gap:8px;';
+
+              const riskBadge = document.createElement('span');
+              riskBadge.style.cssText = 'font-size:10px;font-weight:800;letter-spacing:.4px;padding:2px 7px;border-radius:10px;text-transform:uppercase;';
+              if (app.riskLevel === 'critical') riskBadge.style.cssText += 'background:rgba(239,68,68,0.2);color:#f87171;border:1px solid rgba(239,68,68,0.4);';
+              else if (app.riskLevel === 'high') riskBadge.style.cssText += 'background:rgba(249,115,22,0.2);color:#fb923c;border:1px solid rgba(249,115,22,0.4);';
+              else if (app.riskLevel === 'medium') riskBadge.style.cssText += 'background:rgba(234,179,8,0.2);color:#fde047;border:1px solid rgba(234,179,8,0.4);';
+              else riskBadge.style.cssText += 'background:rgba(34,197,94,0.2);color:#4ade80;border:1px solid rgba(34,197,94,0.4);';
+              riskBadge.textContent = app.riskLevel;
+
+              const titleEl = document.createElement('strong');
+              titleEl.style.cssText = 'font-size:13px;color:var(--text);';
+              titleEl.textContent = app.title;
+              left.append(riskBadge, titleEl);
+
+              const right = document.createElement('div');
+              right.style.cssText = 'display:flex;gap:6px;';
+
+              if (app.state === 'pending') {
+                const approveBtn = document.createElement('button');
+                approveBtn.className = 'btn-primary';
+                approveBtn.style.cssText = 'padding:3px 10px;font-size:11px;background:#22c55e;border-color:#16a34a;';
+                approveBtn.textContent = '✅ Approve';
+                approveBtn.onclick = () => {
+                  const comment = prompt('Approval comment / authorization note (optional):');
+                  fetch(`/api/approvals/${app.id}/approve`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: 'human', comment }),
+                  }).then(() => renderCommandCenter());
+                };
+
+                const rejectBtn = document.createElement('button');
+                rejectBtn.className = 'cc-tab';
+                rejectBtn.style.cssText = 'padding:3px 10px;font-size:11px;color:var(--red);border-color:rgba(239,68,68,0.3);';
+                rejectBtn.textContent = '❌ Reject';
+                rejectBtn.onclick = () => {
+                  const comment = prompt('Rejection reason (required):');
+                  if (!comment) return;
+                  fetch(`/api/approvals/${app.id}/reject`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: 'human', comment }),
+                  }).then(() => renderCommandCenter());
+                };
+
+                right.append(approveBtn, rejectBtn);
+              } else {
+                const stSpan = document.createElement('span');
+                stSpan.style.cssText = 'font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;';
+                stSpan.textContent = `${app.state} by ${app.resolvedBy || 'human'}`;
+                right.appendChild(stSpan);
+              }
+
+              head.append(left, right);
+              aCard.appendChild(head);
+
+              const reasonBox = document.createElement('div');
+              reasonBox.style.cssText = 'font-size:12px;color:var(--text-muted);background:rgba(0,0,0,0.15);padding:6px 10px;border-radius:6px;';
+              reasonBox.innerHTML = `<strong>Reason:</strong> ${escapeHtml(app.reason)}`;
+              aCard.appendChild(reasonBox);
+
+              aList.appendChild(aCard);
+            }
+            apprSection.appendChild(aList);
+          }
+          body.appendChild(apprSection);
+
+          // 2. Active Escalations Section
+          if (escalations.length > 0) {
+            const escSection = document.createElement('div');
+            escSection.style.cssText = 'margin-bottom:20px;';
+            escSection.innerHTML = '<div style="font-size:13px;font-weight:800;letter-spacing:.3px;margin-bottom:10px;color:#f87171;display:flex;align-items:center;gap:6px;"><span>🚨</span> ACTIVE SUPERVISOR ESCALATIONS</div>';
+
+            const eList = document.createElement('div');
+            eList.style.cssText = 'display:flex;flex-direction:column;gap:8px;';
+            for (const esc of escalations) {
+              const eCard = document.createElement('div');
+              eCard.style.cssText = 'background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;';
+              const eLeft = document.createElement('div');
+              eLeft.innerHTML = `<div style="font-weight:700;font-size:12.5px;color:#fca5a5;">${escapeHtml(esc.title)}</div><div style="font-size:11.5px;color:var(--text-muted);">${escapeHtml(esc.reason)}</div>`;
+              const resBtn = document.createElement('button');
+              resBtn.className = 'btn-primary';
+              resBtn.style.cssText = 'padding:3px 8px;font-size:11px;';
+              resBtn.textContent = 'Resolve';
+              resBtn.onclick = () => {
+                const notes = prompt('Resolution notes:');
+                fetch(`/api/escalations/${esc.id}/resolve`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ userId: 'human', notes }),
+                }).then(() => renderCommandCenter());
+              };
+              eCard.append(eLeft, resBtn);
+              eList.appendChild(eCard);
+            }
+            escSection.appendChild(eList);
+            body.appendChild(escSection);
+          }
+
+          // 3. Project Audit Trail Section
+          const audSection = document.createElement('div');
+          audSection.style.cssText = 'margin-bottom:20px;';
+          audSection.innerHTML = '<div style="font-size:13px;font-weight:800;letter-spacing:.3px;margin-bottom:10px;display:flex;align-items:center;gap:6px;"><span>📜</span> IMMUTABLE AUDIT TRAIL</div>';
+
+          const audBox = document.createElement('div');
+          audBox.style.cssText = 'background:var(--surface-1);border:1px solid var(--border-soft);border-radius:8px;padding:10px 12px;max-height:240px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;font-family:monospace;font-size:11px;';
+
+          if (auditLogs.length === 0) {
+            audBox.innerHTML = '<div style="color:var(--text-faint);">No audit entries recorded yet.</div>';
+          } else {
+            for (const log of auditLogs) {
+              const row = document.createElement('div');
+              row.style.cssText = 'display:flex;gap:8px;align-items:center;border-bottom:1px solid rgba(255,255,255,0.03);padding-bottom:4px;';
+              const time = new Date(log.timestamp).toLocaleTimeString();
+              row.innerHTML = `<span style="color:var(--text-faint);">${time}</span> <span style="color:var(--accent);font-weight:700;">[${log.actorType}:${escapeHtml(log.actorId)}]</span> <span style="color:var(--text);">${escapeHtml(log.action)}</span> <span style="color:var(--text-muted);">(${escapeHtml(log.resourceType)}:${escapeHtml(log.resourceId.slice(0, 10))})</span>`;
+              audBox.appendChild(row);
+            }
+          }
+          audSection.appendChild(audBox);
+          body.appendChild(audSection);
+
+          // 4. Project Team & Roles Section
+          const memSection = document.createElement('div');
+          memSection.innerHTML = '<div style="font-size:13px;font-weight:800;letter-spacing:.3px;margin-bottom:10px;display:flex;align-items:center;gap:6px;"><span>👥</span> TEAM ROLES & ACCESS CONTROL (RBAC)</div>';
+          const memList = document.createElement('div');
+          memList.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;';
+          for (const m of members) {
+            const mBadge = document.createElement('div');
+            mBadge.style.cssText = 'background:var(--surface-2);border:1px solid var(--border-soft);border-radius:6px;padding:6px 10px;font-size:11.5px;display:flex;align-items:center;gap:6px;';
+            mBadge.innerHTML = `<strong>${escapeHtml(m.name || m.ghLogin)}</strong> <span style="font-size:9.5px;padding:1px 6px;border-radius:8px;background:rgba(99,102,241,0.2);color:#818cf8;font-weight:700;text-transform:uppercase;">${m.role}</span>`;
+            memList.appendChild(mBadge);
+          }
+          memSection.appendChild(memList);
+          body.appendChild(memSection);
+        })
+        .catch((err) => {
+          body.innerHTML = `<div class="empty-note">Failed to load governance: ${err.message || err}</div>`;
+        });
+    }
+
+    window.promptCreateApproval = function (prjId) {
+      const title = prompt('Enter Approval Title (e.g. "Authorize Production Deployment"):');
+      if (!title || !title.trim()) return;
+      const reason = prompt('Enter reason approval is required:') || 'Manual governance gate';
+      const riskLevel = prompt('Risk level (low, medium, high, critical):', 'medium') || 'medium';
+
+      fetch(`/api/projects/${prjId}/approvals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: title.trim(),
+          reason: reason.trim(),
+          riskLevel: riskLevel.trim().toLowerCase(),
+          approvalType: 'policy_exception',
+          requesterId: 'human',
+          requesterType: 'user',
+        }),
+      })
+        .then(() => renderCommandCenter())
+        .catch((err) => alert(`Failed creating approval request: ${err.message || err}`));
     };
     function ccRenderArtifacts(body, a) {
       body.innerHTML = '';

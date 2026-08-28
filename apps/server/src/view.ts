@@ -1,5 +1,7 @@
 import type { Db } from "./db.js";
 import { lastSeq, recentMemories, tasksForProject, getProjectWorkflows, getProjectGoals } from "./db.js";
+import { getProjectApprovals } from "./approvals.js";
+import { getProjectEscalations } from "./escalations.js";
 import { recentActivity } from "./activity.js";
 import type { HiveManager } from "./hive.js";
 import {
@@ -373,6 +375,39 @@ export function buildView(db: Db, positions: Positions, meId: string, hive?: Hiv
         approvedAt: g.approvedAt,
         startedAt: g.startedAt,
         completedAt: g.completedAt,
+      })),
+      approvals: getProjectApprovals(db, p.id).map((a) => ({
+        id: a.id,
+        projectId: a.projectId,
+        workflowId: a.workflowId,
+        goalId: a.goalId,
+        taskId: a.taskId,
+        requesterId: a.requesterId,
+        requesterType: a.requesterType,
+        approvalType: a.approvalType,
+        title: a.title,
+        description: a.description,
+        reason: a.reason,
+        riskLevel: a.riskLevel,
+        state: a.state,
+        requestedAt: a.requestedAt,
+        resolvedAt: a.resolvedAt,
+        resolvedBy: a.resolvedBy,
+      })),
+      escalations: getProjectEscalations(db, p.id).map((e) => ({
+        id: e.id,
+        projectId: e.projectId,
+        workflowId: e.workflowId,
+        taskId: e.taskId,
+        goalId: e.goalId,
+        agentId: e.agentId,
+        urgency: e.urgency,
+        title: e.title,
+        reason: e.reason,
+        state: e.state,
+        createdAt: e.createdAt,
+        resolvedAt: e.resolvedAt,
+        resolvedBy: e.resolvedBy,
       })),
     };
   });
