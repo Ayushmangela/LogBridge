@@ -1,6 +1,16 @@
 import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "ws";
 import * as pty from "node-pty";
+// @xterm/headless ships CJS with no "exports" map, so under Node's native
+// ESM loader (what tsx/production actually run) it resolves as a single
+// default export wrapping the whole module.exports object — not spread
+// into named exports. `import { Terminal } from "@xterm/headless"` type-
+// checks and even runs fine under vitest (Vite's resolver synthesizes
+// named exports from a CJS module's own keys, more leniently than Node's
+// loader), which is exactly why this shipped once already and only failed
+// at real server startup, not in tests.
+import XtermHeadless from "@xterm/headless";
+const HeadlessTerminal = XtermHeadless.Terminal;
 import { existsSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -688,4 +698,112 @@ export function watchForCompletion(
       try { disposable.dispose(); } catch {}
     }
   };
+}
+
+// A rendered row of pure decoration or a known CLI-chrome line — the input
+// box placeholder, its footer hints, the build-timer line — never the
+// actual substance of a reply. Used to filter extractRecentReply's output,
+// not to detect anything (that's READY_MARKERS' job).
+const CHROME_LINE_MARKERS = [
+  "Ask anything", "ctrl+p", "tab agents", "connected to",
+  "What would you like", "Tip Run /connect", "Tip ", "commands",
+  "Build ·", "Build auto", "esc int",
+];
+
+// Box Drawing (U+2500–257F), Block Elements (U+2580–259F), Geometric
+// Shapes (U+25A0–25FF), Braille Patterns (U+2800–28FF, dot-matrix
+// spinners). Hand-picking individual characters from these ranges is how
+// a live reply once posted as a bare progress-bar row (╹▀▀▀▀▀…) straight
+// into the chat room: the specific block character OpenCode's progress
+// bar happened to use that day wasn't on the list. Matching the whole
+// Unicode block instead of enumerating characters means the next one
+// this app or a different provider reaches for is already covered.
+const DRAWING_CHAR_RANGE = "\\u2500-\\u25FF\\u2800-\\u28FF";
+const PURE_DECORATION_LINE = new RegExp(`^[\\s\\-${DRAWING_CHAR_RANGE}✱·⬝▸▹]+$`);
+const STARTS_WITH_DRAWING_CHAR = new RegExp(`^[${DRAWING_CHAR_RANGE}]`);
+
+function isChromeLine(line: string): boolean {
+  const t = line.trim();
+  if (!t) return true;
+  // A line made up only of box-drawing / block / spinner characters —
+  // formatBanner's fallback-shell box border, a progress bar, a rule.
+  if (PURE_DECORATION_LINE.test(t)) return true;
+  // A line that STARTS inside a drawn box or bar — formatBanner's
+  // "│  Claude Code v2.1.241" style content lines, or a labeled progress
+  // bar ("▓▓▓▓░░░░ 45%"). Real reply text never opens with one of these
+  // characters, so this is a safe signal even with real words after.
+  if (STARTS_WITH_DRAWING_CHAR.test(t)) return true;
+  return CHROME_LINE_MARKERS.some((m) => t.includes(m));
+}
+
+/**
+ * Turn a session's raw scrollback (cursor-addressed escape sequences — see
+ * watchForCompletion's comment on why those can't be substring-matched)
+ * into the readable text an agent just produced, by replaying it through
+ * the same rendering engine the browser's own terminal widget uses
+ * (`@xterm/xterm`, here as `@xterm/headless` — no DOM, just the buffer).
+ * Version-pinned to match `@xterm/xterm` in apps/web so both interpret the
+ * same byte stream identically.
+ *
+ * Bounded, not exact: this reads the tail of the rendered screen and drops
+ * lines that look like CLI chrome (the input box, its footer hints, the
+ * build timer), not lines from a specific turn — there is no marker in the
+ * stream for "this is where the current turn's output starts". In
+ * practice the terminal is only ~30 rows, so anything from an earlier turn
+ * has almost always scrolled out of this window by the time one completes;
+ * a very short combined history is the one case that could still leak a
+ * stray earlier line in.
+ *
+ * Async because it has to be: `Terminal.write()` parses off the calling
+ * stack — reading `buffer.active` right after calling it (as a first,
+ * unawaited version of this function did) reads a buffer that has not
+ * been updated yet and always renders as blank rows. `write`'s own
+ * callback parameter is the documented way to know parsing has finished;
+ * only after that has fired is the buffer safe to read.
+ */
+export function extractRecentReply(agentId: string, maxChars = 1800): Promise<string | null> {
+  return new Promise((resolve) => {
+    let session: PtySession | undefined;
+    for (const s of sessions.values()) {
+      if (s.agentId === agentId || s.id.endsWith(agentId.slice(-8))) {
+        session = s;
+        break;
+      }
+    }
+    if (!session || !session.scrollback) {
+      resolve(null);
+      return;
+    }
+
+    const term = new HeadlessTerminal({
+      cols: session.cols || 100,
+      rows: Math.max(session.rows || 30, 30),
+      allowProposedApi: true, // needed for buffer.active — see IBuffer in @xterm/headless
+    });
+    term.write(session.scrollback, () => {
+      try {
+        const buf = term.buffer.active;
+        const lines: string[] = [];
+        const scanFrom = Math.max(0, buf.length - 200);
+        for (let y = buf.length - 1; y >= scanFrom; y--) {
+          const raw = buf.getLine(y)?.translateToString(true) ?? "";
+          if (!isChromeLine(raw)) {
+            lines.unshift(raw);
+          } else if (lines.length > 0) {
+            break;
+          }
+          if (lines.length >= 80) break;
+        }
+        let text = lines.join("\n").trim();
+        if (!text) {
+          resolve(null);
+          return;
+        }
+        if (text.length > maxChars) text = text.slice(0, maxChars - 1) + "…";
+        resolve(text);
+      } finally {
+        term.dispose();
+      }
+    });
+  });
 }

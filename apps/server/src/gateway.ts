@@ -46,6 +46,19 @@ export function systemChat(roomId: string, text: string): ChatMessageT {
   };
 }
 
+/** An agent's own words in the room — as opposed to `On it —` (an ack the
+ *  gateway generates) or a hive line (`sam → ram: ...`, generated from a
+ *  structured inter-agent message). This is deliverTaskLocally's postChat:
+ *  a direct "@cat hi" used to get exactly the ack and then silence forever,
+ *  because nothing ever looked at what the agent actually said. */
+export function agentReplyChat(roomId: string, agentId: string, agentName: string, text: string): ChatMessageT {
+  return {
+    id: crypto.randomUUID(), roomId,
+    from: { kind: "agent", id: agentId, name: agentName },
+    text, ts: new Date().toISOString(), ask: null,
+  };
+}
+
 export function registerGateway(
   app: FastifyInstance,
   db: Db,
@@ -258,7 +271,12 @@ export function registerGateway(
             budgetSeconds: 240,
           });
           appendEvent(db, msg.data.roomId, taskId, "plan.requested", { goal });
-          sendTaskOffer(db, nodeSockets, taskId) || deliverTaskLocally(db, nodeSockets, taskId, hive);
+          const planRoomId = msg.data.roomId; // TS can't keep the "chat" narrowing across the closure below
+          sendTaskOffer(db, nodeSockets, taskId) || deliverTaskLocally(db, nodeSockets, taskId, hive, (agentId, agentName, text) => {
+            const reply = agentReplyChat(planRoomId, agentId, agentName, text);
+            appendEvent(db, planRoomId, taskId, "chat", reply);
+            broadcastChat(reply);
+          });
           broadcastChat(systemChat(msg.data.roomId,
             `Planning “${goal}” — ${agent.name} is breaking it into tasks.`));
           broadcastView();
@@ -296,7 +314,12 @@ export function registerGateway(
               creatorId: "you",
               agentId: agent.id,
             });
-            sendTaskOffer(db, nodeSockets, taskId) || deliverTaskLocally(db, nodeSockets, taskId, hive);
+            const mentionRoomId = msg.data.roomId; // TS can't keep the "chat" narrowing across the closure below
+            sendTaskOffer(db, nodeSockets, taskId) || deliverTaskLocally(db, nodeSockets, taskId, hive, (agentId, agentName, text) => {
+              const reply = agentReplyChat(mentionRoomId, agentId, agentName, text);
+              appendEvent(db, mentionRoomId, taskId, "chat", reply);
+              broadcastChat(reply);
+            });
             const ack: ChatMessageT = {
               id: crypto.randomUUID(),
               roomId: msg.data.roomId,
@@ -424,7 +447,11 @@ export function registerGateway(
 
         if (task && task.state === "submitted" && task.agent_id) {
           if (msg.data.choice === "approve") {
-            sendTaskOffer(db, nodeSockets, task.id) || deliverTaskLocally(db, nodeSockets, task.id, hive);
+            sendTaskOffer(db, nodeSockets, task.id) || deliverTaskLocally(db, nodeSockets, task.id, hive, (agentId, agentName, text) => {
+              const reply = agentReplyChat(task.project_id, agentId, agentName, text);
+              appendEvent(db, task.project_id, task.id, "chat", reply);
+              broadcastChat(reply);
+            });
           } else if (msg.data.choice === "reject") {
             setTaskState(db, task.id, "rejected", { ended_at: new Date().toISOString() });
             clearAgentWaiting(db, task.agent_id);

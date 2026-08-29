@@ -8,7 +8,7 @@ import {
   getActiveTaskAttempt, finishTaskAttempt, getTaskDependents,
 } from "../db.js";
 import type { NodeSockets } from "./types.js";
-import { spawnAndSubmit, watchForCompletion } from "../ptyGateway.js";
+import { spawnAndSubmit, watchForCompletion, extractRecentReply } from "../ptyGateway.js";
 import type { HiveManager } from "../hive.js";
 
 export function taskCancelEnvelope(taskId: string, projectId: string, machineId: string, by: string, reason: string | null): EnvelopeT {
@@ -71,8 +71,19 @@ const LOCAL_DELIVERY_LEASE_SECONDS = 24 * 60 * 60;
  * That is a heuristic (see watchForCompletion's own comment for its known
  * gaps), not a real protocol — POST /api/tasks/:id/complete remains the
  * manual fallback for whatever it misses.
+ *
+ * postChat, if given, is how the agent's actual answer reaches the room.
+ * Before this, a direct "@cat hi" got exactly one line back — "On it —
+ * hi" — and then silence forever: the task machinery tracked that
+ * something ran, but nothing ever looked at what the agent actually said
+ * and put it where the human were looking. extractRecentReply
+ * (ptyGateway.ts) renders the session's raw output through the same engine
+ * the browser's terminal widget uses and reads back the plain text.
  */
-export function deliverTaskLocally(db: Db, nodeSockets: NodeSockets, taskId: string, hive?: HiveManager): boolean {
+export function deliverTaskLocally(
+  db: Db, nodeSockets: NodeSockets, taskId: string, hive?: HiveManager,
+  postChat?: (agentId: string, agentName: string, text: string) => void
+): boolean {
   const task = getTask(db, taskId);
   if (!task || !task.agent_id) return false;
   const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(task.agent_id) as any;
@@ -81,7 +92,10 @@ export function deliverTaskLocally(db: Db, nodeSockets: NodeSockets, taskId: str
   const spec = task.spec ?? task.title;
   const submitted = spawnAndSubmit(db, agent.id, agent.name, spec, hive, () => {
     watchForCompletion(agent.id, () => {
-      completeLocalTask(db, nodeSockets, task.id, true);
+      extractRecentReply(agent.id).then((reply) => {
+        if (reply && postChat) postChat(agent.id, agent.name, reply);
+        completeLocalTask(db, nodeSockets, task.id, true);
+      });
     });
   });
   if (!submitted) return false;
