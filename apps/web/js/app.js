@@ -6650,7 +6650,132 @@
       if (!text || !room || !ws || ws.readyState !== WebSocket.OPEN) return;
       ws.send(JSON.stringify({ type: 'chat', roomId: room.id, text }));
       input.value = '';
+      closeMentionPopup();
     };
+
+    // ---------------- @mention autocomplete ----------------
+    // Typing "@" in the chat box, mid-word or at the start, pops a filtered
+    // list of the room's agents and people — same idea as this app's own
+    // "@" file/agent picker, just scoped to who's actually in the room.
+    let mentionState = { open: false, items: [], activeIndex: 0, atIdx: -1 };
+
+    function mentionCandidates(room, fragment) {
+      if (!room) return [];
+      const frag = fragment.toLowerCase();
+      const agents = (room.agents || []).map((a) => ({
+        id: a.id, name: a.name, bot: true, sub: a.status || a.role || '',
+      }));
+      const people = (room.humans || [])
+        .filter((h) => h.id !== meId)
+        .map((h) => ({ id: h.id, name: h.name, bot: false, sub: 'online' }));
+      const all = [...agents, ...people];
+      if (!frag) return all;
+      // Prefix matches first (the common case — typing the start of a
+      // name), then anywhere-in-the-name matches, so a fragment like
+      // "fake" still finds "dev-fake" without prefix matches getting
+      // buried under it.
+      const starts = all.filter((c) => c.name.toLowerCase().startsWith(frag));
+      const contains = all.filter((c) => !c.name.toLowerCase().startsWith(frag) && c.name.toLowerCase().includes(frag));
+      return [...starts, ...contains];
+    }
+
+    /** Find the "@token" the caret is currently inside, if any. Only counts
+     *  as a mention when the "@" starts a word (line start or preceded by
+     *  whitespace) — "a@b" typing an email-shaped thing does not trigger
+     *  it — and nothing after the "@" up to the caret is whitespace. */
+    function activeMentionToken(value, caret) {
+      let i = caret - 1;
+      while (i >= 0 && !/\s/.test(value[i])) i--;
+      const tokenStart = i + 1;
+      if (value[tokenStart] !== '@') return null;
+      if (tokenStart > 0 && !/\s/.test(value[tokenStart - 1])) return null;
+      return { atIdx: tokenStart, fragment: value.slice(tokenStart + 1, caret) };
+    }
+
+    function updateMentionPopup() {
+      const input = document.getElementById('chat-input');
+      const token = activeMentionToken(input.value, input.selectionStart ?? input.value.length);
+      if (!token) { closeMentionPopup(); return; }
+      const items = mentionCandidates(activeRoom(), token.fragment).slice(0, 8);
+      mentionState = { open: true, items, activeIndex: 0, atIdx: token.atIdx };
+      renderMentionPopup();
+    }
+
+    function renderMentionPopup() {
+      const pop = document.getElementById('chat-mention-popup');
+      if (!mentionState.open) { pop.style.display = 'none'; return; }
+      pop.innerHTML = '';
+      if (!mentionState.items.length) {
+        pop.innerHTML = '<div class="chat-mention-empty">No match</div>';
+      } else {
+        mentionState.items.forEach((it, idx) => {
+          const row = document.createElement('div');
+          row.className = 'chat-mention-item' + (idx === mentionState.activeIndex ? ' active' : '');
+          const av = document.createElement('div');
+          av.className = 'chat-mention-avatar';
+          av.textContent = it.bot ? '🤖' : (it.name[0] ?? '?').toUpperCase();
+          const name = document.createElement('div');
+          name.className = 'chat-mention-name';
+          name.textContent = it.name;
+          const sub = document.createElement('div');
+          sub.className = 'chat-mention-sub';
+          sub.textContent = it.sub;
+          row.append(av, name, sub);
+          // mousedown, not click: fires before the input's blur, so the
+          // selection lands before anything closes the popup out from
+          // under it.
+          row.onmousedown = (e) => { e.preventDefault(); selectMention(idx); };
+          pop.appendChild(row);
+        });
+      }
+      pop.style.display = 'block';
+    }
+
+    function selectMention(idx) {
+      const input = document.getElementById('chat-input');
+      const it = mentionState.items[idx];
+      if (!it) return;
+      const { atIdx } = mentionState;
+      const before = input.value.slice(0, atIdx);
+      const after = input.value.slice(input.selectionStart ?? input.value.length);
+      const inserted = `@${it.name} `;
+      input.value = before + inserted + after;
+      const caret = (before + inserted).length;
+      input.setSelectionRange(caret, caret);
+      closeMentionPopup();
+      input.focus();
+    }
+
+    function closeMentionPopup() {
+      mentionState = { open: false, items: [], activeIndex: 0, atIdx: -1 };
+      const pop = document.getElementById('chat-mention-popup');
+      if (pop) pop.style.display = 'none';
+    }
+
+    /** Called from the global keydown handler for #chat-input, before Enter
+     *  is allowed to fall through to sendChat. Returns true when it
+     *  consumed the key (caller must preventDefault and stop there). */
+    function handleMentionKeydown(e) {
+      if (!mentionState.open) return false;
+      const n = mentionState.items.length;
+      if (e.key === 'ArrowDown') {
+        if (n) mentionState.activeIndex = (mentionState.activeIndex + 1) % n;
+        renderMentionPopup();
+        return true;
+      }
+      if (e.key === 'ArrowUp') {
+        if (n) mentionState.activeIndex = (mentionState.activeIndex - 1 + n) % n;
+        renderMentionPopup();
+        return true;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        if (n) selectMention(mentionState.activeIndex);
+        else closeMentionPopup();
+        return true;
+      }
+      if (e.key === 'Escape') { closeMentionPopup(); return true; }
+      return false;
+    }
 
     function onChatMessage(msg) {
       // The server scopes chat by room now (it tracks what we `join`ed), so
@@ -7831,6 +7956,11 @@
         // Tab flips between the two views of the same room.
         // Typing in the chat box must never walk the character around.
         if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+          // The mention popup gets first refusal on every key while it's
+          // open — arrows navigate it, Enter/Tab pick from it, Escape
+          // closes it. Only when it's not open (or doesn't want the key)
+          // do Enter/Escape fall through to their normal chat-box jobs.
+          if (e.target.id === 'chat-input' && handleMentionKeydown(e)) { e.preventDefault(); return; }
           if (e.key === 'Enter') window.sendChat();
           if (e.key === 'Escape') e.target.blur();
           return;
@@ -7875,6 +8005,24 @@
         if (insp && insp.contains(e.target)) return;
         closeAgentPopup();
       });
+
+      const chatInput = document.getElementById('chat-input');
+      if (chatInput) {
+        chatInput.addEventListener('input', updateMentionPopup);
+        // click/keyup too: caret can move without an `input` event (e.g.
+        // clicking mid-text, or pressing an arrow key inside the token),
+        // and the popup's candidate list depends on caret position.
+        chatInput.addEventListener('click', updateMentionPopup);
+        chatInput.addEventListener('keyup', (e) => {
+          // ArrowUp/Down are excluded: those navigate the popup's own
+          // selection (handleMentionKeydown, on keydown) and are
+          // preventDefault'd so the caret never actually moves — recomputing
+          // candidates here would reset activeIndex back to 0 on every
+          // press and the highlight would never appear to move.
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') updateMentionPopup();
+        });
+        chatInput.addEventListener('blur', () => closeMentionPopup());
+      }
     }
 
     function setupResize() {

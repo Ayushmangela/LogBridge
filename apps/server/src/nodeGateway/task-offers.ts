@@ -79,6 +79,13 @@ const LOCAL_DELIVERY_LEASE_SECONDS = 24 * 60 * 60;
  * and put it where the human were looking. extractRecentReply
  * (ptyGateway.ts) renders the session's raw output through the same engine
  * the browser's terminal widget uses and reads back the plain text.
+ *
+ * When extractRecentReply comes back empty (its own filtering rejected
+ * everything it saw as chrome or an unreadable fragment), a short, honest
+ * note is posted instead of nothing — a null reply completing in total
+ * silence is the exact same dead end "hi" -> "On it" -> nothing was, just
+ * rarer. The note says plainly that nothing readable was captured, not
+ * that the agent said nothing.
  */
 export function deliverTaskLocally(
   db: Db, nodeSockets: NodeSockets, taskId: string, hive?: HiveManager,
@@ -93,7 +100,10 @@ export function deliverTaskLocally(
   const submitted = spawnAndSubmit(db, agent.id, agent.name, spec, hive, () => {
     watchForCompletion(agent.id, () => {
       extractRecentReply(agent.id).then((reply) => {
-        if (reply && postChat) postChat(agent.id, agent.name, reply);
+        if (postChat) {
+          postChat(agent.id, agent.name, reply ||
+            "(finished, but nothing readable came through — open my terminal to see what happened)");
+        }
         completeLocalTask(db, nodeSockets, task.id, true);
       });
     });

@@ -134,6 +134,35 @@ describe("delivery recording replaces in-memory dedup", () => {
     expect(counts.handled).toBe(0);
     expect(counts.dead).toBe(0);
   });
+
+  // A message that reached nobody (machine offline, no wake mechanism) has
+  // no agent that might still be slowly working — there is nothing to wait
+  // DEFAULT_TIMEOUT_MS (10 minutes) for. Before this, it waited the same 10
+  // minutes a genuinely-in-progress message gets before its first real
+  // retry, even though the outcome was already known.
+  test("an undeliverable message is immediately eligible for the next sweep, not stuck for the full timeout", () => {
+    machine("mach", false); // offline — every wake attempt will be undeliverable
+    agent("ram", "ram", "mach");
+
+    recordDelivery(db, msg(), "ram", "p", { outcome: "undeliverable", reason: "machine offline" });
+
+    // No manual backdating here — recordDelivery should have already
+    // placed last_attempt_at far enough in the past on its own.
+    const result = sweepDeliveries({ ...makeDeps(), hiveRoots: [hiveRoot], maxAttempts: 3 });
+    expect(result.redelivered).toBe(1);
+  });
+
+  test("a genuinely successful wake still gets the full timeout — an agent might really be mid-task", () => {
+    machine("mach", true);
+    agent("ram", "ram", "mach");
+
+    recordDelivery(db, msg(), "ram", "p", { outcome: "injected" });
+
+    // No backdating — a fresh, real delivery must NOT be immediately stale.
+    const result = sweepDeliveries({ ...makeDeps(), hiveRoots: [hiveRoot], maxAttempts: 3 });
+    expect(result.redelivered).toBe(0);
+    expect(result.deadLettered).toBe(0);
+  });
 });
 
 // ── Ack via .done/ ───────────────────────────────────────────────────
@@ -267,6 +296,43 @@ describe("timeout and redelivery", () => {
 
     expect(result.redelivered).toBe(0);
     expect(result.deadLettered).toBe(0);
+  });
+
+  // The existing "a stale message is redelivered" test above only checks
+  // that `attempts` incremented and result.redelivered is 1 — but
+  // sweepDeliveries bumps result.redelivered the moment redeliverMessage
+  // is CALLED, regardless of whether the wake inside it actually reached
+  // the agent. It stayed green while, live, wakeRecipient's own dedup
+  // check (isAlreadyDelivered — true the instant ANY row exists for a
+  // message id, which recordDelivery inserts on attempt 1 no matter the
+  // outcome) silently turned every retry into a no-op "duplicate": attempts
+  // climbed, the sweep "tried" three times, and the agent was never
+  // actually woken again. A real "Welcome, Commander" message dead-lettered
+  // this way in production. This asserts the thing that test didn't: the
+  // agent is genuinely re-contacted, not just counted as if it were.
+  test("redelivery genuinely re-wakes the agent — dedup does not swallow the retry", () => {
+    machine("mach", true);
+    agent("ram", "ram", "mach");
+
+    recordDelivery(db, msg(), "ram", "p", { outcome: "injected" });
+    db.prepare(
+      "UPDATE hive_deliveries SET last_attempt_at = ? WHERE message_id = ?"
+    ).run(new Date(Date.now() - DEFAULT_TIMEOUT_MS - 1000).toISOString(), "m1");
+    resetWakeMemory();
+
+    expect(injected).toHaveLength(0); // nothing sent yet on this attempt
+
+    sweepDeliveries({ ...makeDeps(), hiveRoots: [hiveRoot], maxAttempts: 3 });
+
+    // The bug: this stayed [] — dedup silently ate the retry — while
+    // result.redelivered and row.attempts both still ticked up as if it
+    // had gone through.
+    expect(injected).toHaveLength(1);
+    expect(injected[0]).toContain("ram");
+
+    const row = getDeliveries(db, { agentId: "ram" })[0];
+    expect(row.lastWakeOutcome).not.toBe("duplicate");
+    expect(row.lastWakeOutcome).toBe("injected");
   });
 });
 

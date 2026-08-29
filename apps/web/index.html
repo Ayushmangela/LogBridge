@@ -372,7 +372,8 @@
           <div class="panel-body">
             <div class="chat-wrap">
               <div class="chat-log" id="chat-log"></div>
-              <div class="chat-input-row">
+              <div class="chat-input-row" style="position:relative">
+                <div id="chat-mention-popup" class="chat-mention-popup" style="display:none"></div>
                 <input id="chat-input" placeholder="Message, or @agent to assign work…" autocomplete="off">
                 <button onclick="sendChat()">Send</button>
               </div>

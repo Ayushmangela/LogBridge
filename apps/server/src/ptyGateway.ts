@@ -783,12 +783,39 @@ export function extractRecentReply(agentId: string, maxChars = 1800): Promise<st
     term.write(session.scrollback, () => {
       try {
         const buf = term.buffer.active;
-        const lines: string[] = [];
         const scanFrom = Math.max(0, buf.length - 200);
+
+        // First pass, forward: classify each row, but a soft-wrapped row
+        // (line.isWrapped — xterm's own record of "this is a continuation
+        // of the row above, not a new one") inherits its predecessor's
+        // chrome-ness instead of being judged on its own text. Caught
+        // live: the CLI's footer hint ("tab agents  ctrl+p commands")
+        // wrapped across two columns, isChromeLine correctly dropped the
+        // row carrying "tab agents  ctrl+p co", but the wrapped remainder
+        // ("mmands") landed on its own row with no border character and no
+        // marker substring left in it — nothing about that row's own text
+        // said "chrome", so it was posted as if it were the agent's actual
+        // answer. isWrapped is the precise fix a text-shape guess (an
+        // earlier version of this function rejected anything opening
+        // lowercase) can only approximate — and approximated too broadly:
+        // it also rejected an agent's genuine, correct one-word reply
+        // ("hi") for the same reason.
+        const rowText: string[] = [];
+        const rowIsChrome: boolean[] = [];
+        for (let y = scanFrom; y < buf.length; y++) {
+          const line = buf.getLine(y);
+          const raw = line?.translateToString(true) ?? "";
+          rowText[y] = raw;
+          const ownChrome = isChromeLine(raw);
+          rowIsChrome[y] = line?.isWrapped && y > scanFrom
+            ? (ownChrome || rowIsChrome[y - 1])
+            : ownChrome;
+        }
+
+        const lines: string[] = [];
         for (let y = buf.length - 1; y >= scanFrom; y--) {
-          const raw = buf.getLine(y)?.translateToString(true) ?? "";
-          if (!isChromeLine(raw)) {
-            lines.unshift(raw);
+          if (!rowIsChrome[y]) {
+            lines.unshift(rowText[y]);
           } else if (lines.length > 0) {
             break;
           }

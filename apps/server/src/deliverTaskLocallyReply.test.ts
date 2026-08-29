@@ -99,7 +99,12 @@ describe("deliverTaskLocally posts the agent's actual reply to chat", () => {
     expect(order.indexOf("postChat")).toBeLessThan(order.lastIndexOf("completed"));
   });
 
-  test("no reply text means no chat post, but the task still completes", async () => {
+  // A null reply used to mean total silence — the task completed, the
+  // agent went idle, and the human never saw anything at all. That is the
+  // exact same dead end "@cat hi" -> "On it" -> nothing was, just reached
+  // by a different path (extraction filtering everything out instead of
+  // never running at all). A short, honest fallback closes it instead.
+  test("no readable reply text still posts an honest fallback note, not silence", async () => {
     const ptyGateway = await import("./ptyGateway.js");
     (ptyGateway.extractRecentReply as any).mockResolvedValueOnce(null);
     const { deliverTaskLocally } = await import("./nodeGateway/task-offers.js");
@@ -114,7 +119,29 @@ describe("deliverTaskLocally posts the agent's actual reply to chat", () => {
       const task = db.prepare("SELECT state FROM tasks WHERE id = ?").get(taskId) as any;
       expect(task.state).toBe("completed");
     });
-    expect(postChat).not.toHaveBeenCalled();
+    expect(postChat).toHaveBeenCalledTimes(1);
+    const [agentId, agentName, text] = postChat.mock.calls[0];
+    expect(agentId).toBe("agt_cat");
+    expect(agentName).toBe("cat");
+    // The message must be honest about what happened — it must not read as
+    // if the agent said nothing, or as if it were the agent's real answer.
+    expect(text.toLowerCase()).toMatch(/terminal|nothing readable/);
+  });
+
+  test("without a postChat callback, a null reply still completes cleanly (nothing to call)", async () => {
+    const ptyGateway = await import("./ptyGateway.js");
+    (ptyGateway.extractRecentReply as any).mockResolvedValueOnce(null);
+    const { deliverTaskLocally } = await import("./nodeGateway/task-offers.js");
+    const { db, taskId } = await setup();
+
+    deliverTaskLocally(db, new Map(), taskId); // no postChat arg at all
+    submittedCallback!();
+    completionCallback!();
+
+    await vi.waitFor(() => {
+      const task = db.prepare("SELECT state FROM tasks WHERE id = ?").get(taskId) as any;
+      expect(task.state).toBe("completed");
+    });
   });
 
   test("without a postChat callback, completion still happens (the caller just doesn't want the reply posted)", async () => {

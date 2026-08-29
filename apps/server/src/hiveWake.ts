@@ -88,6 +88,9 @@ export interface WakeDeps {
   /** Start the agent with this message as its prompt. */
   spawn?: (agentId: string, prompt: string) => boolean;
   log?: (msg: string) => void;
+  /** Set only by hiveDelivery.ts's redeliverMessage — see wakeRecipient's
+   *  own comment on why the dedup check has to let that one caller through. */
+  skipDedup?: boolean;
 }
 
 /**
@@ -103,6 +106,22 @@ export interface WakeDeps {
  *     into nothing.
  *  3. Inject before spawn — always prefer keeping an agent's context over
  *     paying for a cold start.
+ *
+ * skipDedup exists because the dedup check has two calling contexts with
+ * opposite needs. The router (routeOnce, every 1.5s) calls this for the
+ * same outbox file repeatedly until it's processed and deleted — dedup
+ * there is correct, it stops a message that already succeeded from waking
+ * its recipient a second time. hiveDelivery.ts's sweep calls this to
+ * *retry* a message whose first attempt did NOT succeed — and dedup was
+ * blocking that unconditionally: isAlreadyDelivered returns true the
+ * moment ANY row exists for a message id, which recordDelivery inserts on
+ * the very first attempt regardless of outcome. So every retry hit
+ * "duplicate" and did nothing — attempts still climbed, the sweep still
+ * "tried" three times, and every message whose first wake failed was
+ * guaranteed to dead-letter, with the middle two attempts pure theater.
+ * Confirmed live: an early "Welcome, Commander" message dead-lettered
+ * this way and sat as a permanent, misleading warning in the room, even
+ * though the commander was genuinely reachable moments later.
  */
 export function wakeRecipient(msg: HiveMessage, toId: string, deps: WakeDeps): WakeResult {
   const log = deps.log ?? (() => {});
@@ -111,10 +130,12 @@ export function wakeRecipient(msg: HiveMessage, toId: string, deps: WakeDeps): W
 
   // Two-layer dedup: in-memory cache first (no DB round-trip on every
   // 1.5-second router tick), then the durable table that survives restarts.
-  if (wokenFor.has(msg.id)) return { outcome: "duplicate" };
-  if (isAlreadyDelivered(deps.db, msg.id)) {
-    remember(msg.id); // warm the cache so next tick skips the DB
-    return { outcome: "duplicate" };
+  if (!deps.skipDedup) {
+    if (wokenFor.has(msg.id)) return { outcome: "duplicate" };
+    if (isAlreadyDelivered(deps.db, msg.id)) {
+      remember(msg.id); // warm the cache so next tick skips the DB
+      return { outcome: "duplicate" };
+    }
   }
 
   const agent = deps.db

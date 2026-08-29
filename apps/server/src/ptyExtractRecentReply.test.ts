@@ -65,11 +65,11 @@ describe("extractRecentReply", () => {
     // leftover characters from the session's own startup banner, sitting
     // on these same rows from the earlier full-buffer write, don't bleed
     // through past the end of the new, shorter text.
-    emit("\x1b[2;1H\x1b[2Ksecond line of the reply");
-    emit("\x1b[1;1H\x1b[2Kfirst line of the reply");
+    emit("\x1b[2;1H\x1b[2KSecond line of the reply");
+    emit("\x1b[1;1H\x1b[2KFirst line of the reply");
 
     const text = await extractRecentReply("agt_cursor");
-    expect(text).toBe("first line of the reply\nsecond line of the reply");
+    expect(text).toBe("First line of the reply\nSecond line of the reply");
   });
 
   // A live "@cat hi" once posted the reply "╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -124,11 +124,72 @@ describe("extractRecentReply", () => {
     await liveSession("agt_long", 200, 40);
 
     for (let i = 0; i < 30; i++) {
-      emit(`\x1b[${i + 1};1Hline ${i}: ${"x".repeat(120)}\r\n`);
+      emit(`\x1b[${i + 1};1HLine ${i}: ${"x".repeat(120)}\r\n`);
     }
 
     const text = (await extractRecentReply("agt_long", 500))!;
     expect(text.length).toBeLessThanOrEqual(500);
     expect(text.endsWith("…")).toBe(true);
+  });
+
+  // Live, from "@cat hi": the reply that reached chat was just "mmands" —
+  // the tail of the CLI's footer hint ("tab agents  ctrl+p commands")
+  // after it soft-wrapped across two terminal columns. isChromeLine
+  // correctly dropped the row carrying "tab agents  ctrl+p co", but the
+  // wrapped remainder landed on its own row with no border character and
+  // no CHROME_LINE_MARKERS substring left in it — nothing marked it as
+  // chrome, so it was posted as if it were cat's actual answer.
+  //
+  // The first fix here was a text-shape guess: reject anything opening
+  // lowercase, on the theory that a real reply always opens with a capital
+  // letter. Also caught live, on the very next real exchange: "@bob say hi
+  // back to me" got the correct, genuine reply "hi" — which that guess
+  // rejected too, for the identical reason. A real one-word answer and a
+  // wrapped mid-word fragment are indistinguishable by shape alone. The
+  // actual fix uses xterm's own isWrapped flag on the buffer line: it is
+  // the terminal's own record of "this row does not start a new line, it
+  // continues the row above" — precise where a shape guess can only
+  // approximate, and approximated wrongly in both directions.
+  describe("wrapped chrome vs. a genuine short reply", () => {
+    test("the exact live incident: a chrome line's real soft-wrap continuation is dropped", async () => {
+      const { extractRecentReply } = await import("./ptyGateway.js");
+      // 22 cols is the real capture's exact wrap point: "tab agents  ctrl+p
+      // co" (22 chars) on row 1, "mmands" continuing on row 2. No manual
+      // cursor jump — writing it as one continuous string lets xterm wrap
+      // it itself and set isWrapped on row 2, exactly as it would for a
+      // real CLI's continuous footer-hint output.
+      await liveSession("agt_fragment", 22, 10);
+
+      emit("tab agents  ctrl+p commands");
+
+      expect(await extractRecentReply("agt_fragment")).toBeNull();
+    });
+
+    test("a genuine short lowercase reply is posted as-is — the false positive from the first fix", async () => {
+      const { extractRecentReply } = await import("./ptyGateway.js");
+      await liveSession("agt_hi");
+
+      emit("\x1b[1;1Hhi\r\n");
+
+      expect(await extractRecentReply("agt_hi")).toBe("hi");
+    });
+
+    test("a genuine reply that happens to start with a capital letter is unaffected", async () => {
+      const { extractRecentReply } = await import("./ptyGateway.js");
+      await liveSession("agt_real");
+
+      emit("\x1b[1;1HYes, I'm online and standing by for review work.\r\n");
+
+      expect(await extractRecentReply("agt_real")).toBe("Yes, I'm online and standing by for review work.");
+    });
+
+    test("a reply opening with a digit, quote, or bullet is unaffected", async () => {
+      const { extractRecentReply } = await import("./ptyGateway.js");
+      await liveSession("agt_bullet");
+
+      emit('\x1b[1;1H"Done — see faq.json for the full list."\r\n');
+
+      expect(await extractRecentReply("agt_bullet")).toContain("Done");
+    });
   });
 });

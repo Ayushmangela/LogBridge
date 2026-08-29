@@ -55,8 +55,10 @@ export interface HiveDelivery {
 
 // ── Recording a delivery ─────────────────────────────────────────────
 
-/** Called after wakeRecipient() succeeds. Creates the durable delivery
- *  record that replaces the in-memory wokenFor Set. */
+/** Called after every wakeRecipient() call, success or not (despite this
+ *  file's original doc comment claiming otherwise — both call sites in
+ *  index.ts pass it the "undeliverable" outcome too). Creates the durable
+ *  delivery record that replaces the in-memory wokenFor Set. */
 export function recordDelivery(
   db: Db,
   msg: HiveMessage,
@@ -64,7 +66,18 @@ export function recordDelivery(
   projectId: string | null,
   outcome: WakeResult
 ): void {
-  const now = new Date().toISOString();
+  const now = new Date();
+  const nowIso = now.toISOString();
+  // A wake that never actually reached anyone (machine offline, no wake
+  // mechanism configured) has no agent that might still be slowly
+  // working — there's nothing to justify making its first real retry
+  // wait the same DEFAULT_TIMEOUT_MS a possibly-still-working agent
+  // gets. Backdating last_attempt_at (not delivered_at, which stays the
+  // true timestamp) makes it eligible on the very next sweep tick.
+  const reachedSomeone = outcome.outcome === "injected" || outcome.outcome === "spawned";
+  const lastAttemptAt = reachedSomeone
+    ? nowIso
+    : new Date(now.getTime() - DEFAULT_TIMEOUT_MS - 1000).toISOString();
   db.prepare(
     `INSERT INTO hive_deliveries
        (message_id, to_agent_id, from_agent_id, project_id, subject, body_preview,
@@ -78,9 +91,9 @@ export function recordDelivery(
     projectId,
     msg.subject ?? null,
     (msg.body ?? "").slice(0, 200) || null,
-    now,
+    nowIso,
     outcome.outcome,
-    now
+    lastAttemptAt
   );
 }
 
@@ -239,7 +252,10 @@ function redeliverMessage(
     created_at: row.delivered_at,
   };
 
-  const wake = wakeRecipient(msg, row.to_agent_id, deps);
+  // skipDedup: this call IS the retry. Without it, isAlreadyDelivered sees
+  // the row this exact function's caller already inserted on attempt 1 and
+  // returns "duplicate" every time — see wakeRecipient's comment.
+  const wake = wakeRecipient(msg, row.to_agent_id, { ...deps, skipDedup: true });
   const nowIso = now.toISOString();
 
   db.prepare(
