@@ -233,3 +233,32 @@ is not collaboration, and a soak rig must not switch it on.
 **Would change it:** store-and-forward with an explicit expiry, if someone
 genuinely wants "run this when my laptop wakes up". That is a different
 feature with its own failure modes — not a tweak to this one.
+
+### D29 — One workspace, one trusted team. Login is authentication, not isolation
+Signing in proves *who you are*. It does not partition what you can see: every
+authenticated user receives every project, agent, task and memory. `buildView`
+does `SELECT * FROM projects` and uses the viewer id only to place their
+avatar. Signup joins you to every existing project, and creating a project
+joins every existing user.
+
+**Why:** the product is a shared office for a small trusted group — a few
+people who already share a repository. Per-project access control would add a
+membership model, an invite flow, and a filter on every query, to enforce a
+boundary nobody in that group wants. The simpler model is also the honest one
+for what this is.
+
+**What this means in practice, and it is not subtle:** *anyone who can reach
+the signup form gets the entire workspace.* That is acceptable only because
+the server binds loopback by default (D28's neighbour, see SECURITY-REVIEW.md)
+and is meant to run on a private network. It is **not** acceptable on a public
+address, with or without a token.
+
+`project_members` exists and is populated, but is read only for listing who is
+in a room and for governance roles — it is not an access boundary. The
+"project scoping" in the UI is a *workspace picker*, not a security control,
+and should be described that way.
+
+**Would change it:** letting anyone outside the trusted group sign up. At that
+point membership has to become real — `buildView` filters by
+`project_members`, signup stops auto-joining, and joining becomes an invite.
+That is a feature, not a patch, and D23 (enrolment) is its prerequisite.

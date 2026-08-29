@@ -55,9 +55,18 @@ describe("the office's own assets are served", () => {
     expect(r.status, "sprite sheets live in the repo-root assets/, not apps/web").toBe(200);
   });
 
-  test("a path outside the asset roots is not served", async () => {
-    // The static roots must not become a way to read the repo.
-    const r = await fetch(`${base}/assets/../../package.json`);
+  test("an encoded traversal does not escape the asset roots", async () => {
+    // `fetch` normalises a literal `../` away before it ever leaves the
+    // client, so a plain ../ proves nothing — it just resolves to a real path
+    // in the web root. Percent-encoding survives normalisation, which is what
+    // an attacker would actually send.
+    const r = await fetch(`${base}/assets/%2e%2e%2f%2e%2e%2fpackage.json`);
     expect([400, 403, 404]).toContain(r.status);
+  });
+
+  test("the repo root is not reachable through the asset prefix", async () => {
+    const r = await fetch(`${base}/assets/../../../DECISIONS.md`);
+    // Normalised to /DECISIONS.md, which is not in either static root.
+    expect(r.status).toBe(404);
   });
 });
