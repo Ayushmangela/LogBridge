@@ -485,10 +485,14 @@ function handleNodeEnvelope(
       return;
     }
     const owner = db.prepare("SELECT owner_id FROM machines WHERE id = ?").get(body.machineId) as any;
+    // is_god = 0 on insert only, never touched on conflict: a card is always
+    // the runner announcing a subordinate it created — the commander is
+    // always inserted directly by routes/projects.ts, never through this
+    // path — so a card can never legitimately claim commander status here.
     db.prepare(
       `INSERT INTO agents (id, machine_id, owner_id, project_id, name, role, capabilities, concurrency, status, current_task,
-                           character, color, folder, isolation, description, goal, provider)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, ?, ?, ?, ?, ?, ?, ?)
+                           character, color, folder, isolation, description, goal, provider, is_god)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, ?, ?, ?, ?, ?, ?, ?, 0)
        ON CONFLICT(id) DO UPDATE SET
          machine_id=excluded.machine_id, owner_id=excluded.owner_id, project_id=excluded.project_id,
          name=excluded.name, role=excluded.role, capabilities=excluded.capabilities, concurrency=excluded.concurrency,

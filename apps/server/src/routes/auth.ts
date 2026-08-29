@@ -104,19 +104,30 @@ export function registerAuthRoutes(app: FastifyInstance, deps: RouteDeps) {
   // by anyone outside the trusted group. See SECURITY-REVIEW.md.
   app.post("/api/auth/demo", async () => {
     const email = "demo@logbridge.local";
-    let user = db.prepare("SELECT id, name, email FROM users WHERE email = ?").get(email) as any;
+    const id = "usr_demo";
+    // Look up by id, not just email: an install that predates the login
+    // rewrite can have a "usr_demo" row left over from the old fake-login
+    // code, with no email set. INSERT OR IGNORE then silently no-ops on the
+    // id collision, the email lookup finds nothing, and `user` stays
+    // undefined all the way to `user.id` — a 500 on every demo-login click
+    // until someone edits the database by hand.
+    let user = db.prepare("SELECT id, name, email FROM users WHERE id = ? OR email = ?").get(id, email) as any;
     if (!user) {
-      const id = "usr_demo";
       db.prepare(
-        "INSERT OR IGNORE INTO users (id, gh_login, name, avatar, email, created_at) VALUES (?,?,?,?,?,?)"
+        "INSERT INTO users (id, gh_login, name, avatar, email, created_at) VALUES (?,?,?,?,?,?)"
       ).run(id, "demo", "Demo User", 0, email, new Date().toISOString());
-      // Same auto-join as signup, so the demo account sees the workspace.
-      for (const p of db.prepare("SELECT id FROM projects").all() as any[]) {
-        db.prepare(
-          "INSERT OR IGNORE INTO project_members (project_id, user_id, role, joined_at) VALUES (?,?,?,?)"
-        ).run(p.id, id, "member", new Date().toISOString());
-      }
-      user = db.prepare("SELECT id, name, email FROM users WHERE email = ?").get(email);
+      user = db.prepare("SELECT id, name, email FROM users WHERE id = ?").get(id);
+    } else if (user.email !== email) {
+      db.prepare("UPDATE users SET email = ? WHERE id = ?").run(email, user.id);
+      user.email = email;
+    }
+    // Same auto-join as signup, so the demo account sees the workspace —
+    // needed every call, not just on first creation, in case a project was
+    // added after the demo user already existed.
+    for (const p of db.prepare("SELECT id FROM projects").all() as any[]) {
+      db.prepare(
+        "INSERT OR IGNORE INTO project_members (project_id, user_id, role, joined_at) VALUES (?,?,?,?)"
+      ).run(p.id, user.id, "member", new Date().toISOString());
     }
     return { ok: true, user, token: createSession(db, user.id) };
   });

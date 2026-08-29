@@ -370,7 +370,10 @@ export function registerAgentRoutes(app: FastifyInstance, deps: RouteDeps) {
       return reply.code(404).send({ ok: false, agentId: null, error: `no such project "${b.projectId}"` });
     }
     const proj = db.prepare("SELECT gh_repo FROM projects WHERE id = ?").get(b.projectId) as any;
-    const commanderAgent = db.prepare("SELECT folder FROM agents WHERE project_id = ? AND (role = 'planner' OR role = 'orchestrator' OR name LIKE '%commander%') LIMIT 1").get(b.projectId) as any;
+    const commanderAgent = (
+      db.prepare("SELECT folder FROM agents WHERE project_id = ? AND is_god = 1 LIMIT 1").get(b.projectId) ??
+      db.prepare("SELECT folder FROM agents WHERE project_id = ? AND (role = 'planner' OR role = 'orchestrator' OR name LIKE '%commander%') LIMIT 1").get(b.projectId)
+    ) as any;
     let targetFolder = b.folder || commanderAgent?.folder;
     if (!targetFolder && proj?.gh_repo) {
       if (existsSync(proj.gh_repo)) {

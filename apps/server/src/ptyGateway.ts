@@ -150,10 +150,18 @@ export function spawnOrGetPtySession(
   }
   if (!existsSync(cwd)) cwd = process.cwd();
 
-  const isCommander = (agent?.name && agent.name.toLowerCase().includes("commander")) ||
-                      (agent?.role && agent.role.toLowerCase().includes("commander")) ||
-                      (agent?.role === "planner") ||
-                      agent?.isGod;
+  // is_god is authoritative when set (SQL column, added after a subordinate
+  // that also had role "planner" was mistaken for the commander here, and
+  // both agents' spawns then overwrote the same shared AGENTS.md at the
+  // project root with each other's identity — the commander's own CLI
+  // introduced itself with the subordinate's name on its next start).
+  // NULL means the row predates that column; fall back to the old heuristic
+  // rather than assume "not commander" for a possibly-legitimate old row.
+  const isCommander = agent?.is_god === 1 ? true
+    : agent?.is_god === 0 ? false
+    : (agent?.name && agent.name.toLowerCase().includes("commander")) ||
+      (agent?.role && agent.role.toLowerCase().includes("commander")) ||
+      (agent?.role === "planner");
 
   let initialPrompt = "";
   if (agent && cwd && existsSync(cwd)) {
@@ -171,8 +179,19 @@ export function spawnOrGetPtySession(
           role: agent.role,
         });
       }
-      const agentsMdPath = join(cwd, "AGENTS.md");
-      writeFileSync(agentsMdPath, initialPrompt, "utf8");
+      // Only the commander writes the shared project-root AGENTS.md — many
+      // CLIs (opencode, claude) read it automatically as a system prompt.
+      // Subordinates commonly share the commander's folder as their cwd, so
+      // a subordinate's spawn used to overwrite the same file with its own
+      // identity: whichever agent's terminal opened most recently decided
+      // what EVERY agent's next cold start would read there, including the
+      // commander's. A subordinate's identity already lives in its own
+      // hive/agents/<id>/identity.md and is delivered directly into its PTY
+      // below (initialPrompt), so it never needed the shared file.
+      if (isCommander) {
+        const agentsMdPath = join(cwd, "AGENTS.md");
+        writeFileSync(agentsMdPath, initialPrompt, "utf8");
+      }
     } catch {}
   }
 
@@ -427,10 +446,11 @@ export function registerPtyGateway(app: FastifyInstance, db: Db, hive?: HiveMana
           : null;
         let prompt = "";
         const cwd = agent?.folder || agent?.cwd || process.cwd();
-        const isCommander = (agent?.name && agent.name.toLowerCase().includes("commander")) ||
-                            (agent?.role && agent.role.toLowerCase().includes("commander")) ||
-                            (agent?.role === "planner") ||
-                            agent?.isGod;
+        const isCommander = agent?.is_god === 1 ? true
+          : agent?.is_god === 0 ? false
+          : (agent?.name && agent.name.toLowerCase().includes("commander")) ||
+            (agent?.role && agent.role.toLowerCase().includes("commander")) ||
+            (agent?.role === "planner");
         if (isCommander) {
           prompt = buildCommanderHivePrompt({ commanderName: agent?.name || "Michael", folder: cwd });
         } else {

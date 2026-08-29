@@ -565,6 +565,16 @@ export function openDb(dbPath?: string): Db {
     "ALTER TABLE users ADD COLUMN password_hash TEXT",
     "ALTER TABLE users ADD COLUMN created_at TEXT",
     "ALTER TABLE projects ADD COLUMN owner_id TEXT",
+    // Explicit commander flag. Before this, "is this agent the project's
+    // commander" was inferred from role === 'planner' or the name
+    // containing 'commander' — and a subordinate given role 'planner'
+    // (a reasonable choice for e.g. a second orchestration-flavored agent)
+    // satisfied the same check as the actual commander. Both then wrote
+    // their identity into the one shared AGENTS.md at the project root
+    // (ptyGateway.ts), so whichever one's terminal spawned last silently
+    // overwrote the other's — the commander's own CLI would introduce
+    // itself with the subordinate's name on its next start.
+    "ALTER TABLE agents ADD COLUMN is_god INTEGER",
   ]) {
     try {
       db.exec(alter);

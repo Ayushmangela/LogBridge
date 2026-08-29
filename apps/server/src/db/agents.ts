@@ -88,10 +88,14 @@ export function cloneAgent(db: Db, agentId: string, targetProjectId: string, new
 
   const newId = `agt_${crypto.randomUUID()}`;
   const name = newName?.trim() || `${agent.name}-clone`;
+  // is_god is deliberately not copied: cloning the commander must not
+  // produce a second commander (two agents claiming is_god in one project
+  // reopens the exact identity ambiguity is_god exists to close — see the
+  // schema.ts migration comment).
   db.prepare(
     `INSERT INTO agents (id, machine_id, owner_id, project_id, name, role, capabilities, concurrency, status, current_task,
-                         character, color, folder, isolation, description, goal, provider, model)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, ?, ?, ?, ?, ?, ?, ?, ?)`
+                         character, color, folder, isolation, description, goal, provider, model, is_god)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
   ).run(
     newId, agent.machine_id, agent.owner_id, targetProjectId,
     name, agent.role, agent.capabilities, agent.concurrency,

@@ -17,9 +17,17 @@ export function registerProjectRoutes(app: FastifyInstance, deps: RouteDeps) {
   app.get("/api/projects", async () => {
     const projects = db.prepare("SELECT * FROM projects ORDER BY name").all() as any[];
     const result = projects.map((p) => {
-      const agents = db.prepare("SELECT id, name, role FROM agents WHERE project_id = ? AND retired = 0").all(p.id) as any[];
+      const agents = db.prepare("SELECT id, name, role, is_god FROM agents WHERE project_id = ? AND retired = 0").all(p.id) as any[];
       const taskCount = (db.prepare("SELECT COUNT(*) as count FROM tasks WHERE project_id = ?").get(p.id) as any)?.count || 0;
-      const commander = agents.find((a) => a.role === "planner" || a.name?.toLowerCase().includes("commander"));
+      // is_god is authoritative; role/name are a fallback for rows created
+      // before that column existed. Without the fallback, a subordinate
+      // that also happens to have role "planner" (a legitimate role choice,
+      // not reserved for commanders) can tie with or precede the real
+      // commander in `find` — which is exactly how one got its identity
+      // overwritten by another agent's terminal in production.
+      const commander =
+        agents.find((a) => a.is_god) ??
+        agents.find((a) => a.role === "planner" || a.name?.toLowerCase().includes("commander"));
       return {
         id: p.id,
         name: p.name || p.gh_repo || p.id,
@@ -149,8 +157,8 @@ export function registerProjectRoutes(app: FastifyInstance, deps: RouteDeps) {
     });
 
     db.prepare(`
-      INSERT INTO agents (id, machine_id, owner_id, project_id, name, role, provider, model, folder, description, goal, character, status)
-      VALUES (?, ?, ?, ?, ?, 'planner', ?, ?, ?, ?, ?, 'adam', 'idle')
+      INSERT INTO agents (id, machine_id, owner_id, project_id, name, role, provider, model, folder, description, goal, character, status, is_god)
+      VALUES (?, ?, ?, ?, ?, 'planner', ?, ?, ?, ?, ?, 'adam', 'idle', 1)
     `).run(
       commanderId,
       machineId,

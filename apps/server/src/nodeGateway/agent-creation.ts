@@ -56,14 +56,12 @@ export async function requestAgentCreate(
     pendingAgentCreates.set(requestId, (r) => { clearTimeout(timer); resolve(r); });
   });
 
-  const socket = nodeSockets.get(opts.machineId);
-  if (!socket) {
-    const agentId = "agt_" + crypto.randomUUID().slice(0, 8);
+  const insertLocalAgentRow = (agentId: string) => {
     const owner = db.prepare("SELECT owner_id FROM machines WHERE id = ?").get(opts.machineId) as any;
     db.prepare(
-      `INSERT INTO agents (id, machine_id, owner_id, project_id, name, role, capabilities, concurrency, status, current_task,
-                           character, color, folder, isolation, description, goal, provider, model)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'idle', NULL, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT OR IGNORE INTO agents (id, machine_id, owner_id, project_id, name, role, capabilities, concurrency, status, current_task,
+                           character, color, folder, isolation, description, goal, provider, model, is_god)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'idle', NULL, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
     ).run(
       agentId, opts.machineId, owner?.owner_id ?? "usr_dev", opts.projectId,
       opts.name, opts.role ?? "developer", JSON.stringify(opts.capabilities ?? []),
@@ -71,6 +69,12 @@ export async function requestAgentCreate(
       opts.isolation ?? "worktree", opts.description ?? null, opts.goal ?? null,
       opts.provider ?? null, opts.model ?? null
     );
+  };
+
+  const socket = nodeSockets.get(opts.machineId);
+  if (!socket) {
+    const agentId = "agt_" + crypto.randomUUID().slice(0, 8);
+    insertLocalAgentRow(agentId);
     appendEvent(db, opts.projectId, null, "agent.create.result", {
       requestId, ok: true, agentId, error: null,
       name: opts.name, machineId: opts.machineId,
@@ -85,6 +89,18 @@ export async function requestAgentCreate(
   });
 
   const answer = await result;
+  // The runner's "ok" is an acknowledgment, not proof a row exists here.
+  // It used to be trusted at face value while the actual INSERT was left to
+  // a separate, later "agent.card" broadcast from the runner — so an agent
+  // could be added, appear in the hive (registry.json, identity.md, a
+  // spawned terminal), and never show up in the sidebar or task offers
+  // because that follow-up message never arrived. Inserting here as soon as
+  // the runner confirms makes the row's existence not depend on a second
+  // message. `INSERT OR IGNORE` means a later `agent.card` for the same id
+  // still lands as the update it already was.
+  if (answer.ok && answer.agentId) {
+    insertLocalAgentRow(answer.agentId);
+  }
   appendEvent(db, opts.projectId, null, "agent.create.result", {
     requestId, ok: answer.ok, agentId: answer.agentId, error: answer.error,
     name: opts.name, machineId: opts.machineId,
