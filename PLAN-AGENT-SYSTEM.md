@@ -1,5 +1,10 @@
 # Development plan — agent coordination
 
+> **Per-phase briefs live in `docs/phases/`** — one document each, written as
+> reasoning rather than requirements. Hand an AI exactly one, and only after
+> the previous phase is verified. Phase 0 is built; **Phases 3 and 4 are
+> audits, not builds** — those tables already exist and are in use.
+
 Merges three inputs: the diagnosis in `AGENT-ARCHITECTURE.md` (what is broken
 now, evidence-checked against the code), the design in
 `docs/history/deep-research-report.md` (what it should become), and the papers

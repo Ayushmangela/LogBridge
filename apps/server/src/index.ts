@@ -13,6 +13,7 @@ import { Positions } from "./view.js";
 import { registerCommandRoutes } from "./commands.js";
 import { registerAuthGate } from "./sessions.js";
 import { wakeRecipient, defaultInject, roomLineFor } from "./hiveWake.js";
+import { recordDelivery, checkForAcks, sweepDeliveries } from "./hiveDelivery.js";
 import { spawnOrGetPtySession } from "./ptyGateway.js";
 import type { ChatMessageT } from "@logbridge/protocol";
 import { registerGateway } from "./gateway.js";
@@ -105,6 +106,10 @@ export async function buildServer(
         // agent's own words when it wrote them, a generated line when it did
         // not — a silent office is the failure this design exists to prevent.
         if (wake.outcome === "injected" || wake.outcome === "spawned") {
+          // Phase 1: durable delivery record. Replaces the in-memory-only
+          // dedup that reset on server restart.
+          recordDelivery(db, msg, toId, projectId, wake);
+
           const line: ChatMessageT = {
             id: crypto.randomUUID(),
             roomId: projectId,
@@ -115,6 +120,9 @@ export async function buildServer(
           };
           appendEvent(db, projectId, null, "chat", line);
           broadcastChatRef?.(line);
+        } else if (wake.outcome === "undeliverable") {
+          // Also record undeliverable so the table tracks every outcome.
+          recordDelivery(db, msg, toId, projectId, wake);
         }
       } catch (err) {
         app.log.warn({ err }, "hive wake failed");
@@ -132,6 +140,48 @@ export async function buildServer(
       }
     } catch {}
     hive.startRouter(1500);
+
+    // Phase 1 — delivery sweep. Two intervals:
+    //   1. Ack scan (30s): checks .done/ directories for handled messages.
+    //   2. Timeout sweep (60s): redelivers stale messages or dead-letters them.
+    // Neither runs in test mode where the hive root is an ephemeral tmpdir.
+    const hiveRoots = [hiveHome];
+    setInterval(() => {
+      try { checkForAcks(db, hiveRoots); } catch {}
+    }, 30_000);
+    setInterval(() => {
+      try {
+        sweepDeliveries({
+          db,
+          hiveRoots,
+          inject: defaultInject,
+          spawn: (agentId, prompt) => {
+            const target = db.prepare("SELECT provider FROM agents WHERE id = ?").get(agentId) as any;
+            const ptyId = `pty-${target?.provider || "claude"}-${agentId}`;
+            const session = spawnOrGetPtySession(db, ptyId, agentId, 100, 30, hive);
+            if (!session) return false;
+            submitPromptToAgent(agentId, prompt);
+            return true;
+          },
+          log: (m) => app.log.info(m),
+          emitEvent: (projectId, _msgId, type, body) => {
+            appendEvent(db, projectId, null, type, body);
+          },
+          postChat: (projectId, text) => {
+            const line: ChatMessageT = {
+              id: crypto.randomUUID(),
+              roomId: projectId,
+              from: { kind: "system" as any, id: "delivery", name: "Delivery" },
+              text,
+              ts: new Date().toISOString(),
+              ask: null,
+            };
+            appendEvent(db, projectId, null, "chat", line);
+            broadcastChatRef?.(line);
+          },
+        });
+      } catch {}
+    }, 60_000);
   }
 
   // Sync existing agents to hive

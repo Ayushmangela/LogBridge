@@ -478,6 +478,32 @@ CREATE INDEX IF NOT EXISTS idx_review_verdicts_task ON review_verdicts (task_id)
 
 CREATE INDEX IF NOT EXISTS idx_events_project ON events (project_id, seq);
 CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks (agent_id);
+
+-- Phase 1 — delivery guarantees for hive messages. A message in inbox/ has
+-- no observable state: delivered-and-handled, delivered-and-ignored, and
+-- delivered-and-crashed all look the same. This table makes the lifecycle
+-- visible so timeout, retry, and dead-letter can work.
+--
+-- Ack is the .done/ move agents already perform — no new step required.
+-- delivered_at is explicit rather than relying on file mtime (the brief
+-- warns against that: a synced folder or restore will lie).
+CREATE TABLE IF NOT EXISTS hive_deliveries (
+  message_id TEXT PRIMARY KEY,
+  to_agent_id TEXT NOT NULL,
+  from_agent_id TEXT,
+  project_id TEXT,
+  subject TEXT,
+  body_preview TEXT,
+  delivered_at TEXT NOT NULL,
+  handled_at TEXT,
+  dead_at TEXT,
+  attempts INTEGER NOT NULL DEFAULT 1,
+  last_wake_outcome TEXT,
+  last_attempt_at TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'delivered'
+);
+CREATE INDEX IF NOT EXISTS idx_hive_del_state ON hive_deliveries (state, last_attempt_at);
+CREATE INDEX IF NOT EXISTS idx_hive_del_agent ON hive_deliveries (to_agent_id, state);
 `;
 
 export function openDb(dbPath?: string): Db {

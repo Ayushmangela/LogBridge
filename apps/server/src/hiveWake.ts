@@ -22,6 +22,7 @@
 import type { Db } from "./db.js";
 import type { HiveMessage } from "./hive.js";
 import { submitPromptToAgent } from "./ptyGateway.js";
+import { isAlreadyDelivered } from "./hiveDelivery.js";
 
 export type WakeOutcome = "injected" | "spawned" | "undeliverable" | "suppressed" | "duplicate";
 
@@ -30,16 +31,12 @@ export interface WakeResult {
   reason?: string;
 }
 
-/** Message ids already acted on. The router re-scans directories every 1.5s
- *  and files persist, so without this one message would wake an agent on
- *  every tick. The triggers subsystem learned this exact lesson the hard way:
- *  a guard that only held within a single tick leaked one task per tick,
- *  forever. */
+/** Hot-path cache. The router re-scans directories every 1.5s and files
+ *  persist, so without this one message would hit the DB on every tick.
+ *  The authoritative dedup is the hive_deliveries table — this just avoids
+ *  a round-trip for the common case. */
 const wokenFor = new Set<string>();
 
-/** Bounded so a long-running server does not grow this without limit. The
- *  order is insertion order, so the oldest ids drop first — a message old
- *  enough to fall out has long since been handled or dead-lettered. */
 const MAX_REMEMBERED = 5000;
 
 function remember(id: string): void {
@@ -111,7 +108,14 @@ export function wakeRecipient(msg: HiveMessage, toId: string, deps: WakeDeps): W
   const log = deps.log ?? (() => {});
 
   if (!msg?.id) return { outcome: "suppressed", reason: "message has no id" };
+
+  // Two-layer dedup: in-memory cache first (no DB round-trip on every
+  // 1.5-second router tick), then the durable table that survives restarts.
   if (wokenFor.has(msg.id)) return { outcome: "duplicate" };
+  if (isAlreadyDelivered(deps.db, msg.id)) {
+    remember(msg.id); // warm the cache so next tick skips the DB
+    return { outcome: "duplicate" };
+  }
 
   const agent = deps.db
     .prepare("SELECT a.id, a.name, a.machine_id, m.online FROM agents a LEFT JOIN machines m ON m.id = a.machine_id WHERE a.id = ?")
