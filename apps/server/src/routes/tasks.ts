@@ -9,7 +9,7 @@ import {
   candidateAgents, activeTaskCountsByAgent, setRetryPolicy,
   appendEvent
 } from "../db.js";
-import { orchestrate, sendTaskOffer, taskCancelEnvelope } from "../nodeGateway.js";
+import { orchestrate, sendTaskOffer, taskCancelEnvelope, completeLocalTask } from "../nodeGateway.js";
 import { submitPromptToAgent } from "../ptyGateway.js";
 import { evaluateAgentCandidates } from "../orchestrator.js";
 import { buildAgentContext } from "../contextBuilder.js";
@@ -17,6 +17,22 @@ import type { RouteDeps } from "./types.js";
 
 export function registerTaskRoutes(app: FastifyInstance, deps: RouteDeps) {
   const { db, nodeSockets, broadcastView, hive } = deps;
+
+  // A locally-delivered task (deliverTaskLocally, task-offers.ts) has no
+  // automatic completion signal — nothing watches the PTY for "done". This
+  // is that signal's manual form: for a human watching the terminal finish,
+  // or a UI action later. Without it, the agent stays "working" forever and
+  // silently drops every chat instruction sent to it afterward.
+  app.post<{ Params: { id: string }; Body: { ok?: boolean } }>(
+    "/api/tasks/:id/complete",
+    async (req, reply) => {
+      const task = getTask(db, req.params.id);
+      if (!task) return reply.code(404).send({ ok: false, error: "no such task" });
+      const applied = completeLocalTask(db, nodeSockets, req.params.id, req.body?.ok !== false);
+      broadcastView();
+      return { ok: applied };
+    }
+  );
 
   app.post<{ Body: { agentId: string; title: string; spec?: string; budgetSeconds?: number; budgetUsd?: number } }>(
     "/debug/offer-task",

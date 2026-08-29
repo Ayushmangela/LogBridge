@@ -511,6 +511,18 @@ export function registerPtyGateway(app: FastifyInstance, db: Db, hive?: HiveMana
   });
 }
 
+/** Whether agentId already has a live PTY, before you call
+ *  spawnOrGetPtySession — which returns a session either way, so it can't
+ *  tell you afterward whether this was a fresh cold start. Callers that
+ *  need to know (e.g. whether to delay their first write — see
+ *  submitPromptToAgent's comment) check this first. */
+export function isPtySessionLive(agentId: string): boolean {
+  for (const session of sessions.values()) {
+    if (session.agentId === agentId || session.id.endsWith(agentId.slice(-8))) return true;
+  }
+  return false;
+}
+
 export function submitPromptToAgent(agentId: string, text: string): boolean {
   if (!text) return false;
   for (const session of sessions.values()) {
@@ -526,4 +538,46 @@ export function submitPromptToAgent(agentId: string, text: string): boolean {
     }
   }
   return false;
+}
+
+/** The one place a ptyId gets built from an agent id, so every caller ends
+ *  up at the same session. Before this, routes/projects.ts and
+ *  routes/agents.ts named a spawn "pty-<name>-<id-suffix>" (what the
+ *  terminal panel opens), while the hive wake path (index.ts) separately
+ *  named its own spawn "pty-<provider>-<full-id>" — two different map keys
+ *  for what a human would call "the same agent's terminal". A wake-spawned
+ *  session and the one the UI opens were two unrelated child processes:
+ *  waking an idle agent silently spawned a CLI nobody could ever see, while
+ *  the terminal panel showed a second, freshly booted, unrelated one. */
+export function ptyIdFor(agentName: string, agentId: string): string {
+  return "pty-" + String(agentName).toLowerCase().replace(/[^a-z0-9]/g, "") + "-" + String(agentId).slice(-8);
+}
+
+/**
+ * Spawn (or reuse) an agent's PTY and deliver a prompt into it, correctly
+ * whether the session was already live or is a cold start.
+ *
+ * A TUI CLI (OpenCode, Claude Code) switches the terminal into raw mode as
+ * part of its own boot; a write landing before that switch can be dropped
+ * or garbled. doSeed() (above) already works around this for the initial
+ * identity prompt on a fresh spawn — this is the same fix for every OTHER
+ * caller that spawns-and-writes in one step (the hive wake path, and
+ * deliverTaskLocally in task-offers.ts), which used to write immediately
+ * and lose the message on a cold boot without any error to show for it.
+ */
+export function spawnAndSubmit(
+  db: Db, agentId: string, agentName: string, prompt: string, hive?: HiveManager
+): boolean {
+  const wasAlreadyLive = isPtySessionLive(agentId);
+  const ptyId = ptyIdFor(agentName, agentId);
+  try {
+    spawnOrGetPtySession(db, ptyId, agentId, 100, 30, hive);
+  } catch {
+    return false;
+  }
+  if (wasAlreadyLive) {
+    return submitPromptToAgent(agentId, prompt);
+  }
+  setTimeout(() => submitPromptToAgent(agentId, prompt), 6000);
+  return true;
 }

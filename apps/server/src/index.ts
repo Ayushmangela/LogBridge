@@ -14,12 +14,11 @@ import { registerCommandRoutes } from "./commands.js";
 import { registerAuthGate } from "./sessions.js";
 import { wakeRecipient, defaultInject, roomLineFor } from "./hiveWake.js";
 import { recordDelivery, checkForAcks, sweepDeliveries } from "./hiveDelivery.js";
-import { spawnOrGetPtySession } from "./ptyGateway.js";
 import type { ChatMessageT } from "@logbridge/protocol";
 import { registerGateway } from "./gateway.js";
 import { registerNodeGateway, type NodeSockets } from "./nodeGateway.js";
 import { startEventLoop, startTriggerLoop } from "./triggers.js";
-import { registerPtyGateway, submitPromptToAgent } from "./ptyGateway.js";
+import { registerPtyGateway, spawnAndSubmit } from "./ptyGateway.js";
 import { HiveManager } from "./hive.js";
 import { registerAllRoutes } from "./routes/index.js";
 
@@ -90,14 +89,13 @@ export async function buildServer(
           db,
           inject: defaultInject,
           spawn: (agentId, prompt) => {
-            const target = db.prepare("SELECT provider FROM agents WHERE id = ?").get(agentId) as any;
-            const ptyId = `pty-${target?.provider || "claude"}-${agentId}`;
-            const session = spawnOrGetPtySession(db, ptyId, agentId, 100, 30, hive);
-            if (!session) return false;
+            const target = db.prepare("SELECT name FROM agents WHERE id = ?").get(agentId) as any;
             // The message is the prompt: a freshly spawned CLI has no context,
             // so telling it to "read your inbox" alone would waste the turn.
-            submitPromptToAgent(agentId, prompt);
-            return true;
+            // spawnAndSubmit both names the ptyId the same way the UI's own
+            // terminal panel does (so this session is the one a human
+            // actually sees) and waits out the CLI's boot before writing.
+            return spawnAndSubmit(db, agentId, target?.name || agentId, prompt, hive);
           },
           log: (m) => app.log.info(m),
         });
@@ -164,12 +162,8 @@ export async function buildServer(
           hiveRoots: getActiveHiveRoots(),
           inject: defaultInject,
           spawn: (agentId, prompt) => {
-            const target = db.prepare("SELECT provider FROM agents WHERE id = ?").get(agentId) as any;
-            const ptyId = `pty-${target?.provider || "claude"}-${agentId}`;
-            const session = spawnOrGetPtySession(db, ptyId, agentId, 100, 30, hive);
-            if (!session) return false;
-            submitPromptToAgent(agentId, prompt);
-            return true;
+            const target = db.prepare("SELECT name FROM agents WHERE id = ?").get(agentId) as any;
+            return spawnAndSubmit(db, agentId, target?.name || agentId, prompt, hive);
           },
           log: (m) => app.log.info(m),
           emitEvent: (projectId, _msgId, type, body) => {

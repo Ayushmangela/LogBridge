@@ -2,7 +2,7 @@
 // Automatically audits and reconciles interrupted in-flight state upon server restart.
 
 import type { Db } from "./db.js";
-import { appendEvent, getActiveTaskAttempt, finishTaskAttempt } from "./db.js";
+import { appendEvent, getActiveTaskAttempt, finishTaskAttempt, setAgentStatus } from "./db.js";
 import { recordAuditLog } from "./audit.js";
 import { logger } from "./logger.js";
 
@@ -43,10 +43,23 @@ export function recoverServerState(db: Db): RecoveryReport {
         reconciledAttemptsCount++;
       }
 
-      // Requeue the task safely so orchestrator can re-evaluate or route it
+      // Back to `submitted`, not the `queued` this line used to write: no
+      // dispatch path anywhere in the codebase reads a task in `queued` —
+      // not reconcileOnConnect (only checks `submitted`), not orchestrate().
+      // A task and its agent could survive every future restart parked here
+      // forever, invisible in the UI, silently blocking every later chat
+      // instruction to that agent (parseMention only dispatches to an idle
+      // agent). `submitted` is a real, consumed state: sendTaskOffer picks
+      // it straight back up, same as any other pending task.
       db.prepare(
-        "UPDATE tasks SET state = 'queued', lease_expires = NULL WHERE id = ?"
+        "UPDATE tasks SET state = 'submitted', lease_expires = NULL WHERE id = ?"
       ).run(t.id);
+      // The task's own state was reconciled above, but the agent's status
+      // was never touched — it stayed `working`/`current_task` pointing at
+      // a task that no longer is. An agent in that state is invisible to
+      // every human-facing dispatch path (parseMention, the approve button)
+      // even though nothing is actually running.
+      if (t.agent_id) setAgentStatus(db, t.agent_id, "idle", null);
       recoveredTasksCount++;
 
       appendEvent(db, t.project_id, t.id, "task.recovered", {

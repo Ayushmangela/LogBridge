@@ -67,9 +67,12 @@ describe("Startup Recovery Engine", () => {
     expect(report.recoveredTasksCount).toBe(1);
     expect(report.reconciledAttemptsCount).toBe(1);
 
-    // Task is reset to queued for safe re-evaluation
+    // Reset to `submitted`, not `queued` — `queued` is a dead end nothing
+    // in the codebase reads (reconcileOnConnect only looks for `submitted`;
+    // nothing calls orchestrate() on a bare startup), so a task landed
+    // there stayed there forever, invisible, across every future restart.
     const updatedTask = getTask(db, taskId);
-    expect(updatedTask?.state).toBe("queued");
+    expect(updatedTask?.state).toBe("submitted");
 
     db.close();
   });

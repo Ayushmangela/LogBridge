@@ -749,6 +749,19 @@ export class HiveManager {
           try {
             const raw = readFileSync(filePath, "utf8");
             const msg: HiveMessage = JSON.parse(raw);
+            // Every commander's own system prompt (hivePrompt.ts) shows the
+            // outbox JSON shape without an "id" field — so every message
+            // written by an agent actually following its documented
+            // protocol arrives here with none. wakeRecipient (hiveWake.ts)
+            // treats a message with no id as unidentifiable and silently
+            // suppresses it before ever attempting to wake anyone — which
+            // meant a real, correctly-delegated task produced zero visible
+            // effect: no PTY wake, no room line, nothing. Backfilling here,
+            // once, is cheaper than making every consumer downstream handle
+            // "id may be absent."
+            if (msg && !msg.id) {
+              msg.id = `msg-${Date.now()}-${shortRand()}`;
+            }
             if (msg && msg.to) {
               // Phase 2: Sole-scribe enforcement.
               // Check if a non-god agent is asserting a write or modification to god-owned files.

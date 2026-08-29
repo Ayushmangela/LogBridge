@@ -5,9 +5,10 @@ import {
   getTask, getWorkflow, isTaskDependenciesSatisfied,
   consumeAgentSteer, tasksForMachine, setTaskState, setAgentStatus,
   createTaskAttempt, renewLease, appendEvent,
+  getActiveTaskAttempt, finishTaskAttempt, getTaskDependents,
 } from "../db.js";
 import type { NodeSockets } from "./types.js";
-import { spawnOrGetPtySession, submitPromptToAgent } from "../ptyGateway.js";
+import { spawnAndSubmit } from "../ptyGateway.js";
 import type { HiveManager } from "../hive.js";
 
 export function taskCancelEnvelope(taskId: string, projectId: string, machineId: string, by: string, reason: string | null): EnvelopeT {
@@ -74,14 +75,8 @@ export function deliverTaskLocally(db: Db, taskId: string, hive?: HiveManager): 
   const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(task.agent_id) as any;
   if (!agent) return false;
 
-  const ptyId = "pty-" + String(agent.name).toLowerCase().replace(/[^a-z0-9]/g, "") + "-" + String(agent.id).slice(-8);
-  try {
-    spawnOrGetPtySession(db, ptyId, agent.id, 100, 30, hive);
-  } catch {
-    return false;
-  }
   const spec = task.spec ?? task.title;
-  if (!submitPromptToAgent(agent.id, spec)) return false;
+  if (!spawnAndSubmit(db, agent.id, agent.name, spec, hive)) return false;
 
   setTaskState(db, task.id, "working", { started_at: task.started_at ?? new Date().toISOString() });
   renewLease(db, task.id, LOCAL_DELIVERY_LEASE_SECONDS);
@@ -90,6 +85,55 @@ export function deliverTaskLocally(db: Db, taskId: string, hive?: HiveManager): 
   appendEvent(db, task.project_id, task.id, "task.accept", {
     taskId: task.id, agentId: agent.id, via: "local-pty",
   });
+  return true;
+}
+
+/**
+ * The other half of deliverTaskLocally's honest gap: nothing watches a local
+ * PTY for completion, so a task it delivered stays `working` — and the
+ * agent stays "busy" — until something says otherwise. Concretely: a second
+ * chat instruction to the same agent is silently dropped (parseMention in
+ * gateway.ts only creates a task for an idle agent), so without this, one
+ * locally-delivered task permanently ends a human's ability to talk to that
+ * agent through chat again.
+ *
+ * This does by hand what a real runner's `task.result` WS message does
+ * automatically — same state transition, same attempt bookkeeping, same
+ * dependent-task wakeup — for the case where a human (or, later, a real
+ * output-completion detector) is the one reporting it, not a runner.
+ */
+export function completeLocalTask(db: Db, nodeSockets: NodeSockets, taskId: string, ok = true): boolean {
+  const task = getTask(db, taskId);
+  if (!task || task.state === "completed" || task.state === "failed") return false;
+
+  const activeAttempt = getActiveTaskAttempt(db, task.id);
+  if (activeAttempt) {
+    finishTaskAttempt(db, activeAttempt.id, {
+      state: ok ? "completed" : "failed",
+      exitCode: ok ? 0 : 1,
+      errorMessage: null,
+      costUsd: 0,
+    });
+  }
+
+  const finalState = ok ? "completed" : "failed";
+  setTaskState(db, task.id, finalState, { ended_at: new Date().toISOString() });
+  if (task.agent_id) setAgentStatus(db, task.agent_id, "idle", null);
+  appendEvent(db, task.project_id, task.id, "task.result", { taskId: task.id, state: finalState, via: "local-pty" });
+
+  if (ok) {
+    for (const dep of getTaskDependents(db, task.id)) {
+      if (isTaskDependenciesSatisfied(db, dep.taskId)) {
+        appendEvent(db, task.project_id, dep.taskId, "task.dependency_satisfied", {
+          completedDependency: task.id, taskId: dep.taskId,
+        });
+        const depTask = getTask(db, dep.taskId);
+        if (depTask && depTask.state === "submitted" && depTask.agent_id) {
+          sendTaskOffer(db, nodeSockets, depTask.id);
+        }
+      }
+    }
+  }
   return true;
 }
 
