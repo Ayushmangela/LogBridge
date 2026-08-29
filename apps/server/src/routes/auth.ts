@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { randomBytes, scryptSync } from "node:crypto";
 import type { RouteDeps } from "./types.js";
+import { createSession, destroySession, tokenFromRequest, userForToken } from "../sessions.js";
 
 export function registerAuthRoutes(app: FastifyInstance, deps: RouteDeps) {
   const { db } = deps;
@@ -41,7 +42,8 @@ export function registerAuthRoutes(app: FastifyInstance, deps: RouteDeps) {
       }
     } catch {}
 
-    const token = randomBytes(24).toString("hex");
+    // Persisted, so the token actually means something on the next request.
+    const token = createSession(db, userId);
     return {
       ok: true,
       user: {
@@ -77,7 +79,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: RouteDeps) {
       return reply.code(401).send({ error: "Invalid credentials" });
     }
 
-    const token = randomBytes(24).toString("hex");
+    const token = createSession(db, user.id);
     return {
       ok: true,
       user: {
@@ -89,15 +91,15 @@ export function registerAuthRoutes(app: FastifyInstance, deps: RouteDeps) {
     };
   });
 
-  app.get("/api/auth/me", async () => {
-    const user = db.prepare("SELECT id, name, email, gh_login FROM users ORDER BY rowid LIMIT 1").get() as any;
-    if (!user) return { user: null };
-    return {
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email || user.gh_login,
-      }
-    };
+  // Was: "SELECT ... FROM users ORDER BY rowid LIMIT 1" — it answered with
+  // whichever user was created first, whoever asked. That is not identity.
+  app.get("/api/auth/me", async (req) => {
+    const user = userForToken(db, tokenFromRequest(req));
+    return { user: user ?? null };
+  });
+
+  app.post("/api/auth/logout", async (req) => {
+    destroySession(db, tokenFromRequest(req));
+    return { ok: true };
   });
 }

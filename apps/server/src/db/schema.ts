@@ -11,6 +11,18 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT,
   avatar INT
 );
+
+-- Login used to mint a token and throw it away: nothing stored it, nothing
+-- checked it, and /api/auth/me answered with "the first user in the table"
+-- regardless of who asked. A session has to exist somewhere for a token to
+-- mean anything.
+CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  last_seen TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id);
 CREATE TABLE IF NOT EXISTS machines (
   id TEXT PRIMARY KEY,
   owner_id TEXT,

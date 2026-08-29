@@ -11,6 +11,7 @@ import { recoverServerState } from "./recovery.js";
 import { emitSequenceEvent } from "./communication/sequenceEvents.js";
 import { Positions } from "./view.js";
 import { registerCommandRoutes } from "./commands.js";
+import { registerAuthGate } from "./sessions.js";
 import { registerGateway } from "./gateway.js";
 import { registerNodeGateway, type NodeSockets } from "./nodeGateway.js";
 import { startEventLoop, startTriggerLoop } from "./triggers.js";
@@ -114,6 +115,17 @@ export async function buildServer(
   const webRoot = join(__dirname, "..", "..", "web");
   await app.register(fastifyStatic, { root: webRoot });
 
+  // The office's map and every sprite live in the repo-root `assets/`, not in
+  // apps/web. This registration was dropped by the modularisation refactor,
+  // which left the whole office 404ing — no floor, no characters — while every
+  // test stayed green, because nothing tests static serving. The smoke test in
+  // staticAssets.test.ts exists so that cannot happen silently again.
+  await app.register(fastifyStatic, {
+    root: join(__dirname, "..", "..", "..", "assets"),
+    prefix: "/assets/",
+    decorateReply: false,
+  });
+
   // Single-page app: serve index.html at root (and fastifyStatic handles the
   // fallback for any other assets in apps/web)
   app.get("/", async (_req, reply) => reply.sendFile("index.html"));
@@ -177,8 +189,32 @@ export async function buildServer(
 
 async function main() {
   const PORT = Number(process.env.PORT ?? 8787);
-  const { app } = await buildServer();
-  app.listen({ port: PORT, host: "0.0.0.0" }).catch((err: Error) => {
+
+  // Loopback by DEFAULT. This used to bind 0.0.0.0 unconditionally, which put
+  // an unauthenticated interactive shell (/pty-ws accepts `spawn` then raw
+  // `data` keystrokes) on every network interface — every device on the same
+  // wifi could open a WebSocket and get $SHELL with this process's full
+  // environment. Until enrolment exists (D23), exposing the server beyond
+  // loopback has to be a deliberate act by the operator, not the default.
+  //
+  // Set LOGBRIDGE_HOST=0.0.0.0 to expose it, and read SECURITY-REVIEW.md
+  // first — it is only safe behind a tailnet or with LOGBRIDGE_TOKEN set.
+  const HOST = process.env.LOGBRIDGE_HOST ?? "127.0.0.1";
+  const { app, db } = await buildServer();
+
+  // Enforced on the real entry point only. Under vitest the gate is off, so
+  // the 21 existing test files that call these routes directly keep working;
+  // sessions.test.ts turns it on explicitly and tests the gate itself.
+  registerAuthGate(app, db);
+
+  if (HOST !== "127.0.0.1" && HOST !== "localhost" && !process.env.LOGBRIDGE_TOKEN) {
+    app.log.warn(
+      `binding ${HOST} with no LOGBRIDGE_TOKEN set — /pty-ws is an unauthenticated ` +
+      `shell on this machine. Set LOGBRIDGE_TOKEN, or bind loopback only.`
+    );
+  }
+
+  app.listen({ port: PORT, host: HOST }).catch((err: Error) => {
     app.log.error(err);
     process.exit(1);
   });

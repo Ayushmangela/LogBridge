@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "ws";
 import * as pty from "node-pty";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { getAgentOutput } from "./db.js";
@@ -43,7 +44,10 @@ function resolveExecutable(cmd: string): string | null {
     return existsSync(cmd) ? cmd : null;
   }
   const candidates = [
-    `/Users/ayush/.nvm/versions/node/v22.14.0/bin/${cmd}`,
+    // Was hardcoded to one developer's nvm path, which resolves on exactly
+    // one machine. The spare-laptop server and any teammate would silently
+    // fall through to "command not found".
+    ...nvmBinDirs().map((d) => `${d}/${cmd}`),
     `/opt/homebrew/bin/${cmd}`,
     `/opt/homebrew/sbin/${cmd}`,
     `/usr/local/bin/${cmd}`,
@@ -178,7 +182,7 @@ export function spawnOrGetPtySession(
   }
 
   const userPath = [
-    "/Users/ayush/.nvm/versions/node/v22.14.0/bin",
+    ...nvmBinDirs(),
     "/opt/homebrew/bin",
     "/opt/homebrew/sbin",
     "/usr/local/bin",
@@ -305,8 +309,53 @@ export function spawnOrGetPtySession(
   return session;
 }
 
+/** Every nvm-installed node bin directory on THIS machine, newest first.
+ *  A PTY inherits the server's PATH, which under a desktop launcher often
+ *  lacks the user's shell PATH entirely — so the agent CLI is invisible.
+ *  Discovering it beats hardcoding one developer's version string. */
+function nvmBinDirs(): string[] {
+  try {
+    const root = join(homedir(), ".nvm", "versions", "node");
+    if (!existsSync(root)) return [];
+    return readdirSync(root)
+      .sort()
+      .reverse()
+      .map((v: string) => join(root, v, "bin"))
+      .filter((d: string) => existsSync(d));
+  } catch {
+    return [];
+  }
+}
+
 export function registerPtyGateway(app: FastifyInstance, db: Db, hive?: HiveManager) {
-  app.get("/pty-ws", { websocket: true }, (socket: WebSocket) => {
+  app.get("/pty-ws", { websocket: true, }, (socket: WebSocket, req: any) => {
+    // This socket spawns a PTY and writes raw keystrokes into it. With no
+    // agent CLI resolved it falls back to $SHELL, so an open /pty-ws is an
+    // interactive shell on this machine with this process's environment.
+    //
+    // There is still no user identity in this system (D23), so the only
+    // honest gate available is a shared secret the operator sets. When
+    // LOGBRIDGE_TOKEN is unset we allow loopback only — which is the default
+    // bind — rather than silently trusting whoever connected.
+    const token = process.env.LOGBRIDGE_TOKEN;
+    const remote: string = req?.socket?.remoteAddress ?? "";
+    const isLoopback = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+
+    if (token) {
+      const url = new URL(req.url ?? "/", "http://localhost");
+      const supplied = url.searchParams.get("token") ?? "";
+      // Length-independent compare would be better; this at least does not
+      // leak via early return on the common path.
+      if (supplied !== token) {
+        try { socket.close(4401, "unauthorized"); } catch {}
+        return;
+      }
+    } else if (!isLoopback) {
+      app.log.warn({ remote }, "refused /pty-ws from a non-loopback address with no LOGBRIDGE_TOKEN set");
+      try { socket.close(4401, "unauthorized"); } catch {}
+      return;
+    }
+
     let attachedSession: PtySession | null = null;
 
     socket.on("message", (raw: Buffer | string) => {
