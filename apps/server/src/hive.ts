@@ -82,6 +82,74 @@ export interface ActiveMeeting {
   reason: string;
 }
 
+export const GOD_OWNED_FILES = ["board.md", "tasks.json", "registry.json", "fleet.json"] as const;
+
+/**
+ * Normalizes file path/name and checks if it matches any god-owned file.
+ * Normalizes `./board.md`, `hive/board.md`, `/abs/path/to/board.md` -> `board.md`.
+ */
+export function isGodOwnedFile(fileNameOrPath: string): boolean {
+  if (!fileNameOrPath) return false;
+  const norm = fileNameOrPath.trim().replace(/^[.\\/]+/, "");
+  const base = norm.split(/[/\\\\]/).pop() || norm;
+  return GOD_OWNED_FILES.some((f) => base === f || norm === f || norm === `hive/${f}`);
+}
+
+/**
+ * Derives fleet.json as a direct projection of registry.json and live inbox metrics.
+ * Eliminates state drift between registry.json and fleet.json.
+ */
+export function deriveFleet(root: string, registry?: HiveRegistry): { version: number; generatedAt: string; agents: any[] } {
+  let reg = registry;
+  if (!reg) {
+    const regPath = join(root, "registry.json");
+    try {
+      if (existsSync(regPath)) reg = JSON.parse(readFileSync(regPath, "utf8"));
+    } catch {}
+  }
+  if (!reg) reg = { godId: null, agents: {} };
+
+  const agentsList: any[] = [];
+  for (const [id, a] of Object.entries(reg.agents || {})) {
+    const inboxDir = join(root, "agents", id, "inbox");
+    let inboxBacklog = 0;
+    if (existsSync(inboxDir)) {
+      try {
+        inboxBacklog = readdirSync(inboxDir).filter((f) => f.endsWith(".json")).length;
+      } catch {}
+    }
+
+    agentsList.push({
+      id: a.id || id,
+      name: a.name || id,
+      role: a.role || "Developer",
+      status: "active",
+      provider: a.provider || "default",
+      model: a.model || "default",
+      tokens: 0,
+      cost: 0,
+      lastTool: "idle",
+      breaker: "none",
+      inboxBacklog,
+    });
+  }
+
+  const fleet = {
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    agents: agentsList,
+  };
+
+  const fleetPath = join(root, "fleet.json");
+  const tmp = `${fleetPath}.tmp.${Date.now()}`;
+  try {
+    writeFileSync(tmp, JSON.stringify(fleet, null, 2) + "\n", "utf8");
+    renameSync(tmp, fleetPath);
+  } catch {}
+
+  return fleet;
+}
+
 const PROTOCOL_MD = `# Hive Protocol
 
 You are one of several agents collaborating in this workspace. Coordination is file-based and autonomous.
@@ -112,6 +180,10 @@ Supported acts:
 - \`agree\`    — Agreeing to a request.
 - \`refuse\`   — Declining a request with reason.
 - \`done\`     — Reporting task completion.
+
+## Artifacts by Reference
+**NEVER paste raw diffs, file listings, or walls of code into message bodies or \`say\`**.
+Save the artifact to disk or pass its reference ID/path (e.g. \`"artifacts": { "diff": "path/to/patch" }\`). The office chat displays \`say\` directly to humans — keeping messages concise preserves office readability.
 
 ## Shared Blackboard — \`board.md\`
 Shared project plans, specifications, and architecture decisions live in \`board.md\`.
@@ -302,6 +374,8 @@ export class HiveManager {
       );
     }
 
+    deriveFleet(this._root);
+
     const tasksPath = join(this._root, "tasks.json");
     if (!existsSync(tasksPath)) {
       this.writeJson(tasksPath, {
@@ -395,6 +469,16 @@ export class HiveManager {
 
   saveRegistry(reg: HiveRegistry): void {
     this.writeJson(join(this._root, "registry.json"), reg);
+    deriveFleet(this._root, reg);
+  }
+
+  isSoleScribe(agentId?: string): boolean {
+    if (!agentId || agentId === "god" || agentId === "user" || agentId.startsWith("usr_")) return true;
+    const reg = this.getRegistry();
+    if (reg.godId && reg.godId === agentId) return true;
+    const agent = reg.agents[agentId];
+    if (agent?.isGod) return true;
+    return false;
   }
 
   getBoard(): string {
@@ -406,6 +490,11 @@ export class HiveManager {
   }
 
   setBoard(content: string, authorId?: string): void {
+    if (authorId && !this.isSoleScribe(authorId)) {
+      throw new Error(
+        `Sole scribe violation: agent "${authorId}" cannot write board.md. Send a request to god to update the blackboard.`
+      );
+    }
     const p = join(this._root, "board.md");
     writeFileSync(p, content, "utf8");
     this.emitEvent({
@@ -615,6 +704,53 @@ export class HiveManager {
             const raw = readFileSync(filePath, "utf8");
             const msg: HiveMessage = JSON.parse(raw);
             if (msg && msg.to) {
+              // Phase 2: Sole-scribe enforcement.
+              // Check if a non-god agent is asserting a write or modification to god-owned files.
+              const targetFile = (msg as any).target_file || (msg as any).file || (msg as any).path;
+              const isDirectGodFileWrite = targetFile && isGodOwnedFile(String(targetFile));
+              const isSoleScribeSender = this.isSoleScribe(msg.from || agentId);
+
+              if (isDirectGodFileWrite && !isSoleScribeSender) {
+                // Refuse the write and send refusal message back to the sender
+                const godIdentifier = reg.godId || "god";
+                const refusal: HiveMessage = {
+                  id: `refusal-${Date.now()}-${shortRand()}`,
+                  conversation: msg.conversation || `conv-${shortRand()}`,
+                  in_reply_to: msg.id,
+                  from: godIdentifier,
+                  to: msg.from || agentId,
+                  act: "refuse",
+                  subject: `Write to ${targetFile} refused`,
+                  body: `Sole scribe violation: "${msg.from || agentId}" cannot write "${targetFile}" directly. Only god (${godIdentifier}) is authorized. Message god with your proposed change so god can update it.`,
+                  hops: 1,
+                  requires_reply: false,
+                  needs_human: false,
+                  created_at: new Date().toISOString(),
+                };
+
+                const senderInbox = join(agentsDir, msg.from || agentId, "inbox");
+                mkdirSync(senderInbox, { recursive: true });
+                writeFileSync(join(senderInbox, `${refusal.id}.json`), JSON.stringify(refusal, null, 2));
+
+                if (this.onMessageCallback) {
+                  try {
+                    this.onMessageCallback(refusal, godIdentifier, msg.from || agentId);
+                  } catch {}
+                }
+
+                this.emitEvent({
+                  ts: new Date().toISOString(),
+                  kind: "message",
+                  from: godIdentifier,
+                  to: msg.from || agentId,
+                  data: { refusal, reason: "sole_scribe_violation", targetFile },
+                });
+
+                unlinkSync(filePath);
+                routedCount++;
+                continue;
+              }
+
               if (root === this._root) {
                 this.deliver(msg);
               } else {
@@ -840,5 +976,6 @@ export function registerAgentInProjectHive(
       folder: projectFolder,
     };
     writeFileSync(regPath, JSON.stringify(reg, null, 2), "utf8");
+    deriveFleet(hiveDir, reg);
   } catch {}
 }

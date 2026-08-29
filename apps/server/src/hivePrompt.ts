@@ -81,7 +81,7 @@ export function buildEmployeeHivePrompt(opts: {
     `HIVE PROTOCOL — follow it every task:\n` +
     `1. At the START of a task, read ${memoryPath} and EVERY file in ${inboxDir} (messages other agents sent you). After handling an inbox message, move its file into ${inboxDir}/.done.\n` +
     `2. Record durable facts, decisions, and context by appending to ${memoryPath}.\n` +
-    `3. To ask another agent for something or share information, write ONE message JSON into ${outboxDir} (schema in PROTOCOL.md). NEVER write into another agent's folder — the orchestrator delivers your outbox.\n` +
+    `3. To ask another agent for something or share information, write ONE message JSON into ${outboxDir} (schema in PROTOCOL.md). NEVER write into another agent's folder — the orchestrator delivers your outbox. NEVER paste raw diffs or code dumps into message bodies; reference the file path or artifact ID instead.\n` +
     `4. At the END of a task, append what you learned to memory.md so future-you remembers.\n` +
     `Guardrails: a circuit breaker watches the floor — a "Circuit breaker: steer/constrain" message means you are looping or overspending, so STOP repeating, summarize what you tried, and follow it. Be token-frugal (a floor-wide or per-agent token budget can pause you). The shared plan has two parts: board.md (freeform; god is the sole scribe) and tasks.json (structured kanban — todo/doing/blocked/done).\n` +
     `For anything ambiguous, cross-cutting, or needing sign-off, address a message to "god".\n` +

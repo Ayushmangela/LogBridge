@@ -18,8 +18,12 @@ export function registerHiveRoutes(app: FastifyInstance, deps: RouteDeps) {
   app.post("/api/hive/board", async (req, reply) => {
     const body = req.body as any;
     if (typeof body?.content !== "string") return reply.code(400).send({ error: "content required" });
-    hive.setBoard(body.content, body.authorId);
-    return { ok: true, content: body.content };
+    try {
+      hive.setBoard(body.content, body.authorId);
+      return { ok: true, content: body.content };
+    } catch (err: any) {
+      return reply.code(403).send({ error: err.message || "Sole scribe violation" });
+    }
   });
 
   app.get("/api/hive/tasks", async (req) => {

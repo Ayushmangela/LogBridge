@@ -7,15 +7,15 @@ Written as reasoning rather than requirements: each explains the mental model,
 why the design is what it is, and what to be suspicious of. Follow the logic —
 if it leads somewhere better than what the doc says, take that and say so.
 
-| Phase | Brief | State |
+| Phase | Brief | Result / State |
 |---|---|---|
-| 0 | `PHASE-0-WAKE.md` — make dispatch actually arrive | ✅ **built** — `hiveWake.ts`, 14 tests. Needs the live samsung-hive check in §4 |
-| 1 | `PHASE-1-DELIVERY-GUARANTEES.md` — ack, retry, dead-letter | Next. Partial ack exists in `hive.ts`; retry and message dead-lettering do not |
-| 2 | `PHASE-2-ROSTER-AND-WRITERS.md` — derive `fleet.json`, enforce one writer | Small, self-contained. Can run parallel to 1 |
-| 3 | `PHASE-3-ATTEMPTS-VERIFY.md` — Task/TaskAttempt | ⚠️ **audit, do not build** — the table exists and 8 files use it |
-| 4 | `PHASE-4-ARTIFACTS-VERIFY.md` — artifacts by reference | ⚠️ **audit, do not build** — the table exists and 12 files use it |
-| 5 | `PHASE-5-ROUTING.md` — direct match first, auction rarely | Contract Net is written and tested but wired to nothing |
-| 6 | `PHASE-6-EVIDENCE.md` — does the hive beat one agent? | The one most likely to be skipped and most worth doing |
+| 0 | `PHASE-0-WAKE.md` — make dispatch actually arrive | ✅ **built & verified** — `hiveWake.ts`, §4 verified live on Samsung hive |
+| 1 | `PHASE-1-DELIVERY-GUARANTEES.md` — ack, retry, dead-letter | ✅ **built** — `PHASE-1-RESULT.md`, durable `hive_deliveries`, 14 tests |
+| 2 | `PHASE-2-ROSTER-AND-WRITERS.md` — derive `fleet.json`, enforce one writer | ✅ **built** — `PHASE-2-RESULT.md`, `deriveFleet()`, router sole-scribe guard |
+| 3 | `PHASE-3-ATTEMPTS-VERIFY.md` — Task/TaskAttempt | ✅ **audited** — `PHASE-3-RESULT.md`, wired and honoured across 8 files |
+| 4 | `PHASE-4-ARTIFACTS-VERIFY.md` — artifacts by reference | ✅ **audited** — `PHASE-4-RESULT.md`, wired and reinforced in prompts |
+| 5 | `PHASE-5-ROUTING.md` — direct match first, auction rarely | ✅ **evaluated** — `PHASE-5-RESULT.md`, direct capability default |
+| 6 | `PHASE-6-EVIDENCE.md` — does the hive beat one agent? | ✅ **measured** — `PHASE-6-RESULT.md`, empirical benchmark on Samsung fixture |
 
 ## Order
 
