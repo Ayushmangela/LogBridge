@@ -169,6 +169,7 @@ export function registerProjectRoutes(app: FastifyInstance, deps: RouteDeps) {
     } catch {}
 
     if (hive) {
+      hive.registerProjectRoot(folder);
       hive.registerAgent({
         id: commanderId,
         name: commanderName,

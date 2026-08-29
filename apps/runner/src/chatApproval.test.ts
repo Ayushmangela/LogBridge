@@ -101,9 +101,9 @@ function collectChats(ws: WebSocket): any[] {
   return out;
 }
 
-describe("chat mention -> proposal -> approval", () => {
+describe("chat mention -> the agent just gets on with it", () => {
   test(
-    "approve: task actually runs to completion via the fake harness",
+    "a mention runs to completion with no approval round-trip",
     async () => {
       const conn = makeRunner();
       conn.connect();
@@ -113,25 +113,27 @@ describe("chat mention -> proposal -> approval", () => {
       const browser = await connectBrowser();
       const chats = collectChats(browser);
 
-      browser.send(JSON.stringify({ type: "chat", roomId: "prj_test", text: "@dev-chat write a hello world script" }));
+      browser.send(JSON.stringify({ type: "chat", roomId: "prj_test", text: "@dev-chat can you write a hello world script" }));
 
-      // The agent's own proposal comes back as a chat message with `ask` set.
-      await waitFor(() => chats.some((c) => c.ask), 3000, "agent proposal chat message with ask arrives");
-      const proposal = chats.find((c) => c.ask);
-      expect(proposal.from).toMatchObject({ kind: "agent", id: "agt_chat" });
-      expect(proposal.text).toContain("write a hello world script");
-      expect(proposal.ask.options).toEqual(["approve", "edit", "reject"]);
+      // The agent acknowledges and starts. It does not read the sentence back
+      // and ask permission to act on words the human just typed.
+      await waitFor(() => chats.some((c) => c.from?.id === "agt_chat"), 3000, "the agent answers in the room");
+      const ack = chats.find((c) => c.from?.id === "agt_chat");
+      expect(ack.ask).toBeNull();
+      expect(ack.text).toMatch(/write a hello world script/i);
+      expect(ack.text).not.toMatch(/Approve to run it/i);
 
-      // The task exists but must NOT have been offered to the runner yet —
-      // that's the whole point of the approval gate.
-      const proposed = taskRow(proposal.ask.taskId);
-      expect(proposed.state).toBe("submitted");
-      expect(agentRow("agt_chat")).toMatchObject({ status: "needs_input", waiting_on: "human: you" });
+      const task = server.db
+        .prepare("SELECT * FROM tasks WHERE project_id = 'prj_test' ORDER BY rowid DESC LIMIT 1")
+        .get() as any;
 
-      browser.send(JSON.stringify({ type: "answer", taskId: proposal.ask.taskId, choice: "approve" }));
+      // The politeness is dropped from the board's wording, but the agent is
+      // given the sentence exactly as it was written.
+      expect(task.title).toBe("Write a hello world script");
+      expect(task.spec).toBe("can you write a hello world script");
 
-      await waitFor(() => taskRow(proposal.ask.taskId)?.state === "working", 3000, "approved task actually gets offered and accepted");
-      await waitFor(() => taskRow(proposal.ask.taskId)?.state === "completed", 8000, "task runs to completion via the fake harness");
+      await waitFor(() => taskRow(task.id)?.state === "working", 3000, "task is offered and accepted without a click");
+      await waitFor(() => taskRow(task.id)?.state === "completed", 8000, "task runs to completion via the fake harness");
       expect(agentRow("agt_chat")).toMatchObject({ status: "idle", waiting_on: null });
 
       browser.close();
@@ -140,32 +142,30 @@ describe("chat mention -> proposal -> approval", () => {
     20_000
   );
 
-  test("reject: task is marked rejected, agent returns to idle, nothing is ever offered to the runner", async () => {
+  test("the human is never parked waiting on their own instruction", async () => {
     const conn = makeRunner();
     conn.connect();
     await waitFor(() => !!agentRow("agt_chat"), 5000, "agent registered");
 
     const browser = await connectBrowser();
     const chats = collectChats(browser);
+    browser.send(JSON.stringify({ type: "chat", roomId: "prj_test", text: "@dev-chat write a hello world script" }));
 
-    browser.send(JSON.stringify({ type: "chat", roomId: "prj_test", text: "@dev-chat delete the production database" }));
-    await waitFor(() => chats.some((c) => c.ask), 3000, "proposal arrives");
-    const proposal = chats.find((c) => c.ask);
+    await waitFor(() => chats.some((c) => c.from?.id === "agt_chat"), 3000, "the agent answers in the room");
 
-    browser.send(JSON.stringify({ type: "answer", taskId: proposal.ask.taskId, choice: "reject" }));
+    // Guards the absence-assertions below against a silent no-op.
+    expect(chats.length).toBeGreaterThan(0);
+    expect(chats.some((c) => c.ask)).toBe(false);
+    expect(chats.some((c) => /^Proposed:/.test(c.text ?? ""))).toBe(false);
 
-    await waitFor(() => taskRow(proposal.ask.taskId)?.state === "rejected", 3000, "task marked rejected");
-    await waitFor(() => agentRow("agt_chat")?.status === "idle", 3000, "agent released back to idle");
-    expect(agentRow("agt_chat").waiting_on).toBeNull();
-
-    // Give the fake harness a beat — if it were ever (wrongly) offered the
-    // task, it would flip to "working" almost immediately.
-    await new Promise((r) => setTimeout(r, 300));
-    expect(taskRow(proposal.ask.taskId).state).toBe("rejected");
+    // needs_input is for an agent that genuinely needs an answer mid-task,
+    // not for one that has just been told what to do.
+    expect(agentRow("agt_chat").status).not.toBe("needs_input");
+    expect(agentRow("agt_chat").waiting_on).toBeFalsy();
 
     browser.close();
     conn.stop();
-  }, 10_000);
+  }, 20_000);
 
   test("a mention of an unknown agent name is silently ignored — no task, no crash", async () => {
     const conn = makeRunner();

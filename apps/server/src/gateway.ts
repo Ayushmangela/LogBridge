@@ -3,7 +3,7 @@ import type { WebSocket } from "ws";
 import { ClientMessage, ServerMessage, type ChatMessageT, type RoomChatMessageT } from "@logbridge/protocol";
 import {
   appendEvent, clearAgentWaiting, createTask, getTask, lastSeq,
-  setAgentWaitingOnHuman, setTaskState, pauseTask, resumeTask, haltTask, setAgentSteer, type Db,
+  setTaskState, pauseTask, resumeTask, haltTask, setAgentSteer, type Db,
 } from "./db.js";
 import { acceptPlan, orchestrate, resolveDelegationConsent, sendTaskOffer, type NodeSockets } from "./nodeGateway.js";
 import { planPrompt } from "./plan.js";
@@ -18,6 +18,23 @@ import type { HiveManager } from "./hive.js";
 function parseMention(text: string): { agentName: string; body: string } | null {
   const m = text.match(/^@(\S+)\s+(.+)$/s);
   return m ? { agentName: m[1], body: m[2].trim() } : null;
+}
+
+/** The words a person says to a colleague are not a task title. "can you make
+ *  a website" is how a human asks; "make a website" is what goes on the board.
+ *  Only the leading politeness is stripped — the rest of the sentence is left
+ *  exactly as written, and the agent is still sent the original verbatim, so
+ *  nothing about what actually runs depends on this. */
+export function taskTitleFrom(body: string): string {
+  const cleaned = body
+    .replace(/^(?:hey|hi|ok|okay)[\s,]+/i, "")
+    .replace(/^(?:please|pls|plz)\s+/i, "")
+    .replace(/^(?:can|could|would|will)\s+(?:you|u|we)\s+(?:please\s+)?/i, "")
+    .replace(/^(?:i\s+(?:want|need)\s+(?:you\s+)?to)\s+/i, "")
+    .replace(/^(?:let's|lets)\s+/i, "")
+    .trim();
+  const title = cleaned || body.trim();
+  return title.charAt(0).toUpperCase() + title.slice(1);
 }
 
 /** A message from the room itself rather than a person or an agent. */
@@ -256,23 +273,40 @@ export function registerGateway(
           // Silently ignore a typo'd name or an agent already waiting on
           // something — no orphaned second proposal stacked on the first.
           if (agent && agent.status === "idle") {
+            // Telling a colleague to do something is not a proposal awaiting
+            // your consent. This used to answer "@commander can you make a
+            // website" with `Proposed: "can you make a website". Approve to
+            // run it?` — reading your own sentence back and parking the agent
+            // in needs_human until you confirmed words you had just typed.
+            //
+            // The instruction IS the consent. The approve gate stays where a
+            // decision genuinely rests with the human, and both of those are
+            // agent-originated: an agent asking to delegate
+            // (nodeGateway/delegation.ts) and an agent proposing a plan
+            // (nodeGateway/plan-proposals.ts).
+            //
+            // The agent is sent `spec` — the original wording, untouched —
+            // so a question ("what's the status?") and an order ("build X")
+            // both just reach it, and it answers or works as a person would.
+            // Nothing here has to guess which one you meant.
             const taskId = createTask(db, {
               projectId: msg.data.roomId,
-              title: mention.body,
+              title: taskTitleFrom(mention.body),
+              spec: mention.body,
               creatorId: "you",
               agentId: agent.id,
             });
-            setAgentWaitingOnHuman(db, agent.id, "you");
-            const ask: ChatMessageT = {
+            sendTaskOffer(db, nodeSockets, taskId);
+            const ack: ChatMessageT = {
               id: crypto.randomUUID(),
               roomId: msg.data.roomId,
               from: { kind: "agent", id: agent.id, name: agent.name },
-              text: `Proposed: "${mention.body}". Approve to run it?`,
+              text: `On it — ${taskTitleFrom(mention.body)}`,
               ts: new Date().toISOString(),
-              ask: { taskId, options: ["approve", "edit", "reject"] },
+              ask: null,
             };
-            appendEvent(db, msg.data.roomId, taskId, "chat", ask);
-            broadcastChat(ask);
+            appendEvent(db, msg.data.roomId, taskId, "chat", ack);
+            broadcastChat(ack);
           }
           broadcastView(); // agent's zone just changed (idle -> needs_human), or didn't
         }

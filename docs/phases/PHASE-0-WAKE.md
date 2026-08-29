@@ -170,10 +170,13 @@ Also verify the negative cases, because they are where the honesty lives:
 
 **Already true (verified in code, do not rebuild):**
 
-- `parseMention` in `gateway.ts` parses `@sam do the thing` and creates a task
-  assigned to sam, then posts a `Proposed: … Approve to run it?` chat with
-  approve/edit/reject. So the human path is half-built — it creates work but
-  never starts anyone.
+- `parseMention` in `gateway.ts` parses `@sam do the thing`, creates a task
+  assigned to sam and offers it to sam's runner immediately. It used to post
+  a `Proposed: … Approve to run it?` chat instead, which asked the human to
+  approve the sentence they had just typed and parked sam in `needs_input`
+  until they did; approval now covers only agent-originated proposals
+  (`nodeGateway/delegation.ts`, `nodeGateway/plan-proposals.ts`), where the
+  human actually has something to decide.
 - `HiveManager.deliver()` writes to `inbox/` and fires `onMessage`.
 - `ptyGateway.ts` can write into a live PTY (`proc.write`), and the runner
   exposes `AgentHandle.answer()`. **Both wake mechanisms already exist and

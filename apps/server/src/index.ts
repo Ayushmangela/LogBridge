@@ -141,19 +141,27 @@ export async function buildServer(
     } catch {}
     hive.startRouter(1500);
 
-    // Phase 1 — delivery sweep. Two intervals:
-    //   1. Ack scan (30s): checks .done/ directories for handled messages.
-    //   2. Timeout sweep (60s): redelivers stale messages or dead-letters them.
-    // Neither runs in test mode where the hive root is an ephemeral tmpdir.
-    const hiveRoots = [hiveHome];
+    const getActiveHiveRoots = () => {
+      const roots = [hiveHome];
+      try {
+        const projects = db.prepare("SELECT gh_repo FROM projects").all() as any[];
+        for (const p of projects) {
+          if (p.gh_repo && existsSync(p.gh_repo)) {
+            roots.push(join(p.gh_repo, "hive"));
+          }
+        }
+      } catch {}
+      return Array.from(new Set(roots));
+    };
+
     setInterval(() => {
-      try { checkForAcks(db, hiveRoots); } catch {}
+      try { checkForAcks(db, getActiveHiveRoots()); } catch {}
     }, 30_000);
     setInterval(() => {
       try {
         sweepDeliveries({
           db,
-          hiveRoots,
+          hiveRoots: getActiveHiveRoots(),
           inject: defaultInject,
           spawn: (agentId, prompt) => {
             const target = db.prepare("SELECT provider FROM agents WHERE id = ?").get(agentId) as any;
@@ -199,7 +207,11 @@ export async function buildServer(
     }
   } catch {}
 
-  const app = Fastify({ logger: false });
+  // forceCloseConnections: close() otherwise waits on keep-alive sockets that
+  // a browser tab (or Node's fetch pool) is holding open, so shutdown hangs
+  // until they time out. Surfaced as a teardown hook timing out at 20s under
+  // CPU load, blamed on whichever test happened to run last.
+  const app = Fastify({ logger: false, forceCloseConnections: true });
   await app.register(websocket);
 
   const __filename = fileURLToPath(import.meta.url);

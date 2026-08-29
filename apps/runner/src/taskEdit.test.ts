@@ -70,16 +70,23 @@ function connectBrowser(): Promise<WebSocket> {
   });
 }
 
-/** Propose via chat, wait for the proposal bubble. */
-async function propose(browser: WebSocket): Promise<string> {
-  const chats: any[] = [];
-  browser.on("message", (raw) => {
-    const p = JSON.parse(raw.toString());
-    if (p.type === "chat") chats.push(p.msg);
+/** A task sitting in `submitted`, which is the only state edit applies to.
+ *
+ *  This used to come from a chat mention, back when "@dev-e initial wording"
+ *  parked a proposal awaiting the human's approval. A human instruction is no
+ *  longer gated that way — it dispatches on arrival — so the task is created
+ *  directly here instead. What these two tests are actually about is the
+ *  state machine (`submitted` is editable, anything past it is not), and that
+ *  guarantee is unchanged by where the task came from. */
+async function propose(_browser: WebSocket): Promise<string> {
+  const { createTask } = await import("../../server/src/db/tasks.js");
+  return createTask(server.db, {
+    projectId: "prj_test",
+    title: "initial wording",
+    spec: "initial wording",
+    creatorId: "you",
+    agentId: "agt_e",
   });
-  browser.send(JSON.stringify({ type: "chat", roomId: "prj_test", text: "@dev-e initial wording" }));
-  await waitFor(() => chats.some((c) => c.ask?.options?.includes("approve")), 5000, "proposal");
-  return chats.find((c) => c.ask?.options?.includes("approve")).ask.taskId;
 }
 
 describe("editing a proposed task", () => {

@@ -229,6 +229,10 @@ export class HiveManager {
 
   setMeeting(agentA: string, agentB: string, durationMs = 45000, reason = "Conference"): void {
     const reg = this.getRegistry();
+    // A meeting is two sprites walking to a table. Pseudo-senders like
+    // "operator" or "system" have no sprite, so a meeting with one strands
+    // the real agent at a table facing nobody until the timer expires.
+    if (!reg.agents[agentA] || !reg.agents[agentB]) return;
     const nameA = reg.agents[agentA]?.name || agentA;
     const nameB = reg.agents[agentB]?.name || agentB;
     const expiresAt = Date.now() + durationMs;
@@ -411,6 +415,9 @@ export class HiveManager {
   }
 
   registerAgent(meta: HiveAgentMeta): void {
+    if (meta.folder) {
+      this.registerProjectRoot(meta.folder);
+    }
     const dir = this.agentDir(meta.id);
     mkdirSync(join(dir, "inbox", ".done"), { recursive: true });
     mkdirSync(join(dir, "outbox"), { recursive: true });
@@ -445,6 +452,12 @@ export class HiveManager {
 
     // Update registry.json
     const registry = this.getRegistry();
+    // Re-registration is routine: every agent is re-registered on server
+    // startup. Only a genuinely new arrival changes the roster, so only that
+    // is worth waking the commander for — otherwise every boot delivers a
+    // wake storm of "X joined the floor" for agents that have been there
+    // all along.
+    const isNewArrival = !registry.agents[meta.id];
     registry.agents[meta.id] = meta;
     if (meta.isGod && !registry.godId) {
       registry.godId = meta.id;
@@ -457,6 +470,39 @@ export class HiveManager {
       agentId: meta.id,
       data: { name: meta.name, role: meta.role, isGod: meta.isGod },
     });
+
+    // Tell the commander the floor changed.
+    //
+    // Observed failure: a project is created, the commander's terminal starts
+    // immediately, and it reads a registry containing only itself. It
+    // concludes "no subordinates are registered, so delegation isn't
+    // possible" and starts implementing alone — which its own protocol
+    // forbids. The user then adds sam/ram/dam seconds later, but that
+    // decision is already in the commander's context and it never revisits it.
+    //
+    // A prompt telling it to re-read the registry does not fix this: it had
+    // already read one, and nothing tells it the answer changed. So the
+    // roster change becomes a message, which the wake path turns into a turn.
+    if (isNewArrival && !meta.isGod && registry.godId && registry.godId !== meta.id) {
+      const roster = Object.values(registry.agents)
+        .filter((a: any) => a.id !== registry.godId)
+        .map((a: any) => `${a.name} (${a.role || "agent"})`)
+        .join(", ");
+      this.deliver({
+        id: `roster-${meta.id}-${Date.now()}`,
+        from: "operator",
+        to: registry.godId,
+        act: "inform",
+        subject: `${meta.name} joined the floor`,
+        body:
+          `${meta.name} (${meta.role || "agent"}) is now registered and available.\n\n` +
+          `Current subordinates: ${roster || "(none)"}.\n\n` +
+          `Re-read registry.json before your next dispatch — the roster you saw ` +
+          `earlier in this session is stale. If you concluded that delegation ` +
+          `was impossible, that conclusion no longer holds.`,
+        say: `${meta.name} just joined the floor`,
+      } as any);
+    }
   }
 
   getRegistry(): HiveRegistry {
