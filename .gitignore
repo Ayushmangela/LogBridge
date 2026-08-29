@@ -8,3 +8,8 @@ dist/
 .workspace/
 .DS_Store
 .test-hive-*
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/

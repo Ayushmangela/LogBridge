@@ -93,6 +93,34 @@ export function registerAuthRoutes(app: FastifyInstance, deps: RouteDeps) {
 
   // Was: "SELECT ... FROM users ORDER BY rowid LIMIT 1" — it answered with
   // whichever user was created first, whoever asked. That is not identity.
+  // The "one-click demo access" button used to fake a user in localStorage
+  // with no server call at all. That was harmless while nothing checked, but
+  // once sessions were enforced it left the UI believing it was signed in
+  // while every API call returned 401 — a blank, broken office.
+  //
+  // Exposure note: this mints a real session for anyone who can reach it. That
+  // is no wider than `/api/auth/signup`, which is also public and grants the
+  // whole workspace (D29) — but both must go before this server is reachable
+  // by anyone outside the trusted group. See SECURITY-REVIEW.md.
+  app.post("/api/auth/demo", async () => {
+    const email = "demo@logbridge.local";
+    let user = db.prepare("SELECT id, name, email FROM users WHERE email = ?").get(email) as any;
+    if (!user) {
+      const id = "usr_demo";
+      db.prepare(
+        "INSERT OR IGNORE INTO users (id, gh_login, name, avatar, email, created_at) VALUES (?,?,?,?,?,?)"
+      ).run(id, "demo", "Demo User", 0, email, new Date().toISOString());
+      // Same auto-join as signup, so the demo account sees the workspace.
+      for (const p of db.prepare("SELECT id FROM projects").all() as any[]) {
+        db.prepare(
+          "INSERT OR IGNORE INTO project_members (project_id, user_id, role, joined_at) VALUES (?,?,?,?)"
+        ).run(p.id, id, "member", new Date().toISOString());
+      }
+      user = db.prepare("SELECT id, name, email FROM users WHERE email = ?").get(email);
+    }
+    return { ok: true, user, token: createSession(db, user.id) };
+  });
+
   app.get("/api/auth/me", async (req) => {
     const user = userForToken(db, tokenFromRequest(req));
     return { user: user ?? null };

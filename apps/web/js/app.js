@@ -507,7 +507,16 @@
     // ---------------- Authentication State & Handlers ----------------
     let currentUser = null;
     try {
-      currentUser = JSON.parse(localStorage.getItem("logbridge_auth_user") || "null");
+      // Being signed in means holding a session the SERVER accepts. Restoring
+      // the cached user object alone left the UI looking logged in while every
+      // API call returned 401 — a shell of an office with no data in it and no
+      // way to tell why. The token is the credential; the cached user is only
+      // there so the header can render before /api/auth/me answers.
+      const savedToken = localStorage.getItem("logbridge_auth_token");
+      currentUser = savedToken
+        ? JSON.parse(localStorage.getItem("logbridge_auth_user") || "null")
+        : null;
+      if (!savedToken) localStorage.removeItem("logbridge_auth_user");
     } catch {}
 
     let authMode = 'login';
@@ -599,15 +608,22 @@
       }
     };
 
-    window.quickDemoLogin = function() {
-      currentUser = {
-        id: 'usr_ayush',
-        name: 'Ayush Mangela',
-        email: 'ayush@logbridge.internal'
-      };
-      localStorage.setItem('logbridge_auth_user', JSON.stringify(currentUser));
-      checkAuth();
-      goToProjectsPage();
+    window.quickDemoLogin = async function() {
+      // Must obtain a REAL session: faking currentUser in localStorage left the
+      // UI looking signed in while every API call came back 401.
+      try {
+        const r = await fetch('/api/auth/demo', { method: 'POST' });
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error || 'demo sign-in failed');
+        currentUser = d.user;
+        localStorage.setItem('logbridge_auth_token', d.token);
+        localStorage.setItem('logbridge_auth_user', JSON.stringify(currentUser));
+        checkAuth();
+        goToProjectsPage();
+      } catch (e) {
+        const err = document.getElementById('auth-error');
+        if (err) { err.textContent = 'Demo sign-in failed: ' + (e?.message ?? e); err.style.display = 'block'; }
+      }
     };
 
     window.handleSignOut = function() {

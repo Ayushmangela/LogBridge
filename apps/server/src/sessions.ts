@@ -59,6 +59,7 @@ export function tokenFromRequest(req: FastifyRequest): string | null {
 const PUBLIC_PREFIXES = [
   "/api/auth/login",
   "/api/auth/signup",
+  "/api/auth/demo",
   "/healthz",
 ];
 
