@@ -20,6 +20,20 @@ interface PtySession {
 
 const sessions = new Map<string, PtySession>();
 
+// "The input prompt is showing right now." Used to answer two different
+// questions about the same signal: is a freshly booted CLI ready for its
+// FIRST prompt (below), and — watchForCompletion, near submitPromptToAgent
+// — is a CLI that was mid-task ready for its NEXT one, which only happens
+// once the current turn has actually finished.
+const READY_MARKERS = [
+  "Ask anything", "ctrl+p", "OpenCode", "tab agents", "connected to",
+  "What would you like", "Tip Run /connect", "Tip", "commands",
+];
+
+function looksReady(data: string): boolean {
+  return READY_MARKERS.some((m) => data.includes(m));
+}
+
 function formatBanner(title: string, version: string, desc: string, cwd: string, accentHex: string): string {
   const r = parseInt(accentHex.slice(1, 3), 16) || 217;
   const g = parseInt(accentHex.slice(3, 5), 16) || 119;
@@ -284,17 +298,7 @@ export function spawnOrGetPtySession(
   proc.onData((data: string) => {
     // Detect when OpenCode / Claude Code is ready for user input
     if (!promptSeeded && initialPrompt) {
-      if (
-        data.includes("Ask anything") ||
-        data.includes("ctrl+p") ||
-        data.includes("OpenCode") ||
-        data.includes("tab agents") ||
-        data.includes("connected to") ||
-        data.includes("What would you like") ||
-        data.includes("Tip Run /connect") ||
-        data.includes("Tip") ||
-        data.includes("commands")
-      ) {
+      if (looksReady(data)) {
         clearTimeout(seedFallbackTimer);
         setTimeout(() => {
           doSeed();
@@ -564,9 +568,16 @@ export function ptyIdFor(agentName: string, agentId: string): string {
  * caller that spawns-and-writes in one step (the hive wake path, and
  * deliverTaskLocally in task-offers.ts), which used to write immediately
  * and lose the message on a cold boot without any error to show for it.
+ *
+ * onSubmitted fires at the moment the prompt is actually typed in — not
+ * when spawnAndSubmit was called, which on a cold start can be up to 6s
+ * earlier. A caller that wants to watch for completion needs to start its
+ * clock from the real moment, not this call's return, or it risks matching
+ * the still-booting CLI's OWN readiness banner as a false "already done".
  */
 export function spawnAndSubmit(
-  db: Db, agentId: string, agentName: string, prompt: string, hive?: HiveManager
+  db: Db, agentId: string, agentName: string, prompt: string, hive?: HiveManager,
+  onSubmitted?: () => void
 ): boolean {
   const wasAlreadyLive = isPtySessionLive(agentId);
   const ptyId = ptyIdFor(agentName, agentId);
@@ -576,8 +587,105 @@ export function spawnAndSubmit(
     return false;
   }
   if (wasAlreadyLive) {
-    return submitPromptToAgent(agentId, prompt);
+    const ok = submitPromptToAgent(agentId, prompt);
+    if (ok) onSubmitted?.();
+    return ok;
   }
-  setTimeout(() => submitPromptToAgent(agentId, prompt), 6000);
+  setTimeout(() => {
+    if (submitPromptToAgent(agentId, prompt)) onSubmitted?.();
+  }, 6000);
   return true;
+}
+
+/**
+ * Watch a live PTY for it going quiet after a task was submitted into it —
+ * the point at which nothing further is happening is treated as the task
+ * being done.
+ *
+ * This does NOT match on "ready for input" banner text the way doSeed()
+ * does for a fresh boot, even though that was the first design tried here.
+ * Captured directly off a real OpenCode session mid-task: subsequent
+ * screen updates are cursor-addressed cell writes (`\x1b[13;6H`, one write
+ * per changed region), not full-screen repaints — so a literal substring
+ * like "Ask anything" appears exactly once, during the initial boot paint,
+ * and never again for the life of the session. Any detector keyed on
+ * spotting that text after the first prompt would simply never fire.
+ * Reconstructing the actual rendered screen to check what it displays
+ * would need a real terminal emulator (e.g. a headless xterm.js) parsing
+ * every escape sequence — a much bigger undertaking than this problem
+ * warrants. Silence is the content-agnostic signal: same underlying
+ * observation (verified on that same capture) that real output stops once
+ * a turn finishes — no blink-loop or periodic redraw filling the quiet —
+ * so "nothing arrived for quietMs" is actually the more robust proxy here,
+ * not a fallback.
+ *
+ * This is a heuristic, not a real completion protocol — the honest
+ * alternative was nothing at all: a locally-delivered task sitting
+ * `working` forever until a human noticed and completed it by hand
+ * (POST /api/tasks/:id/complete). Known gaps, accepted:
+ *   - A CLI that pauses mid-task waiting on the human (a clarifying
+ *     question) goes just as quiet as one that finished. There is no way
+ *     to tell "done" from "waiting on you" from silence alone.
+ *   - It only detects that the CLI stopped, not whether the work
+ *     succeeded — callers report `ok: true` regardless. Classifying
+ *     success/failure from arbitrary TUI output is a separate, harder
+ *     problem than the one this solves.
+ *   - A provider that streams continuous non-substantive output (a
+ *     progress spinner redrawn every tick, for instance) would never look
+ *     quiet and this would never fire — degrading to today's status quo
+ *     (manual completion), not to a wrong answer.
+ * graceMs skips the moment right after the prompt was submitted, so the
+ * terminal echoing the prompt back doesn't itself start the quiet clock.
+ *
+ * Returns an unsubscribe function. Not wired to task cancellation
+ * (Pause/Halt in the UI) — if a human stops the task first, this may still
+ * fire later and call onDone, but completeLocalTask already no-ops on a
+ * task that's no longer `working`, so that firing is inert rather than
+ * wrong.
+ */
+export function watchForCompletion(
+  agentId: string,
+  onDone: () => void,
+  opts?: { graceMs?: number; quietMs?: number }
+): () => void {
+  const graceMs = opts?.graceMs ?? 4000;
+  const quietMs = opts?.quietMs ?? 8000;
+
+  let session: PtySession | undefined;
+  for (const s of sessions.values()) {
+    if (s.agentId === agentId || s.id.endsWith(agentId.slice(-8))) {
+      session = s;
+      break;
+    }
+  }
+  if (!session) return () => {};
+
+  const startedAt = Date.now();
+  let fired = false;
+  let quietTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const fire = () => {
+    if (fired) return;
+    fired = true;
+    disposable.dispose();
+    onDone();
+  };
+
+  const disposable = session.proc.onData(() => {
+    if (fired) return;
+    if (quietTimer) {
+      clearTimeout(quietTimer);
+      quietTimer = null;
+    }
+    if (Date.now() - startedAt < graceMs) return;
+    quietTimer = setTimeout(fire, quietMs);
+  });
+
+  return () => {
+    if (quietTimer) clearTimeout(quietTimer);
+    if (!fired) {
+      fired = true;
+      try { disposable.dispose(); } catch {}
+    }
+  };
 }

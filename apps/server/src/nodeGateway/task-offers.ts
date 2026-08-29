@@ -8,7 +8,7 @@ import {
   getActiveTaskAttempt, finishTaskAttempt, getTaskDependents,
 } from "../db.js";
 import type { NodeSockets } from "./types.js";
-import { spawnAndSubmit } from "../ptyGateway.js";
+import { spawnAndSubmit, watchForCompletion } from "../ptyGateway.js";
 import type { HiveManager } from "../hive.js";
 
 export function taskCancelEnvelope(taskId: string, projectId: string, machineId: string, by: string, reason: string | null): EnvelopeT {
@@ -65,18 +65,26 @@ const LOCAL_DELIVERY_LEASE_SECONDS = 24 * 60 * 60;
  * "no runner connected" is "run it in the terminal that's already open,"
  * not "wait and hope."
  *
- * Not full parity with the remote protocol: nothing here detects
- * completion, so the task sits `working` until the terminal (or a human)
- * says otherwise.
+ * Completion is detected, not assumed — watchForCompletion (ptyGateway.ts)
+ * watches the PTY for the CLI returning to its ready-for-input prompt after
+ * genuinely having been mid-task, and calls completeLocalTask when it does.
+ * That is a heuristic (see watchForCompletion's own comment for its known
+ * gaps), not a real protocol — POST /api/tasks/:id/complete remains the
+ * manual fallback for whatever it misses.
  */
-export function deliverTaskLocally(db: Db, taskId: string, hive?: HiveManager): boolean {
+export function deliverTaskLocally(db: Db, nodeSockets: NodeSockets, taskId: string, hive?: HiveManager): boolean {
   const task = getTask(db, taskId);
   if (!task || !task.agent_id) return false;
   const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(task.agent_id) as any;
   if (!agent) return false;
 
   const spec = task.spec ?? task.title;
-  if (!spawnAndSubmit(db, agent.id, agent.name, spec, hive)) return false;
+  const submitted = spawnAndSubmit(db, agent.id, agent.name, spec, hive, () => {
+    watchForCompletion(agent.id, () => {
+      completeLocalTask(db, nodeSockets, task.id, true);
+    });
+  });
+  if (!submitted) return false;
 
   setTaskState(db, task.id, "working", { started_at: task.started_at ?? new Date().toISOString() });
   renewLease(db, task.id, LOCAL_DELIVERY_LEASE_SECONDS);

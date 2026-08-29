@@ -258,7 +258,7 @@ export function registerGateway(
             budgetSeconds: 240,
           });
           appendEvent(db, msg.data.roomId, taskId, "plan.requested", { goal });
-          sendTaskOffer(db, nodeSockets, taskId) || deliverTaskLocally(db, taskId, hive);
+          sendTaskOffer(db, nodeSockets, taskId) || deliverTaskLocally(db, nodeSockets, taskId, hive);
           broadcastChat(systemChat(msg.data.roomId,
             `Planning “${goal}” — ${agent.name} is breaking it into tasks.`));
           broadcastView();
@@ -296,7 +296,7 @@ export function registerGateway(
               creatorId: "you",
               agentId: agent.id,
             });
-            sendTaskOffer(db, nodeSockets, taskId) || deliverTaskLocally(db, taskId, hive);
+            sendTaskOffer(db, nodeSockets, taskId) || deliverTaskLocally(db, nodeSockets, taskId, hive);
             const ack: ChatMessageT = {
               id: crypto.randomUUID(),
               roomId: msg.data.roomId,
@@ -424,7 +424,7 @@ export function registerGateway(
 
         if (task && task.state === "submitted" && task.agent_id) {
           if (msg.data.choice === "approve") {
-            sendTaskOffer(db, nodeSockets, task.id) || deliverTaskLocally(db, task.id, hive);
+            sendTaskOffer(db, nodeSockets, task.id) || deliverTaskLocally(db, nodeSockets, task.id, hive);
           } else if (msg.data.choice === "reject") {
             setTaskState(db, task.id, "rejected", { ended_at: new Date().toISOString() });
             clearAgentWaiting(db, task.agent_id);

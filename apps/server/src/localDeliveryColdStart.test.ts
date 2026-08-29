@@ -41,9 +41,11 @@ describe("deliverTaskLocally delegates to spawnAndSubmit correctly", () => {
       creatorId: "you", agentId: "agt_boss",
     });
 
-    const ok = deliverTaskLocally(db, taskId);
+    const ok = deliverTaskLocally(db, new Map(), taskId);
     expect(ok).toBe(true);
-    expect(spawnAndSubmit).toHaveBeenCalledWith(db, "agt_boss", "commando", "build the homepage, mobile-first", undefined);
+    expect(spawnAndSubmit).toHaveBeenCalledWith(
+      db, "agt_boss", "commando", "build the homepage, mobile-first", undefined, expect.any(Function)
+    );
 
     const task = db.prepare("SELECT state FROM tasks WHERE id = ?").get(taskId) as any;
     expect(task.state).toBe("working");
@@ -64,7 +66,9 @@ describe("deliverTaskLocally delegates to spawnAndSubmit correctly", () => {
       creatorId: "you", agentId: "agt_boss2",
     });
 
-    deliverTaskLocally(db, taskId);
-    expect(spawnAndSubmit).toHaveBeenCalledWith(db, "agt_boss2", "commando", "add a FAQ section", undefined);
+    deliverTaskLocally(db, new Map(), taskId);
+    expect(spawnAndSubmit).toHaveBeenCalledWith(
+      db, "agt_boss2", "commando", "add a FAQ section", undefined, expect.any(Function)
+    );
   });
 });
