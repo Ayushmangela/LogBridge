@@ -6,12 +6,15 @@ import { dirname, join } from "node:path";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import type { WebSocket } from "ws";
-import { openDb, type Db } from "./db.js";
+import { openDb, appendEvent, type Db } from "./db.js";
 import { recoverServerState } from "./recovery.js";
 import { emitSequenceEvent } from "./communication/sequenceEvents.js";
 import { Positions } from "./view.js";
 import { registerCommandRoutes } from "./commands.js";
 import { registerAuthGate } from "./sessions.js";
+import { wakeRecipient, defaultInject, roomLineFor } from "./hiveWake.js";
+import { spawnOrGetPtySession } from "./ptyGateway.js";
+import type { ChatMessageT } from "@logbridge/protocol";
 import { registerGateway } from "./gateway.js";
 import { registerNodeGateway, type NodeSockets } from "./nodeGateway.js";
 import { startEventLoop, startTriggerLoop } from "./triggers.js";
@@ -44,6 +47,9 @@ export async function buildServer(
     : process.env.HIVE_HOME || join(process.env.HOME || "", "workspace", "hive");
 
   let broadcastViewRef: (() => void) | null = null;
+  // Same deferred-reference pattern as broadcastViewRef: the hive callback
+  // below is built before registerGateway() exists to provide it.
+  let broadcastChatRef: ((c: ChatMessageT) => void) | null = null;
   const hive = new HiveManager(
     hiveHome,
     (ev) => {
@@ -72,10 +78,47 @@ export async function buildServer(
           metadata: msg as unknown as Record<string, unknown>,
         });
 
-        // Automatically wake up recipient agent terminal to execute the assigned task!
-        const wakeText = `New task assigned from ${sender?.name || fromId}: "${msg.subject || 'Task'}". Details: ${msg.body || 'Execute assigned task'}. Read your inbox and memory, then start work immediately.`;
-        submitPromptToAgent(toId, wakeText);
-      } catch {}
+        // Wake the recipient. This used to be a bare submitPromptToAgent()
+        // whose return value was discarded inside a catch{} — so when no PTY
+        // session was live it silently did nothing, which is exactly how
+        // three agents ended up idle while the board recorded "the delegation
+        // harness was NOT live". Inject when a session exists, spawn when it
+        // does not, and record undeliverable when the machine is offline
+        // (D28) rather than pretending either worked.
+        const wake = wakeRecipient(msg, toId, {
+          db,
+          inject: defaultInject,
+          spawn: (agentId, prompt) => {
+            const target = db.prepare("SELECT provider FROM agents WHERE id = ?").get(agentId) as any;
+            const ptyId = `pty-${target?.provider || "claude"}-${agentId}`;
+            const session = spawnOrGetPtySession(db, ptyId, agentId, 100, 30, hive);
+            if (!session) return false;
+            // The message is the prompt: a freshly spawned CLI has no context,
+            // so telling it to "read your inbox" alone would waste the turn.
+            submitPromptToAgent(agentId, prompt);
+            return true;
+          },
+          log: (m) => app.log.info(m),
+        });
+
+        // The room shows the conversation, not the payload. `say` is the
+        // agent's own words when it wrote them, a generated line when it did
+        // not — a silent office is the failure this design exists to prevent.
+        if (wake.outcome === "injected" || wake.outcome === "spawned") {
+          const line: ChatMessageT = {
+            id: crypto.randomUUID(),
+            roomId: projectId,
+            from: { kind: "agent", id: fromId, name: sender?.name || fromId },
+            text: `→ ${receiver?.name || toId}: ${roomLineFor(msg, sender?.name || fromId, receiver?.name || toId)}`,
+            ts: new Date().toISOString(),
+            ask: null,   // a report between agents, not a question for a human
+          };
+          appendEvent(db, projectId, null, "chat", line);
+          broadcastChatRef?.(line);
+        }
+      } catch (err) {
+        app.log.warn({ err }, "hive wake failed");
+      }
     }
   );
 
@@ -132,6 +175,7 @@ export async function buildServer(
 
   const { broadcastView, broadcastChat } = registerGateway(app, db, positions, browserSockets, nodeSockets, hive);
   broadcastViewRef = broadcastView;
+  broadcastChatRef = broadcastChat;
 
   registerNodeGateway(app, db, nodeSockets, broadcastView, {
     leaseSeconds: opts.leaseSeconds,
