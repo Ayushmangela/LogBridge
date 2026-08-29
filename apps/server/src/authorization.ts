@@ -35,7 +35,7 @@ export type Permission =
   | "policy.manage"
   | "audit.view";
 
-const ROLE_PERMISSIONS: Record<ProjectRole, Permission[] | ["*"]> = {
+const ROLE_PERMISSIONS: Record<ProjectRole, (Permission | "*")[]> = {
   owner: ["*"],
   admin: [
     "project.manage",
