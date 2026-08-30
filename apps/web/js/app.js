@@ -662,24 +662,94 @@
 
     function updateProjectNavVisibility() {
       const appEl = document.querySelector('.app');
-      const navProjects = document.getElementById('nav-projects');
-      const wsBackLabel = document.getElementById('ws-back-label');
       const wsNameEl = document.getElementById('ws-name');
+      const wsRepoEl = document.getElementById('ws-repo');
+      const wsMarkEl = document.getElementById('ws-mark');
       const isProjectSelection = (currentView === 'projects') || !activeProjectId;
 
       if (isProjectSelection) {
-        // Selection of project is there: HIDE the left sidebar completely!
+        // Choosing a project is a full-screen moment: no sidebar behind it.
         if (appEl) appEl.classList.add('no-sidebar');
-        if (navProjects) navProjects.style.display = 'none';
-        if (wsBackLabel) wsBackLabel.style.display = 'none';
         if (wsNameEl) wsNameEl.textContent = 'Project Workspaces';
+        if (wsRepoEl) wsRepoEl.textContent = '';
+        if (wsMarkEl) wsMarkEl.textContent = '◇';
       } else {
-        // Particular project is opened: SHOW left sidebar
         if (appEl) appEl.classList.remove('no-sidebar');
-        if (navProjects) navProjects.style.display = 'inline-flex';
-        if (wsBackLabel) wsBackLabel.style.display = 'inline';
+        const room = activeRoom();
+        if (room) {
+          if (wsNameEl) wsNameEl.textContent = room.name || 'Workspace';
+          // gh_repo holds either an "owner/repo" slug (GitHub mirror) or a
+          // local filesystem path (hand-made project). A full absolute path
+          // is noise in a 190px chip, so a path collapses to its last two
+          // segments and a slug is shown as-is.
+          if (wsRepoEl) {
+            const raw = room.ghRepo || '';
+            wsRepoEl.textContent = /^[\w.-]+\/[\w.-]+$/.test(raw)
+              ? raw
+              : raw.split('/').filter(Boolean).slice(-2).join('/');
+            wsRepoEl.title = raw;
+          }
+          if (wsMarkEl) wsMarkEl.textContent = (room.name || '?').trim()[0]?.toUpperCase() ?? '?';
+        }
       }
     }
+
+    // ---- project switcher menu ------------------------------------------
+    function renderProjectMenu() {
+      const list = document.getElementById('ws-menu-list');
+      if (!list) return;
+      list.innerHTML = '';
+      const rooms = latestView?.rooms ?? [];
+      if (!rooms.length) {
+        list.innerHTML = '<div class="ws-menu-empty">No projects yet.</div>';
+        return;
+      }
+      for (const r of rooms) {
+        const b = document.createElement('button');
+        b.className = 'ws-menu-item' + (r.id === activeProjectId ? ' is-current' : '');
+        const mark = document.createElement('span');
+        mark.className = 'ws-menu-mark';
+        mark.textContent = (r.name || '?').trim()[0]?.toUpperCase() ?? '?';
+        const tw = document.createElement('span');
+        tw.className = 'ws-menu-text';
+        const n = document.createElement('span');
+        n.className = 'ws-menu-name';
+        n.textContent = r.name || r.id;
+        const s = document.createElement('span');
+        s.className = 'ws-menu-sub';
+        // Agent count is the useful thing to know before switching.
+        s.textContent = `${(r.agents ?? []).length} agent${(r.agents ?? []).length === 1 ? '' : 's'}`;
+        tw.append(n, s);
+        b.append(mark, tw);
+        if (r.id === activeProjectId) {
+          const tick = document.createElement('span');
+          tick.className = 'ws-menu-tick';
+          tick.textContent = '✓';
+          b.appendChild(tick);
+        }
+        b.onclick = () => { closeProjectMenu(); selectProject(r.id); };
+        list.appendChild(b);
+      }
+    }
+
+    window.toggleProjectMenu = function (e) {
+      e?.stopPropagation();
+      const menu = document.getElementById('ws-menu');
+      if (!menu) return;
+      const open = menu.classList.contains('open');
+      if (open) { closeProjectMenu(); return; }
+      renderProjectMenu();
+      menu.classList.add('open');
+      document.getElementById('ws-pick')?.classList.add('is-open');
+    };
+    window.closeProjectMenu = function () {
+      document.getElementById('ws-menu')?.classList.remove('open');
+      document.getElementById('ws-pick')?.classList.remove('is-open');
+    };
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest?.('.ws-wrap')) closeProjectMenu();
+    });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeProjectMenu(); });
 
     window.goToProjectsPage = function () {
       activeProjectId = null;
@@ -1001,7 +1071,9 @@
     function renderAlways(view) {
       const room = activeRoom() || view.rooms[0];
       if (!room) return;
-      document.getElementById('ws-name').textContent = (currentView === 'projects' || !activeProjectId) ? 'Project Workspaces' : room.name;
+      // One writer for the workspace chip, so the name, repo and mark can
+      // never disagree with each other.
+      updateProjectNavVisibility();
       renderLegend();
       renderPeople(room);
       renderAgentRoster(room);

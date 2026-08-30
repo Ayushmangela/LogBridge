@@ -119,14 +119,33 @@
   <div class="main">
     <header class="topbar">
       <div class="topbar-left">
-        <button class="ws-pick" onclick="goToProjectsPage()" title="Switch Project Workspace">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg>
-          <span id="ws-breadcrumb" style="display:flex;align-items:center;gap:6px;">
-            <span id="ws-back-label" style="color:var(--accent);font-weight:700;display:none;">← Projects /</span>
-            <span id="ws-name">Floor 1</span>
-          </span>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 9l6 6 6-6"/></svg>
-        </button>
+        <!-- The workspace picker. Switching project is the frequent action, so
+             it lives here; "all projects" is the rarer one and sits at the
+             bottom of the menu rather than taking a permanent nav slot. -->
+        <div class="ws-wrap">
+          <button class="ws-pick" id="ws-pick" onclick="toggleProjectMenu(event)" title="Switch project workspace">
+            <span class="ws-mark" id="ws-mark">W</span>
+            <span class="ws-labels">
+              <span class="ws-name" id="ws-name">Floor 1</span>
+              <span class="ws-repo" id="ws-repo"></span>
+            </span>
+            <svg class="ws-caret" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="ws-menu" id="ws-menu">
+            <div class="ws-menu-label">Projects</div>
+            <div class="ws-menu-list" id="ws-menu-list"></div>
+            <div class="ws-menu-foot">
+              <button class="ws-menu-item" onclick="closeProjectMenu(); goToProjectsPage();">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+                Show all projects
+              </button>
+              <button class="ws-menu-item" onclick="closeProjectMenu(); openCreateProjectModal();">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>
+                Create project
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <nav class="top-nav" id="top-nav">
@@ -146,10 +165,6 @@
         <button class="top-nav-btn" id="nav-memory" onclick="setView('memory')">
           <svg viewBox="0 0 24 24"><path d="M9.5 3A3.5 3.5 0 0 0 6 6.5v.6A3 3 0 0 0 6 13v3a3 3 0 0 0 6 0V6.5A3.5 3.5 0 0 0 9.5 3z"/><path d="M14.5 3A3.5 3.5 0 0 1 18 6.5v.6a3 3 0 0 1 0 5.9v3a3 3 0 0 1-6 0"/></svg>
           <span>Memory</span>
-        </button>
-        <button class="top-nav-btn" id="nav-projects" onclick="setView('projects')">
-          <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-          <span>Projects</span>
         </button>
         <button class="top-nav-btn" id="nav-settings" onclick="setView('settings')">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 9 3V3a2 2 0 1 1 4 0v.1A1.6 1.6 0 0 0 17 4.6a1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>
