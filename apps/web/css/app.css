@@ -529,8 +529,41 @@
     }
     .cc-role-badge.is-orchestrator { color: var(--st-blocked); background: rgba(212,157,73,0.10); border-color: rgba(212,157,73,0.26); }
 
+    /* ---- Command Center layout ----
+       The header is NOT in a card. It sits directly on the page background,
+       so the two action groups read as capsules floating on the floor and the
+       agent's name reads as a page title rather than a card title. Only the
+       tab CONTENT gets a surface — the tab bar is the bridge between the two,
+       which is why it carries a rule above and below and spans the full width.
+       Wrapping all of it in one panel (the default everywhere else) flattened
+       that hierarchy into a single slab. */
+    #view-agent > .panel-card {
+      background: transparent; border: none; box-shadow: none;
+      border-radius: 0; overflow: visible;
+    }
+    #view-agent .cc-head { padding: 4px 4px 14px; border-bottom: none; }
+    #view-agent .cc-manage { padding: 0 4px 16px; border-bottom: none; }
+    /* The bridge, and it is genuinely full-bleed: negative margins cancel
+       .content's 18px inset so the band and both its rules run right up to
+       the sidebar, touching it. Stopping short of the edge is what made this
+       read as "a row inside the page" rather than "a band across it". The
+       padding is added back inside so the tab labels stay aligned with the
+       header above them. */
+    #view-agent .cc-tabs {
+      margin: 0 -18px;
+      padding: 0 9px;   /* 18 page inset minus the tab button's own 13px pad, so the
+                            first label lines up with the header text above */
+      background: rgba(255, 248, 240, 0.02);
+      border-top: 1px solid var(--border-soft);
+      border-bottom: 1px solid var(--border-soft);
+    }
+    /* the content sits in its own surface, below the bridge */
+    #view-agent #cc-body {
+      padding: 18px 0 0; background: transparent;
+    }
+
     .cc-back {
-      display: inline-flex; align-items: center; gap: 7px; margin: 14px 18px 0;
+      display: inline-flex; align-items: center; gap: 7px; margin: 2px 4px 12px;
       background: none; border: none; cursor: pointer; font: inherit;
       font-size: 12.5px; color: var(--text-dim); padding: 4px 2px;
       transition: color .15s;
@@ -553,10 +586,12 @@
       display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
       padding: 12px 18px; border-bottom: 1px solid var(--border-soft);
     }
+    /* Floating capsules. They sit on the page background rather than inside a
+       card, so they need enough surface of their own to read as raised. */
     .cc-actgroup {
       display: flex; align-items: center; gap: 2px;
-      background: rgba(255, 248, 240, 0.02);
-      border: 1px solid var(--border-soft); border-radius: 10px; padding: 3px 3px 3px 4px;
+      background: var(--surface);
+      border: 1px solid var(--border); border-radius: 12px; padding: 5px 6px 5px 8px;
     }
     .cc-actgroup-label {
       font-family: 'IBM Plex Mono', ui-monospace, monospace;
