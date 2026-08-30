@@ -89,7 +89,7 @@ test.describe("signing in and opening the office", () => {
     await page.getByRole("button", { name: /open office|enter office/i }).first().click();
     await expect(page.locator("#canvas")).toBeVisible();
 
-    for (const label of [/tasks/i, /memory/i, /settings/i, /office map/i]) {
+    for (const label of [/workspace/i, /memory/i, /settings/i, /office map/i]) {
       const nav = page.getByRole("button", { name: label }).first();
       if (await nav.count()) {
         await nav.click();

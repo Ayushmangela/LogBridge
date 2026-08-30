@@ -37,7 +37,7 @@ test("capture every screen", async ({ page }) => {
 
   const views: [string, string][] = [
     ["office", "Office Map"],
-    ["tasks", "Tasks"],
+    ["workspace", "Workspace"],
     ["chat", "Chat"],
     ["memory", "Memory"],
     ["projects", "Projects"],

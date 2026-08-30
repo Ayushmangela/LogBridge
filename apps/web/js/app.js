@@ -467,9 +467,11 @@
         } else if (evt.type === 'task.accept' || evt.type === 'task.result' || evt.type === 'artifact.created' || evt.type === 'lease.expired') {
           if (currentView === 'agent') {
             renderCommandCenter();
-          } else if (currentView === 'tasks' && latestView) {
+          } else if (currentView === 'workspace' && latestView) {
             const room = activeRoom() || latestView.rooms?.[0];
-            if (room) renderBoard(room);
+            // Only the board reads task events; re-rendering the whole
+            // workspace would tear down whichever other tab is open.
+            if (room && wsTab === 'tasks') renderBoard(room);
           }
         }
       } catch (err) {
@@ -1000,6 +1002,64 @@
       return `${Math.floor(secs / 86400)}d ago`;
     }
 
+    // ---------------- workspace: the project-scoped surfaces ----------------
+    //
+    // Each of these answers a question about the PROJECT, not about one agent.
+    // They previously sat as tabs on every agent's Command Center, where they
+    // showed byte-identical content whichever agent you had open — and five of
+    // them never read the agent at all, failing with "No active project room
+    // selected". Grouping them here is what let the Command Center shrink to
+    // the five tabs that really are per-agent.
+    const WS_TABS = [
+      { id: 'tasks',     label: 'Tasks',    icon: '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>' },
+      { id: 'goals',     label: 'Goals',    icon: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1"/>' },
+      { id: 'approvals', label: 'Approvals',icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>' },
+      { id: 'workflows', label: 'Workflows',icon: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/>' },
+      { id: 'sequence',  label: 'Sequence', icon: '<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>' },
+      { id: 'triggers',  label: 'Triggers', icon: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>' },
+      { id: 'artifacts', label: 'Artifacts',icon: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>' },
+      { id: 'pulls',     label: 'Pull Requests', icon: '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5v7M18 15.5V11a4 4 0 0 0-4-4h-3"/>' },
+      { id: 'graph',     label: 'Graph',    icon: '<circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="7" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8 7l8 .5M7 8.5l4 7M17 9.5l-4 6"/>' },
+    ];
+    let wsTab = 'tasks';
+
+    function renderWorkspace(room) {
+      const tabs = document.getElementById('ws-tabs');
+      const body = document.getElementById('ws-body');
+      if (!tabs || !body) return;
+
+      tabs.innerHTML = '';
+      for (const t of WS_TABS) {
+        const b = document.createElement('button');
+        b.className = 'cc-tab' + (t.id === wsTab ? ' active' : '');
+        b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">' + t.icon + '</svg>';
+        b.appendChild(document.createTextNode(t.label));
+        b.onclick = () => { wsTab = t.id; renderWorkspace(room); };
+        tabs.appendChild(b);
+      }
+
+      body.innerHTML = '';
+      if (wsTab === 'tasks') {
+        // The board owns its own markup; build the two hosts it looks up.
+        const stats = document.createElement('div');
+        stats.className = 'board-stats'; stats.id = 'board-stats';
+        const cols = document.createElement('div');
+        cols.className = 'board-cols'; cols.id = 'board-cols';
+        body.append(stats, cols);
+        renderBoard(room);
+        return;
+      }
+      // The rest take (body, agent) but are project-scoped: they resolve the
+      // project from activeRoom() and only fall back to the agent for its id.
+      // Passing null is correct here and is why they were audited for it.
+      const fn = {
+        goals: ccRenderGoals, approvals: ccRenderApprovals, workflows: ccRenderWorkflows,
+        sequence: ccRenderSequenceFlow, triggers: ccRenderTriggers,
+        artifacts: ccRenderArtifacts, pulls: ccRenderPulls, graph: ccRenderGraph,
+      }[wsTab];
+      if (fn) fn(body, null);
+    }
+
     function renderBoard(room) {
       const nameEl = document.getElementById('board-room-name');
       if (nameEl) nameEl.textContent = room.name;
@@ -1121,7 +1181,7 @@
     // Nothing is docked to the right.
     // 'agent' is the Command Center for ONE agent. It has no nav item —
     // you reach it by clicking an agent, and leave via 'All agents'.
-    const VIEWS = ['office', 'tasks', 'chat', 'projects', 'agents', 'memory', 'settings', 'agent'];
+    const VIEWS = ['office', 'workspace', 'chat', 'projects', 'agents', 'memory', 'settings', 'agent'];
     let currentView = activeProjectId ? 'office' : 'projects';
     checkAuth();
     if (currentUser) {
@@ -1171,7 +1231,7 @@
     function renderCurrentView() {
       const room = activeRoom() || latestView?.rooms?.[0];
       if (!room) return;
-      if (currentView === 'tasks')   renderBoard(room);
+      if (currentView === 'workspace') renderWorkspace(room);
       if (currentView === 'chat')    renderChat();
       if (currentView === 'memory')  renderMemory(room);
       if (currentView === 'agents')  renderAgentsFull(room);
@@ -1337,6 +1397,10 @@
       const el = document.getElementById('machines-list');
       el.innerHTML = '<div class="section-label" style="margin-top:0">Connected machines</div>';
       const list = latestView?.rooms?.[0]?.machines ?? [];
+      // System ops is server-scoped — it renders regardless of machines, and
+      // must not be skipped by the early return below.
+      const ops = document.getElementById('settings-ops');
+      if (ops) { ops.innerHTML = ''; ccRenderOps(ops, null); }
       if (!list.length) { el.innerHTML += '<div class="empty-note">No machines connected.</div>'; return; }
       for (const m of list) {
         el.appendChild(rosterRow({ name: m.name, sub: m.online ? 'online' : 'offline', status: m.online ? 'online' : '' }));
@@ -1972,7 +2036,7 @@
           throw new Error(data.error || 'Failed to breakdown epic');
         }
         closeCommanderBreakdownModal();
-        setView('tasks');
+        setView('workspace');
       } catch (err) {
         errEl.textContent = err.message;
         errEl.style.display = 'block';
@@ -2730,7 +2794,7 @@
       placeholder.textContent = 'Loading task attempts…';
       body.appendChild(placeholder);
 
-      const taskId = a.task?.id || a.current_task;
+      const taskId = a?.task?.id || a?.current_task;
       const fetchPromise = taskId
         ? fetch(`/api/tasks/${taskId}/attempts`).then(r => r.json())
         : fetch(`/api/agents/${a.id}/tasks?limit=10`).then(r => r.json()).then(async (tData) => {
@@ -3661,6 +3725,14 @@
           body.innerHTML = `<div class="empty-note">Failed to load sequence flow: ${err.message || err}</div>`;
         });
     }
+    // Stale-response guard, same pattern as _activeGoalsReq / _activeWfReq /
+    // _activeSeqReq: bump on every render, ignore replies from superseded
+    // ones. This declaration was missing entirely, so ccRenderArtifacts threw
+    // ReferenceError on its first line and the tab never rendered at all —
+    // invisible while it was buried in a 21-tab bar, obvious the moment it
+    // became one of nine.
+    let _activeArtifactsReq = 0;
+
     function ccRenderArtifacts(body, a) {
       body.innerHTML = '';
       const reqId = ++_activeArtifactsReq;
@@ -3675,7 +3747,7 @@
       const note = document.createElement('div');
       note.className = 'cmd-note';
       note.style.margin = '2px 0 0 0';
-      note.textContent = a.task?.title ? `Task: ${a.task.title}` : 'Artifacts produced in this project';
+      note.textContent = a?.task?.title ? `Task: ${a.task.title}` : 'Artifacts produced in this project';
       titleWrap.append(title, note);
 
       const refreshBtn = document.createElement('button');
@@ -3691,7 +3763,7 @@
       placeholder.textContent = 'Loading artifacts…';
       body.appendChild(placeholder);
 
-      const taskId = a.task?.id || a.current_task;
+      const taskId = a?.task?.id || a?.current_task;
       const fetchPromise = taskId
         ? fetch(`/api/tasks/${taskId}/artifacts`).then(r => r.json())
         : (activeProjectId
