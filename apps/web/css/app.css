@@ -358,7 +358,10 @@
       display: flex; flex-direction: column;
     }
     .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 11px; }
-    .card-title { font-size: 13.5px; font-weight: 700; display: flex; align-items: center; gap: 8px; color: var(--text); }
+    .card-title { font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 8px;
+                  color: var(--text-dim); text-transform: uppercase; letter-spacing: .7px;
+                  font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+    .card-title svg { width: 13px; height: 13px; color: var(--text-faint); flex-shrink: 0; }
     .card-link { font-size: 12px; color: var(--accent); font-weight: 600; cursor: pointer; background: none; border: none; font-family: inherit; }
     .card-link:hover { text-decoration: underline; color: var(--accent); }
 
@@ -373,16 +376,257 @@
                    border: 1px solid var(--border); background-color: var(--surface-2);
                    background-repeat: no-repeat; background-position: 0 0;
                    background-size: auto 60px; image-rendering: pixelated; }
-    .cc-name { font-size: 15px; font-weight: 700; }
-    .cc-sub { font-size: 12px; color: var(--text-faint); display: flex; align-items: center; gap: 7px; margin-top: 3px; }
-    .cc-status { text-transform: uppercase; font-size: 10px; font-weight: 700; letter-spacing: .5px;
-                 padding: 2px 6px; border-radius: 5px; background: var(--surface-2); border: 1px solid var(--border); }
+    .cc-id-text { min-width: 0; }
+    .cc-title-row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+    .cc-name { font-size: 19px; font-weight: 700; letter-spacing: -.3px; }
+    .cc-sub { font-size: 12.5px; color: var(--text-dim); margin-top: 4px; }
 
-    .cc-tabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 18px; border-bottom: 1px solid var(--border-soft); }
-    .cc-tab { font: inherit; font-size: 12px; padding: 6px 12px; border-radius: 7px; cursor: pointer;
-              border: 1px solid var(--border); background: var(--surface); color: var(--text-dim); transition: all 0.16s var(--ease-spring); }
-    .cc-tab:hover { background: rgba(255,255,255,0.06); color: var(--text); border-color: var(--border-hover); }
-    .cc-tab.active { background: var(--surface-3); border-color: var(--border-highlight); color: var(--text); font-weight: 600; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+    /* status pill: a dot plus the word, tinted by the office room it maps to */
+    .cc-status-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 11.5px; font-weight: 600; padding: 3px 10px 3px 8px;
+      border-radius: 20px; background: var(--surface-2);
+      border: 1px solid var(--border); color: var(--text-dim);
+      text-transform: capitalize;
+    }
+    .cc-status-pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .cc-status-pill.s-working   { color: var(--st-working);   background: rgba(116,175,125,0.12); border-color: rgba(116,175,125,0.28); }
+    .cc-status-pill.s-reviewing { color: var(--st-reviewing); background: rgba(128,179,219,0.12); border-color: rgba(128,179,219,0.28); }
+    .cc-status-pill.s-needs     { color: var(--st-needs);     background: rgba(206,196,161,0.12); border-color: rgba(206,196,161,0.28); }
+    .cc-status-pill.s-blocked   { color: var(--st-blocked);   background: rgba(212,157,73,0.12);  border-color: rgba(212,157,73,0.28); }
+    .cc-status-pill.s-idle      { color: var(--st-idle);      background: rgba(202,158,119,0.12); border-color: rgba(202,158,119,0.28); }
+    .cc-status-pill.s-done      { color: var(--st-done);      background: rgba(162,141,211,0.12); border-color: rgba(162,141,211,0.28); }
+
+    /* Which surface you are looking at. The old build left the user to infer
+       this from which tabs appeared, which is not a signal anyone reads. */
+    .cc-role-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-family: 'IBM Plex Mono', ui-monospace, monospace;
+      font-size: 10px; font-weight: 500; letter-spacing: .5px;
+      padding: 3px 8px; border-radius: 6px;
+      background: var(--surface-2); border: 1px solid var(--border); color: var(--text-faint);
+    }
+    .cc-role-badge.is-orchestrator { color: var(--st-blocked); background: rgba(212,157,73,0.10); border-color: rgba(212,157,73,0.26); }
+
+    .cc-back {
+      display: inline-flex; align-items: center; gap: 7px; margin: 14px 18px 0;
+      background: none; border: none; cursor: pointer; font: inherit;
+      font-size: 12.5px; color: var(--text-dim); padding: 4px 2px;
+      transition: color .15s;
+    }
+    .cc-back:hover { color: var(--text); }
+
+    .cc-head-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+    .cc-hbtn {
+      display: inline-flex; align-items: center; gap: 7px;
+      font: inherit; font-size: 12.5px; font-weight: 550;
+      padding: 7px 13px; border-radius: 9px; cursor: pointer;
+      border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+      transition: all .16s var(--ease-spring);
+    }
+    .cc-hbtn:hover { background: var(--surface-3); border-color: var(--border-hover); }
+    .cc-hbtn svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+    /* ---- the TASK | AGENT action row ---- */
+    .cc-manage {
+      display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+      padding: 12px 18px; border-bottom: 1px solid var(--border-soft);
+    }
+    .cc-actgroup {
+      display: flex; align-items: center; gap: 2px;
+      background: rgba(255, 248, 240, 0.02);
+      border: 1px solid var(--border-soft); border-radius: 10px; padding: 3px 3px 3px 4px;
+    }
+    .cc-actgroup-label {
+      font-family: 'IBM Plex Mono', ui-monospace, monospace;
+      font-size: 9.5px; font-weight: 500; letter-spacing: .8px;
+      color: var(--text-faint); padding: 0 8px 0 4px; user-select: none;
+    }
+    .cc-abtn {
+      display: inline-flex; align-items: center; gap: 6px;
+      font: inherit; font-size: 12.5px; font-weight: 500;
+      padding: 6px 11px; border-radius: 7px; cursor: pointer;
+      border: 1px solid transparent; background: transparent; color: var(--text-dim);
+      transition: all .15s var(--ease-spring); white-space: nowrap;
+    }
+    .cc-abtn:hover { background: var(--surface-3); color: var(--text); }
+    .cc-abtn svg { width: 14px; height: 14px; flex-shrink: 0; opacity: .85; }
+    .cc-abtn.is-danger { color: var(--st-fail); }
+    .cc-abtn.is-danger:hover { background: rgba(221,85,75,0.12); color: var(--st-fail); }
+
+    /* ---- tabs: underline, not pills. Five of them now, so they get room. ---- */
+    .cc-tabs { display: flex; gap: 2px; flex-wrap: wrap; padding: 0 18px;
+               border-bottom: 1px solid var(--border-soft); }
+    .cc-tab { font: inherit; font-size: 13px; font-weight: 500;
+              display: inline-flex; align-items: center; gap: 7px;
+              padding: 11px 13px; cursor: pointer;
+              border: none; border-bottom: 2px solid transparent;
+              background: none; color: var(--text-dim);
+              transition: color .15s, border-color .15s; }
+    .cc-tab svg { width: 15px; height: 15px; flex-shrink: 0; opacity: .85; }
+    .cc-tab:hover { color: var(--text); }
+    .cc-tab.active { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
+    .cc-tab.active svg { color: var(--accent); opacity: 1; }
+
+    /* ---- Commands drawer ---- */
+    .cc-drawer-scrim {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 800;
+      opacity: 0; pointer-events: none; transition: opacity .2s;
+    }
+    .cc-drawer-scrim.open { opacity: 1; pointer-events: auto; }
+    .cc-drawer {
+      position: fixed; top: 0; right: 0; bottom: 0; width: 480px; max-width: 92vw;
+      background: var(--surface); border-left: 1px solid var(--border);
+      box-shadow: -20px 0 60px -20px rgba(0,0,0,0.8);
+      z-index: 810; display: flex; flex-direction: column;
+      transform: translateX(100%); transition: transform .26s var(--ease-spring);
+    }
+    .cc-drawer.open { transform: translateX(0); }
+    .cc-drawer-head { display: flex; align-items: center; justify-content: space-between;
+                      padding: 16px 18px 8px; }
+    .cc-drawer-title { display: flex; align-items: center; gap: 9px; font-size: 16px; font-weight: 700; }
+    .cc-drawer-close { background: none; border: 1px solid var(--border); color: var(--text-dim);
+                       width: 28px; height: 28px; border-radius: 7px; font-size: 18px; line-height: 1;
+                       cursor: pointer; transition: all .15s; }
+    .cc-drawer-close:hover { background: var(--surface-3); color: var(--text); }
+    .cc-drawer-sub { padding: 0 18px 14px; font-size: 12.5px; color: var(--text-dim); line-height: 1.5;
+                     border-bottom: 1px solid var(--border-soft); }
+    .cc-drawer-body { flex: 1; overflow-y: auto; padding: 4px 0 18px; }
+    .cc-cmd-row { display: flex; gap: 11px; padding: 11px 18px; border-bottom: 1px solid var(--border-soft); }
+    .cc-cmd-kind { font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                   font-size: 9px; font-weight: 600; letter-spacing: .5px;
+                   padding: 3px 6px; border-radius: 5px; height: fit-content; flex-shrink: 0;
+                   background: var(--surface-3); color: var(--text-faint); }
+    .cc-cmd-main { min-width: 0; flex: 1; }
+    .cc-cmd-code { font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                   font-size: 12.5px; color: var(--st-working); word-break: break-word; }
+    .cc-cmd-desc { font-size: 12px; color: var(--text-dim); margin-top: 3px; }
+
+    /* ---- Office status key ---- */
+    .status-key {
+      position: absolute; bottom: 16px; left: 16px; z-index: 120;
+      background: rgba(28, 25, 23, 0.92); border: 1px solid var(--border);
+      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+      border-radius: 12px; padding: 14px 16px; min-width: 232px;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.55);
+    }
+    .sk-title { font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                font-size: 9.5px; letter-spacing: .9px; text-transform: uppercase;
+                color: var(--text-faint); margin-bottom: 11px; }
+    /* two columns, because six statuses in one column is a tall thin box */
+    .sk-chips { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; }
+    .sk-chip { display: inline-flex; align-items: center; gap: 7px;
+               font-size: 11.5px; color: var(--text-dim); }
+    .sk-toggles { margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--border-soft);
+                  display: flex; flex-direction: column; gap: 9px; }
+    .sk-toggle { display: flex; align-items: center; justify-content: space-between;
+                 gap: 14px; cursor: pointer; }
+    .sk-toggle-label { display: inline-flex; align-items: center; gap: 8px;
+                       font-size: 12px; color: var(--text-dim); }
+    .sk-toggle-label svg { width: 14px; height: 14px; color: var(--text-faint); }
+    .sk-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+    .sk-switch { width: 30px; height: 17px; border-radius: 10px; flex-shrink: 0;
+                 background: var(--surface-3); border: 1px solid var(--border);
+                 position: relative; transition: background .18s var(--ease-spring); }
+    .sk-switch::after { content: ""; position: absolute; top: 2px; left: 2px;
+                        width: 11px; height: 11px; border-radius: 50%;
+                        background: var(--text-faint);
+                        transition: transform .18s var(--ease-spring), background .18s; }
+    .sk-toggle input:checked + .sk-switch { background: var(--accent-soft); border-color: var(--accent); }
+    .sk-toggle input:checked + .sk-switch::after { transform: translateX(13px); background: var(--accent); }
+
+    /* ---- Shared panel: one card with an icon header and rows inside.
+           Traces, Git and Memory all use it, which is what makes those three
+           tabs read as the same product rather than three separate screens. */
+    .cc-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    .cc-panel-head { display: flex; align-items: center; gap: 11px; padding: 15px 18px; }
+    .cc-panel-head .mon-icon { width: 32px; height: 32px; }
+    .cc-panel-title { font-size: 14.5px; font-weight: 650; }
+    .cc-panel-sub { font-size: 12px; color: var(--text-faint); margin-top: 2px; }
+    .cc-panel-tag {
+      margin-left: auto; font-family: 'IBM Plex Mono', ui-monospace, monospace;
+      font-size: 10px; padding: 4px 8px; border-radius: 6px;
+      background: var(--surface-3); color: var(--text-faint); border: 1px solid var(--border);
+    }
+    .cc-row { display: flex; gap: 12px; padding: 12px 18px; border-top: 1px solid var(--border-soft); }
+    .cc-row-main { flex: 1; min-width: 0; }
+    .cc-row-right { flex-shrink: 0; text-align: right;
+                    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                    font-size: 11px; color: var(--text-faint); line-height: 1.5; }
+    .cc-row-mono { font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                   font-size: 12.5px; color: var(--text); word-break: break-word; }
+    .cc-row-meta { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; flex-wrap: wrap; }
+    .cc-row-idx  { font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                   font-size: 11px; color: var(--text-faint); }
+    .cc-kind {
+      font-family: 'IBM Plex Mono', ui-monospace, monospace;
+      font-size: 10.5px; padding: 2px 7px; border-radius: 5px;
+      background: var(--surface-3); color: var(--text-dim); border: 1px solid var(--border);
+    }
+    .cc-ok   { color: var(--st-working); }
+    .cc-bad  { color: var(--st-fail); }
+    /* a run of steps the agent itself marked — a checkpoint, not a tool call */
+    .cc-checkpoint { display: flex; align-items: center; gap: 9px; padding: 12px 18px;
+                     border-top: 1px solid var(--border-soft);
+                     font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                     font-size: 11px; letter-spacing: .5px; color: var(--text-faint); }
+    /* git commit rail */
+    .cc-commit-dot { flex-shrink: 0; width: 16px; display: flex; justify-content: center;
+                     align-items: flex-start; padding-top: 4px; color: var(--st-reviewing); }
+    /* memory relevance */
+    .cc-relevance { flex-shrink: 0; width: 38px; text-align: right;
+                    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                    font-size: 11.5px; color: var(--text-faint); padding-top: 1px; }
+    .cc-search { display: flex; align-items: center; gap: 9px; margin: 0 18px 4px;
+                 padding: 10px 13px; border: 1px solid var(--border); border-radius: 9px;
+                 background: var(--surface-2); }
+    .cc-search svg { width: 15px; height: 15px; color: var(--text-faint); flex-shrink: 0; }
+    .cc-search input { flex: 1; border: none; background: none; outline: none; color: var(--text);
+                       font: inherit; font-size: 13px; }
+
+    /* ---- Monitor: a 2x2 card grid ---- */
+    .mon-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 14px; }
+    .mon-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+    .mon-head { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+    .mon-icon { width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0;
+                display: flex; align-items: center; justify-content: center;
+                background: var(--surface-3); color: var(--text-dim); }
+    .mon-icon svg { width: 15px; height: 15px; }
+    .mon-title { font-size: 13.5px; font-weight: 650; }
+    .mon-sub { font-size: 11.5px; color: var(--text-faint); margin-top: 1px; }
+    .mon-figure { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+    .mon-big { font-family: 'IBM Plex Mono', ui-monospace, monospace;
+               font-size: 30px; font-weight: 500; letter-spacing: -.5px; color: var(--text); }
+    .mon-of  { font-family: 'IBM Plex Mono', ui-monospace, monospace;
+               font-size: 12.5px; color: var(--text-faint); }
+    .mon-bar { height: 5px; background: var(--surface-3); border-radius: 3px; overflow: hidden; margin-top: 10px; }
+    .mon-bar > i { display: block; height: 100%; border-radius: 3px; background: var(--accent); transition: width .3s var(--ease-spring); }
+    .mon-bar.is-spend > i { background: var(--st-working); }
+    .mon-foot { font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                font-size: 11.5px; color: var(--text-faint); margin-top: 7px; text-align: right; }
+    /* per-tool breakdown */
+    .mon-tool { display: grid; grid-template-columns: 92px 1fr 34px; align-items: center; gap: 10px; margin-bottom: 7px; }
+    .mon-tool-name { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; color: var(--text-dim); }
+    .mon-tool-bar { height: 5px; background: var(--surface-3); border-radius: 3px; overflow: hidden; }
+    .mon-tool-bar > i { display: block; height: 100%; background: var(--accent); opacity: .75; border-radius: 3px; }
+    .mon-tool-n { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px;
+                  color: var(--text-dim); text-align: right; }
+    .mon-field { display: flex; gap: 8px; align-items: center; }
+    .mon-select { flex: 1; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px;
+                  font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12.5px;
+                  background: var(--surface-2); color: var(--text); }
+    .mon-dispatch-label { font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                          font-size: 9.5px; letter-spacing: .8px; color: var(--text-faint);
+                          margin: 14px 0 6px; }
+    .mon-dispatch { display: flex; gap: 8px; background: var(--surface-2);
+                    border: 1px solid var(--border); border-radius: 9px; padding: 5px 5px 5px 12px; }
+    .mon-dispatch input { flex: 1; border: none; background: none; outline: none; color: var(--text);
+                          font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12.5px; }
+    .mon-dispatch button { border: none; background: var(--accent); color: var(--accent-fg);
+                           width: 32px; height: 32px; border-radius: 7px; cursor: pointer;
+                           display: flex; align-items: center; justify-content: center; }
+    .mon-dispatch button:hover { background: var(--accent-bright); }
+    .mon-dispatch button svg { width: 15px; height: 15px; }
 
     /* ---- Claude & Multi-Agent Terminal (all agents) ---- */
     .term-container {
@@ -691,7 +935,8 @@
     .feed-what { font-size: 11.5px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .feed-when { font-size: 11px; color: var(--text-faint); flex-shrink: 0; }
 
-    .qa { display: flex; flex-direction: column; gap: 8px; }
+    /* 2x2, matching the reference — four actions read faster as a grid */
+    .qa { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .qa-btn {
       display: flex; align-items: center; gap: 10px; padding: 10px 13px;
       border: 1px solid var(--border); border-radius: 10px; background: var(--surface);

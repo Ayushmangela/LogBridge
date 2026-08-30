@@ -752,11 +752,14 @@
       for (const [zone, [label]] of Object.entries(ZONE_BADGE)) {
         if (zone === 'collaborating' && !collabOn) continue;
         const chip = document.createElement('span');
-        chip.style.cssText = 'display:inline-flex;align-items:center;gap:4px;';
+        chip.className = 'sk-chip';
         const dot = document.createElement('span');
-        dot.style.cssText = 'width:8px;height:8px;border-radius:50%;background:' +
-          ({ idle: '#b3b8c8', working: '#22c55e', reviewing: '#5b5ef0', collaborating: '#8b5cf6',
-             blocked: 'var(--st-blocked)', needs_human: 'var(--st-fail)', done: '#3b82f6' }[zone] ?? '#b3b8c8');
+        // Same carpet colours as the pills and the roster dots — one legend
+        // for the whole product, not one per surface.
+        dot.style.cssText = 'width:7px;height:7px;border-radius:50%;flex-shrink:0;background:' +
+          ({ idle: 'var(--st-idle)', working: 'var(--st-working)', reviewing: 'var(--st-reviewing)',
+             collaborating: 'var(--st-reviewing)', blocked: 'var(--st-blocked)',
+             needs_human: 'var(--st-needs)', done: 'var(--st-done)' }[zone] ?? 'var(--st-muted)');
         const txt = document.createElement('span');
         txt.textContent = label.toLowerCase();
         chip.append(dot, txt);
@@ -1862,38 +1865,132 @@
       ccLoadCatalogs().then(() => { if (currentView === 'agent') renderCommandCenter(); });
     };
 
-    // Terminal and full command center surfaces for all agents
     function isOrchestrator(a) { return a && a.role === 'planner'; }
+
+    // Five tabs, all of them genuinely ABOUT THIS AGENT.
+    //
+    // The previous build had twenty-one, and about half rendered identical
+    // content for every agent in the room — Goals, Approvals, System Ops,
+    // Sequence Flow and Workflows didn't even read the agent, they failed
+    // with "No active project room selected". Those are project-scoped and
+    // belong in the project nav; System Ops is server-scoped and belongs in
+    // Settings. Steer became an action (it is one textarea and a submit) and
+    // Commands became a drawer (it is a static catalogue, not live state).
+    const CC_TAB_ICONS = {
+      terminal: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/>',
+      traces:   '<path d="M14.7 6.3a4 4 0 0 1-5 5L4 17v3h3l5.7-5.7a4 4 0 0 1 5-5l2-2-2-2-2 2z"/>',
+      monitor:  '<rect x="3" y="4" width="12" height="9" rx="1"/><path d="M8 17h8a2 2 0 0 0 2-2V9M15 20h6"/>',
+      git:      '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="17" cy="9" r="2.5"/><path d="M6 8.5v7M17 11.5c0 3-3 4-6 4.5"/>',
+      memory:   '<path d="M9.5 3A3.5 3.5 0 0 0 6 6.5v.6A3 3 0 0 0 6 13v3a3 3 0 0 0 6 0V6.5A3.5 3.5 0 0 0 9.5 3z"/><path d="M14.5 3A3.5 3.5 0 0 1 18 6.5v.6a3 3 0 0 1 0 5.9v3a3 3 0 0 1-6 0"/>',
+    };
     function getCCTabs(a) {
-      const all = [
-        { id: 'terminal', label: '>_ Terminal', surface: 'both' },
-        { id: 'code', label: '</> Code', surface: 'both' },
-        { id: 'tasks', label: 'Tasks', surface: 'both' },
-        { id: 'goals', label: '🎯 Goals', surface: 'both' },
-        { id: 'approvals', label: '🛡️ Approvals', surface: 'both' },
-        { id: 'ops', label: '📊 System Ops', surface: 'both' },
-        { id: 'sequence', label: '⚡ Sequence Flow', surface: 'both' },
-        { id: 'workflows', label: 'Workflows', surface: 'both' },
-        { id: 'attempts', label: 'Attempts', surface: 'both' },
-        { id: 'artifacts', label: 'Artifacts', surface: 'both' },
-        { id: 'messages', label: 'Messages', surface: 'both' },
-        { id: 'memory', label: 'Memory', surface: 'both' },
-        { id: 'steer', label: 'Steer', surface: 'employee' },
-        { id: 'traces', label: 'Traces', surface: 'employee' },
-        { id: 'monitor', label: 'Monitor', surface: 'both' },
-        { id: 'git', label: 'Git', surface: 'employee' },
-        { id: 'commands', label: 'Commands', surface: 'floor' },
-        { id: 'activity', label: 'Activity', surface: 'floor' },
-        { id: 'triggers', label: 'Triggers', surface: 'floor' },
-        { id: 'graph', label: 'Graph', surface: 'floor' },
-        { id: 'pulls', label: 'Pull Requests', surface: 'floor' },
+      return [
+        { id: 'terminal', label: 'Terminal' },
+        { id: 'traces',   label: 'Traces'   },
+        { id: 'monitor',  label: 'Monitor'  },
+        { id: 'git',      label: 'Git'      },
+        { id: 'memory',   label: 'Memory'   },
       ];
-      if (!a) return all;
-      if (isOrchestrator(a)) return all.filter((t) => t.surface === 'floor' || t.surface === 'both');
-      return all.filter((t) => t.surface === 'employee' || t.surface === 'both');
     }
-    // Back-compat for any code that still reads CC_TABS directly (none does now)
     const CC_TABS = getCCTabs(null);
+
+    // ---- Commands drawer ----------------------------------------------
+    function renderCommandsDrawerBody() {
+      const a = ccAgent();
+      const body = document.getElementById('cc-drawer-body');
+      if (!a || !body) return;
+      body.innerHTML = '';
+
+      if (ccCatalogs === null) {
+        body.innerHTML = '<div class="empty-note">Loading commands…</div>';
+        ccLoadCatalogs().then(renderCommandsDrawerBody);
+        return;
+      }
+      // Keyed by the agent's own provider: showing Claude's commands under an
+      // agent running something else would be confidently wrong.
+      const cat = ccCatalogs.find((c) => c.providerId === a.provider);
+      if (!cat) {
+        const note = document.createElement('div');
+        note.className = 'empty-note';
+        note.textContent = a.provider
+          ? 'No command reference has been written for ' + a.provider + ' yet.'
+          : "This agent runs the machine's default harness, which has no command reference.";
+        body.appendChild(note);
+        return;
+      }
+
+      for (const g of cat.groups ?? []) {
+        for (const c of g.commands ?? []) {
+          const row = document.createElement('div');
+          row.className = 'cc-cmd-row';
+          const kind = document.createElement('span');
+          kind.className = 'cc-cmd-kind';
+          kind.textContent = (g.title || c.kind || 'cmd').toUpperCase().slice(0, 9);
+          const main = document.createElement('div');
+          main.className = 'cc-cmd-main';
+          const code = document.createElement('div');
+          code.className = 'cc-cmd-code';
+          code.textContent = c.name || '';
+          const desc = document.createElement('div');
+          desc.className = 'cc-cmd-desc';
+          desc.textContent = c.description || '';
+          main.append(code, desc);
+          row.append(kind, main);
+          body.appendChild(row);
+        }
+      }
+    }
+
+    function openCommandsDrawer() {
+      if (!ccAgent()) return;
+      renderCommandsDrawerBody();
+      document.getElementById('cc-drawer').classList.add('open');
+      document.getElementById('cc-drawer-scrim').classList.add('open');
+    }
+    function closeCommandsDrawer() {
+      document.getElementById('cc-drawer').classList.remove('open');
+      document.getElementById('cc-drawer-scrim').classList.remove('open');
+    }
+    window.openCommandsDrawer = openCommandsDrawer;
+    window.closeCommandsDrawer = closeCommandsDrawer;
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeCommandsDrawer();
+    });
+
+    // ---- Steer: an action, not a tab ----------------------------------
+    // Steering injects context through the existing task channel, so it works
+    // whether or not a task is running: live if there is one, on the next task
+    // if there isn't. The server tells us which happened.
+    async function openSteerDialog() {
+      const a = ccAgent();
+      if (!a) return;
+      const text = prompt(
+        `Steer ${a.name} — inject guidance, a constraint, or a correction.\n` +
+        `Applies to the running task if there is one, otherwise to its next task.`
+      );
+      if (!text || !text.trim()) return;
+      const errEl = document.getElementById('cc-manage-err');
+      try {
+        const res = await fetch(`/api/agents/${a.id}/steer`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ text: text.trim() }),
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok || !j.ok) throw new Error(j.error || `steer failed (${res.status})`);
+        if (errEl) {
+          errEl.style.display = 'inline';
+          errEl.style.color = 'var(--st-working)';
+          errEl.textContent = j.mode === 'live'
+            ? 'Steered the running task.'
+            : 'Saved — applies to the next task.';
+          setTimeout(() => { errEl.style.display = 'none'; errEl.style.color = ''; }, 4000);
+        }
+      } catch (err) {
+        if (errEl) { errEl.style.display = 'inline'; errEl.style.color = ''; errEl.textContent = err.message; }
+      }
+    }
+    window.openSteerDialog = openSteerDialog;
 
     function renderCommandCenter() {
       const a = ccAgent();
@@ -1911,17 +2008,30 @@
 
       document.getElementById('cc-name').textContent = a.name;
       const statusEl = document.getElementById('cc-status');
+      // The pill's tint is the office room this status maps to, so the header
+      // and the floor agree without anyone having to learn a second legend.
+      const STATUS_TINT = {
+        working: 's-working', reviewing: 's-reviewing', collaborating: 's-reviewing',
+        needs_input: 's-needs', blocked: 's-blocked', idle: 's-idle', done: 's-done',
+      };
       if (a.zone === 'collaborating') {
-        statusEl.textContent = 'IN MEETING';
-        statusEl.style.color = 'var(--st-done)';
-        statusEl.style.fontWeight = '700';
+        statusEl.textContent = 'In meeting';
+        statusEl.className = 'cc-status-pill s-reviewing';
         const partner = a.waitingOn ? 'with ' + a.waitingOn : '';
-        document.getElementById('cc-desc').textContent = `🤝 Collaborating ${partner} in Conference Room`;
+        document.getElementById('cc-desc').textContent = `Collaborating ${partner} in the meeting room`;
       } else {
-        statusEl.textContent = a.status;
-        statusEl.style.color = '';
-        statusEl.style.fontWeight = '';
+        statusEl.textContent = String(a.status || 'idle').replace(/_/g, ' ');
+        statusEl.className = 'cc-status-pill ' + (STATUS_TINT[a.status] || 's-idle');
         document.getElementById('cc-desc').textContent = a.description || (a.role + ' · ' + a.machineName);
+      }
+
+      // Which surface this is. The old build made you infer it from which tabs
+      // appeared, which nobody reads as a signal.
+      const roleBadge = document.getElementById('cc-role-badge');
+      if (roleBadge) {
+        const orch = isOrchestrator(a);
+        roleBadge.textContent = orch ? 'ORCHESTRATOR' : 'EMPLOYEE AGENT';
+        roleBadge.className = 'cc-role-badge' + (orch ? ' is-orchestrator' : '');
       }
 
       const portrait = document.getElementById('cc-portrait');
@@ -1948,45 +2058,36 @@
         if (ccErr) { ccErr.textContent = ''; ccErr.style.display = 'none'; }
       }
 
-      // Two-surface split: keep ccTab valid for the current agent's surface
       const availTabs = getCCTabs(a);
       if (!availTabs.some((t) => t.id === ccTab)) ccTab = availTabs[0]?.id ?? 'terminal';
-      // Show a subtle surface label so the split is visible without being noisy
-      const manageRow = document.getElementById('cc-manage');
-      if (manageRow) {
-        manageRow.style.display = ''; // always, but label the surface
-        let label = document.getElementById('cc-surface-label');
-        if (!label) {
-          label = document.createElement('span');
-          label.id = 'cc-surface-label';
-          label.style.cssText = 'font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text-faint);margin-left:auto';
-          manageRow.appendChild(label);
-        }
-        label.textContent = isOrchestrator(a) ? 'Orchestrator · floor' : 'Employee · ' + (a.name || '');
 
-        const breakdownBtn = document.getElementById('cc-breakdown-btn');
-        if (breakdownBtn) {
-          breakdownBtn.style.display = isOrchestrator(a) ? 'inline-block' : 'none';
-        }
+      // Delegate Epic is the orchestrator's own verb — breaking an epic into
+      // tasks is what makes it the orchestrator.
+      const breakdownBtn = document.getElementById('cc-breakdown-btn');
+      if (breakdownBtn) breakdownBtn.style.display = isOrchestrator(a) ? 'inline-flex' : 'none';
 
-        const taskPauseBtn = document.getElementById('cc-task-pause-btn');
-        const taskResumeBtn = document.getElementById('cc-task-resume-btn');
-        const taskHaltBtn = document.getElementById('cc-task-halt-btn');
-        const activeTask = a.task;
-        if (activeTask && activeTask.title) {
-          if (taskHaltBtn) taskHaltBtn.style.display = 'inline-block';
-          if (a.status === 'waiting' || a.status === 'paused') {
-            if (taskPauseBtn) taskPauseBtn.style.display = 'none';
-            if (taskResumeBtn) taskResumeBtn.style.display = 'inline-block';
-          } else {
-            if (taskPauseBtn) taskPauseBtn.style.display = 'inline-block';
-            if (taskResumeBtn) taskResumeBtn.style.display = 'none';
-          }
-        } else {
-          if (taskPauseBtn) taskPauseBtn.style.display = 'none';
-          if (taskResumeBtn) taskResumeBtn.style.display = 'none';
-          if (taskHaltBtn) taskHaltBtn.style.display = 'none';
-        }
+      // Task controls only exist while there is a task to control.
+      const taskPauseBtn = document.getElementById('cc-task-pause-btn');
+      const taskResumeBtn = document.getElementById('cc-task-resume-btn');
+      const taskHaltBtn = document.getElementById('cc-task-halt-btn');
+      const activeTask = a.task;
+      if (activeTask && activeTask.title) {
+        if (taskHaltBtn) taskHaltBtn.style.display = 'inline-flex';
+        const held = a.status === 'waiting' || a.status === 'paused';
+        if (taskPauseBtn) taskPauseBtn.style.display = held ? 'none' : 'inline-flex';
+        if (taskResumeBtn) taskResumeBtn.style.display = held ? 'inline-flex' : 'none';
+      } else {
+        if (taskPauseBtn) taskPauseBtn.style.display = 'none';
+        if (taskResumeBtn) taskResumeBtn.style.display = 'none';
+        if (taskHaltBtn) taskHaltBtn.style.display = 'none';
+      }
+
+      // Pause/Resume the AGENT (distinct from pausing its current task).
+      const pauseBtn = document.getElementById('cc-pause-btn');
+      if (pauseBtn) {
+        const lbl = pauseBtn.querySelector('svg')?.nextSibling;
+        const txt = a.paused ? 'Resume' : 'Pause';
+        if (lbl) lbl.textContent = ' ' + txt; else pauseBtn.textContent = txt;
       }
 
       const tabs = document.getElementById('cc-tabs');
@@ -1994,34 +2095,21 @@
       for (const t of availTabs) {
         const b = document.createElement('button');
         b.className = 'cc-tab' + (t.id === ccTab ? ' active' : '');
-        b.textContent = t.label;
+        b.innerHTML =
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">' +
+          (CC_TAB_ICONS[t.id] || '') + '</svg>';
+        b.appendChild(document.createTextNode(t.label));
         b.onclick = () => { ccTab = t.id; renderCommandCenter(); };
         tabs.appendChild(b);
       }
 
       body.innerHTML = '';
       if (ccTab === 'terminal') ccRenderTerminal(body, a);
-      else if (ccTab === 'code') ccRenderCode(body, a);
-      else if (ccTab === 'commands') ccRenderCommands(body, a);
       else if (ccTab === 'memory') ccRenderMemory(body, a);
-      else if (ccTab === 'triggers') ccRenderTriggers(body, a);
-      else if (ccTab === 'tasks') ccRenderTasks(body, a);
-      else if (ccTab === 'goals') ccRenderGoals(body, a);
-      else if (ccTab === 'approvals') ccRenderApprovals(body, a);
-      else if (ccTab === 'ops') ccRenderOps(body, a);
-      else if (ccTab === 'sequence') ccRenderSequenceFlow(body, a);
-      else if (ccTab === 'workflows') ccRenderWorkflows(body, a);
-      else if (ccTab === 'attempts') ccRenderAttempts(body, a);
-      else if (ccTab === 'artifacts') ccRenderArtifacts(body, a);
-      else if (ccTab === 'steer') ccRenderSteer(body, a);
       else if (ccTab === 'traces') ccRenderTraces(body, a);
       else if (ccTab === 'monitor') ccRenderMonitor(body, a);
       else if (ccTab === 'git') ccRenderGit(body, a);
-      else if (ccTab === 'output') ccRenderTerminal(body, a);
-      else if (ccTab === 'graph') ccRenderGraph(body, a);
-      else if (ccTab === 'pulls') ccRenderPulls(body, a);
-      else if (ccTab === 'messages') ccRenderMessages(body, a);
-      else ccRenderActivity(body, a);
+      else ccRenderTerminal(body, a);
     }
 
     function ccRenderCommands(body, a) {
@@ -3968,29 +4056,41 @@
       body.append(row, err);
     }
 
+    /** One card, icon header, rows inside. Shared by Traces, Git and Memory. */
+    function ccPanel(body, iconPath, title, sub, tag) {
+      const panel = document.createElement('div');
+      panel.className = 'cc-panel';
+      const head = document.createElement('div');
+      head.className = 'cc-panel-head';
+      const ic = document.createElement('div');
+      ic.className = 'mon-icon';
+      ic.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">' + iconPath + '</svg>';
+      const tw = document.createElement('div');
+      const t = document.createElement('div'); t.className = 'cc-panel-title'; t.textContent = title;
+      const s = document.createElement('div'); s.className = 'cc-panel-sub';   s.textContent = sub;
+      tw.append(t, s);
+      head.append(ic, tw);
+      if (tag) {
+        const g = document.createElement('span');
+        g.className = 'cc-panel-tag';
+        g.textContent = tag;
+        head.appendChild(g);
+      }
+      panel.appendChild(head);
+      body.appendChild(panel);
+      return panel;
+    }
+
     function ccRenderTraces(body, a) {
       body.innerHTML = '';
-
-      const topRow = document.createElement('div');
-      topRow.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;';
-
-      const note = document.createElement('div');
-      note.className = 'cmd-note';
-      note.style.margin = '0';
-      note.textContent = 'Structured step-by-step waterfall: model reasoning, tool invocations, and execution events.';
-
-      const refreshBtn = document.createElement('button');
-      refreshBtn.className = 'code-btn';
-      refreshBtn.textContent = '🔄 Refresh Traces';
-      refreshBtn.onclick = () => ccRenderTraces(body, a);
-
-      topRow.append(note, refreshBtn);
-      body.appendChild(topRow);
+      const panel = ccPanel(body,
+        '<path d="M14.7 6.3a4 4 0 0 1-5 5L4 17v3h3l5.7-5.7a4 4 0 0 1 5-5l2-2-2-2-2 2z"/>',
+        'Traces', `${a.name}'s tool calls & step boundaries`);
 
       const placeholder = document.createElement('div');
       placeholder.className = 'empty-note';
       placeholder.textContent = 'Loading execution traces…';
-      body.appendChild(placeholder);
+      panel.appendChild(placeholder);
 
       fetch(`/api/agents/${a.id}/traces?limit=60`).then(async (res) => {
         if (!res.ok) {
@@ -4005,90 +4105,99 @@
         }
         placeholder.remove();
 
-        const timeline = document.createElement('div');
-        timeline.style.cssText = 'display:flex;flex-direction:column;gap:10px;position:relative;';
-
-        for (const ev of traces) {
-          const card = document.createElement('div');
-          card.style.cssText = `
-            background:var(--surface);
-            border:1px solid var(--border);
-            border-radius:10px;
-            padding:12px 16px;
-            display:flex;
-            flex-direction:column;
-            gap:6px;
-            transition:border-color .15s;
-          `;
-
-          const head = document.createElement('div');
-          head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:10px;';
-
-          const leftGroup = document.createElement('div');
-          leftGroup.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
-
-          let badgeBg = 'rgba(93,179,192,0.15)';
-          let badgeColor = 'var(--accent)';
-          let badgeBorder = 'rgba(93,179,192,0.3)';
-          let icon = '🛠️';
+        traces.forEach((ev, i) => {
           const k = (ev.kind || ev.type || '').toLowerCase();
 
-          if (k.includes('thought') || k.includes('reason')) {
-            badgeBg = 'rgba(139,92,246,0.15)'; badgeColor = '#a78bfa'; badgeBorder = 'rgba(139,92,246,0.3)'; icon = '🧠';
-          } else if (k.includes('steer')) {
-            badgeBg = 'rgba(212,157,73,0.15)'; badgeColor = 'var(--st-blocked)'; badgeBorder = 'rgba(212,157,73,0.3)'; icon = '🧭';
-          } else if (k.includes('control') || k.includes('pause') || k.includes('halt')) {
-            badgeBg = 'rgba(244,63,94,0.15)'; badgeColor = '#fb7185'; badgeBorder = 'rgba(244,63,94,0.3)'; icon = '⏸️';
-          } else if (k.includes('result') || k.includes('output')) {
-            badgeBg = 'rgba(116,175,125,0.15)'; badgeColor = 'var(--st-working)'; badgeBorder = 'rgba(116,175,125,0.3)'; icon = '📄';
-          } else if (k.includes('task')) {
-            badgeBg = 'rgba(59,130,246,0.15)'; badgeColor = '#60a5fa'; badgeBorder = 'rgba(59,130,246,0.3)'; icon = '📋';
+          // A checkpoint is a boundary the agent declared, not a call it made —
+          // it gets a rule across the panel rather than a row of its own.
+          if (k.includes('checkpoint')) {
+            const cp = document.createElement('div');
+            cp.className = 'cc-checkpoint';
+            cp.innerHTML =
+              '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8">' +
+              '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"/></svg>' +
+              '<span>— ' + esc(String(ev.summary || ev.text || 'CHECKPOINT').toUpperCase()) + ' —</span>';
+            panel.appendChild(cp);
+            return;
           }
 
-          const badge = document.createElement('span');
-          badge.style.cssText = `background:${badgeBg};color:${badgeColor};border:1px solid ${badgeBorder};font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:12px;display:inline-flex;align-items:center;gap:4px;text-transform:uppercase;`;
-          badge.textContent = `${icon} ${ev.kind || ev.type || 'STEP'}`;
+          const row = document.createElement('div');
+          row.className = 'cc-row';
 
-          if (ev.taskTitle) {
-            const taskTag = document.createElement('span');
-            taskTag.style.cssText = 'font-size:11px;color:var(--text-faint);background:var(--surface-2);padding:2px 6px;border-radius:4px;border:1px solid var(--border-soft);font-family:monospace;';
-            taskTag.textContent = ev.taskTitle;
-            leftGroup.append(badge, taskTag);
-          } else {
-            leftGroup.append(badge);
+          const icon = document.createElement('div');
+          icon.className = 'cc-commit-dot';
+          const isThought = k.includes('thought') || k.includes('reason');
+          icon.innerHTML = isThought
+            ? '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9.5 3A3.5 3.5 0 0 0 6 6.5v.6A3 3 0 0 0 6 13v3a3 3 0 0 0 6 0V6.5A3.5 3.5 0 0 0 9.5 3z"/><path d="M14.5 3A3.5 3.5 0 0 1 18 6.5v.6a3 3 0 0 1 0 5.9v3a3 3 0 0 1-6 0"/></svg>'
+            : '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14.7 6.3a4 4 0 0 1-5 5L4 17v3h3l5.7-5.7a4 4 0 0 1 5-5l2-2-2-2-2 2z"/></svg>';
+          icon.style.color = isThought ? 'var(--st-done)' : 'var(--text-faint)';
+
+          const main = document.createElement('div');
+          main.className = 'cc-row-main';
+
+          const meta = document.createElement('div');
+          meta.className = 'cc-row-meta';
+          const idx = document.createElement('span');
+          idx.className = 'cc-row-idx';
+          idx.textContent = '#' + (ev.seq ?? i + 1);
+          meta.appendChild(idx);
+          // Only tool calls carry a tool name; a thought is not a tool.
+          if (!isThought && (ev.tool || ev.kind || ev.type)) {
+            const kind = document.createElement('span');
+            kind.className = 'cc-kind';
+            kind.textContent = ev.tool || ev.kind || ev.type;
+            meta.appendChild(kind);
           }
-
-          const time = document.createElement('span');
-          time.style.cssText = 'font-size:11px;color:var(--text-faint);font-family:\'IBM Plex Mono\',monospace;';
-          time.textContent = ev.ts ? new Date(ev.ts).toLocaleTimeString() : '';
-
-          head.append(leftGroup, time);
-
-          const summary = document.createElement('div');
-          summary.style.cssText = 'font-size:13px;font-weight:500;color:var(--text);line-height:1.45;';
-          summary.textContent = ev.summary || ev.text || 'Action executed';
-
-          card.append(head, summary);
-
-          if (ev.data || ev.details) {
-            const detailStr = typeof (ev.data || ev.details) === 'object' ? JSON.stringify(ev.data || ev.details, null, 2) : String(ev.data || ev.details);
-            if (detailStr && detailStr !== '{}' && detailStr !== 'null') {
-              const detailsWrapper = document.createElement('details');
-              detailsWrapper.style.cssText = 'margin-top:4px;font-size:11.5px;color:var(--text-dim);cursor:pointer;';
-              detailsWrapper.innerHTML = `
-                <summary style="font-size:11px;color:var(--text-faint);outline:none;user-select:none;">View Payload Details</summary>
-                <pre style="font-family:'IBM Plex Mono',monospace;font-size:11px;background:rgba(0,0,0,0.3);border:1px solid var(--border-soft);padding:8px 12px;border-radius:6px;margin-top:6px;overflow-x:auto;white-space:pre-wrap;color:var(--text-dim);">${escapeHtml(detailStr)}</pre>
-              `;
-              card.appendChild(detailsWrapper);
-            }
+          if (ev.ok !== undefined || ev.error !== undefined) {
+            const st = document.createElement('span');
+            const bad = ev.ok === false || !!ev.error;
+            st.className = bad ? 'cc-bad' : 'cc-ok';
+            st.innerHTML = bad
+              ? '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg>'
+              : '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/></svg>';
+            meta.appendChild(st);
           }
+          main.appendChild(meta);
 
-          timeline.appendChild(card);
-        }
-        body.appendChild(timeline);
+          const sum = document.createElement('div');
+          sum.className = 'cc-row-mono';
+          if (ev.ok === false || ev.error) sum.style.color = 'var(--st-fail)';
+          sum.textContent = ev.summary || ev.text || 'Action executed';
+          main.appendChild(sum);
+
+          const right = document.createElement('div');
+          right.className = 'cc-row-right';
+          const when = ev.ts ? relativeTime(ev.ts) : '';
+          const dur = Number.isFinite(ev.durationMs) ? `${ev.durationMs}ms`
+                    : Number.isFinite(ev.ms) ? `${ev.ms}ms` : '';
+          right.innerHTML = esc(when) + (dur ? '<br>' + esc(dur) : '');
+
+          row.append(icon, main, right);
+          panel.appendChild(row);
+        });
       }).catch((e) => {
         placeholder.textContent = 'Could not reach server for traces: ' + e.message;
       });
+    }
+
+    // A 2x2 card grid: context, budget, tool calls, engine. Every figure has
+    // a real denominator the runner reports — none of these bars is a
+    // progress bar, and none of them may be reused as one.
+    function monCard(iconPath, title, sub) {
+      const card = document.createElement('div');
+      card.className = 'mon-card';
+      const head = document.createElement('div');
+      head.className = 'mon-head';
+      const ic = document.createElement('div');
+      ic.className = 'mon-icon';
+      ic.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">' + iconPath + '</svg>';
+      const tw = document.createElement('div');
+      const t = document.createElement('div'); t.className = 'mon-title'; t.textContent = title;
+      const s = document.createElement('div'); s.className = 'mon-sub';   s.textContent = sub;
+      tw.append(t, s);
+      head.append(ic, tw);
+      card.appendChild(head);
+      return card;
     }
 
     function ccRenderMonitor(body, a) {
@@ -4096,67 +4205,88 @@
       const room = activeRoom();
       const machine = room?.machines?.find((m) => m.id === a.machineId);
       const isOffline = !machine?.online;
-      const note = document.createElement('div');
-      note.className = 'cmd-note';
-      note.textContent = 'Per-agent use — context, tools, directory and engine. The bar has a real denominator the runner reports; do not reuse it for progress.';
-      body.appendChild(note);
 
-      // Context bar — honest vs stale
-      const ctxRow = document.createElement('div');
-      ctxRow.style.cssText = 'margin-top:14px';
-      const ctxLabel = document.createElement('div');
-      ctxLabel.style.cssText = 'font-size:11px;font-weight:700;letter-spacing:.4px;color:var(--text-faint);text-transform:uppercase;margin-bottom:6px';
-      ctxLabel.textContent = 'Context';
+      const grid = document.createElement('div');
+      grid.className = 'mon-grid';
+      body.appendChild(grid);
+
+      // ---- 1. Context window ----
+      const ctxCard = monCard(
+        '<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/>',
+        'Context window', 'Tokens used vs limit');
       const ctxVal = a.contextUsed ?? a.context?.used;
       const ctxLimit = a.contextLimit ?? a.context?.limit;
       if (isOffline) {
-        ctxRow.innerHTML = '<div class="empty-note" style="padding:8px 0">Unknown — machine offline</div>';
+        ctxCard.insertAdjacentHTML('beforeend', '<div class="empty-note" style="padding:8px 0">Unknown — machine offline</div>');
       } else if (Number.isFinite(ctxVal) && Number.isFinite(ctxLimit) && ctxLimit > 0) {
         const pct = Math.min(100, Math.round((ctxVal / ctxLimit) * 100));
-        ctxRow.innerHTML = `<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>${ctxVal.toLocaleString()} / ${ctxLimit.toLocaleString()} tokens</span><span>${pct}%</span></div><div class="bar"><i style="width:${pct}%"></i></div>`;
+        const k = (n) => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+        ctxCard.insertAdjacentHTML('beforeend',
+          `<div class="mon-figure"><span class="mon-big">${k(ctxVal)}</span><span class="mon-of">/ ${k(ctxLimit)}</span></div>` +
+          `<div class="mon-bar"><i style="width:${pct}%"></i></div>` +
+          `<div class="mon-foot">${pct}% full</div>`);
       } else {
-        ctxRow.innerHTML = '<div class="empty-note" style="padding:8px 0">No context data yet — shows as work runs</div>';
+        ctxCard.insertAdjacentHTML('beforeend', '<div class="empty-note" style="padding:8px 0">No context data yet — shows as work runs</div>');
       }
-      ctxRow.prepend(ctxLabel);
-      body.appendChild(ctxRow);
+      grid.appendChild(ctxCard);
 
-      // Tool calls + directory + engine
-      const info = document.createElement('div');
-      info.style.cssText = 'margin-top:14px;display:grid;gap:8px';
-      const toolCalls = a.toolCalls ?? (a.task?.steps != null ? `${a.task.steps} steps` : null);
-      const row = (k, v) => {
-        const el = document.createElement('div');
-        el.style.cssText = 'display:flex;justify-content:space-between;font-size:12.5px;padding:8px 10px;background:var(--surface-2);border:1px solid var(--border-soft);border-radius:8px';
-        const kk = document.createElement('span');
-        kk.style.cssText = 'color:var(--text-faint);font-weight:600';
-        kk.textContent = k;
-        const vv = document.createElement('span');
-        vv.style.cssText = 'font-weight:600;color:var(--text)';
-        vv.textContent = v;
-        el.append(kk, vv);
-        return el;
-      };
-      info.append(row('Tool calls', isOffline ? 'Unknown' : (toolCalls ?? '0')));
-      info.append(row('Working dir', a.cwd ?? a.folder ?? 'unknown'));
-      const engine = a.provider ? `${a.provider}${a.model ? ' · ' + a.model : ''}` : 'unknown';
-      info.append(row('Engine', isOffline ? 'Unknown' : engine));
-      body.appendChild(info);
+      // ---- 2. Budget spend ----
+      const spendCard = monCard(
+        '<path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+        'Budget spend', 'This session');
+      const spent = a.task?.costUsd ?? a.costUsd;
+      const cap = a.budgetUsd ?? a.task?.budgetUsd;
+      if (Number.isFinite(spent)) {
+        const hasCap = Number.isFinite(cap) && cap > 0;
+        const pct = hasCap ? Math.min(100, Math.round((spent / cap) * 100)) : 0;
+        spendCard.insertAdjacentHTML('beforeend',
+          `<div class="mon-figure"><span class="mon-big">$${spent.toFixed(2)}</span>` +
+          (hasCap ? `<span class="mon-of">/ $${cap.toFixed(2)} cap</span>` : '') + `</div>` +
+          (hasCap
+            ? `<div class="mon-bar is-spend"><i style="width:${pct}%"></i></div><div class="mon-foot">${pct}% of cap</div>`
+            : `<div class="mon-foot">no cap set</div>`));
+      } else {
+        spendCard.insertAdjacentHTML('beforeend', '<div class="empty-note" style="padding:8px 0">Nothing spent yet this session</div>');
+      }
+      grid.appendChild(spendCard);
 
-      // Dispatch box — creates work via existing task path
-      const dispatch = document.createElement('div');
-      dispatch.style.cssText = 'margin-top:16px';
-      const dLabel = document.createElement('div');
-      dLabel.style.cssText = 'font-size:11px;font-weight:700;letter-spacing:.4px;color:var(--text-faint);text-transform:uppercase;margin-bottom:6px';
-      dLabel.textContent = 'Dispatch';
-      const dRow = document.createElement('div');
-      dRow.style.cssText = 'display:flex;gap:8px';
+      // ---- 3. Tool calls ----
+      const toolCalls = a.toolCalls ?? (a.task?.steps ?? null);
+      const breakdown = a.toolBreakdown || a.tools || null;
+      const toolCard = monCard(
+        '<path d="M14.7 6.3a4 4 0 0 1-5 5L4 17v3h3l5.7-5.7a4 4 0 0 1 5-5l2-2-2-2-2 2z"/>',
+        'Tool calls', isOffline ? 'Unknown — machine offline' : `${toolCalls ?? 0} total`);
+      if (!isOffline && breakdown && Object.keys(breakdown).length) {
+        const entries = Object.entries(breakdown).sort((x, y) => y[1] - x[1]).slice(0, 6);
+        const max = entries[0][1] || 1;
+        for (const [name, n] of entries) {
+          const r = document.createElement('div');
+          r.className = 'mon-tool';
+          r.innerHTML =
+            `<span class="mon-tool-name">${esc(name)}</span>` +
+            `<span class="mon-tool-bar"><i style="width:${Math.round((n / max) * 100)}%"></i></span>` +
+            `<span class="mon-tool-n">${n}</span>`;
+          toolCard.appendChild(r);
+        }
+      } else if (!isOffline) {
+        // The count is real; the per-tool split is only there once the
+        // provider reports it. Saying so beats drawing an empty chart.
+        toolCard.insertAdjacentHTML('beforeend',
+          `<div class="mon-figure"><span class="mon-big">${toolCalls ?? 0}</span></div>` +
+          `<div class="mon-foot">no per-tool breakdown reported</div>`);
+      }
+      grid.appendChild(toolCard);
+
+      // ---- 4. Engine + live dispatch ----
+      const engCard = monCard(
+        '<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>', 'Engine', 'Model & live dispatch');
+      grid.appendChild(engCard);
+
       const dInp = document.createElement('input');
-      dInp.placeholder = 'What should this agent do next?';
-      dInp.style.cssText = 'flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:12.5px;background:var(--surface-2);color:var(--text)';
+      dInp.placeholder = 'dispatch a one-off instruction…';
       const dBtn = document.createElement('button');
-      dBtn.className = 'btn-primary';
-      dBtn.textContent = 'Dispatch';
-      dBtn.style.cssText = 'padding:8px 14px;border-radius:8px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer';
+      dBtn.title = 'Dispatch';
+      dBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>';
       const dErr = document.createElement('div');
       dErr.style.cssText = 'font-size:11px;color:var(--red);margin-top:8px;display:none';
       dBtn.onclick = async () => {
@@ -4186,23 +4316,11 @@
           dBtn.textContent = 'Dispatch';
         }
       };
-      dRow.append(dInp, dBtn);
-      dispatch.append(dLabel, dRow, dErr);
-      body.appendChild(dispatch);
-
       // Engine picker — warns about restart
-      const eng = document.createElement('div');
-      eng.style.cssText = 'margin-top:16px';
-      const eLabel = document.createElement('div');
-      eLabel.style.cssText = 'font-size:11px;font-weight:700;letter-spacing:.4px;color:var(--text-faint);text-transform:uppercase;margin-bottom:6px';
-      eLabel.textContent = 'Engine';
-      const eNote = document.createElement('div');
-      eNote.style.cssText = 'font-size:11px;color:var(--text-faint);margin-bottom:6px';
-      eNote.textContent = 'Changing provider/model restarts this agent’s harness. The agent will briefly go offline.';
       const eRow = document.createElement('div');
-      eRow.style.cssText = 'display:flex;gap:8px;align-items:center';
+      eRow.className = 'mon-field';
       const eSel = document.createElement('select');
-      eSel.style.cssText = 'flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:12.5px;background:var(--surface-2);color:var(--text)';
+      eSel.className = 'mon-select';
       // Fill from room machines' providers — degrade to unknown when offline
       const providers = isOffline ? [] : (room?.machines?.find((m) => m.id === a.machineId)?.providers ?? []);
       if (!providers.length) {
@@ -4222,9 +4340,9 @@
         }
       }
       const eBtn = document.createElement('button');
-      eBtn.className = 'btn-primary';
-      eBtn.textContent = 'Change engine';
-      eBtn.style.cssText = 'padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text-dim);font-weight:700;font-size:12.5px;cursor:pointer';
+      eBtn.className = 'cc-hbtn';
+      eBtn.textContent = 'Change';
+      eBtn.title = 'Changing provider or model restarts this agent’s harness — it will briefly go offline.';
       const eErr = document.createElement('div');
       eErr.style.cssText = 'font-size:11px;color:var(--red);margin-top:8px;display:none';
       eBtn.onclick = async () => {
@@ -4257,33 +4375,44 @@
         }
       };
       eRow.append(eSel, eBtn);
-      eng.append(eLabel, eNote, eRow, eErr);
-      body.appendChild(eng);
+
+      // Everything the Engine card holds: the picker, then the live dispatch
+      // box, which creates work through the same task path as Assign.
+      const dLabel = document.createElement('div');
+      dLabel.className = 'mon-dispatch-label';
+      dLabel.textContent = 'LIVE DISPATCH';
+      const dRow = document.createElement('div');
+      dRow.className = 'mon-dispatch';
+      dRow.append(dInp, dBtn);
+      engCard.append(eRow, eErr, dLabel, dRow, dErr);
     }
+
+    const GIT_ICON = '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="17" cy="9" r="2.5"/><path d="M6 8.5v7M17 11.5c0 3-3 4-6 4.5"/>';
 
     function ccRenderGit(body, a) {
       body.innerHTML = '';
       const room = activeRoom();
       const machine = room?.machines?.find((m) => m.id === a.machineId);
       const isOffline = !machine?.online;
-      const note = document.createElement('div');
-      note.className = 'cmd-note';
-      note.textContent = 'Branch, ahead/behind and recent commits for this agent’s workspace — honest about offline and shared.';
-      body.appendChild(note);
 
       if (isOffline) {
-        body.innerHTML += '<div class="empty-note">Unknown — machine offline. The agent is unreachable, so git state is not shown.</div>';
+        const p = ccPanel(body, GIT_ICON, 'Git', 'Machine offline');
+        p.insertAdjacentHTML('beforeend',
+          '<div class="empty-note">Unknown — machine offline. The agent is unreachable, so git state is not shown.</div>');
         return;
       }
       if (a.isolation === 'shared') {
-        body.innerHTML += '<div class="empty-note">Shared-isolation — this agent has no branch of its own; it works directly in the folder.</div>';
+        const p = ccPanel(body, GIT_ICON, 'Git', 'Shared checkout');
+        p.insertAdjacentHTML('beforeend',
+          '<div class="empty-note">Shared-isolation — this agent has no branch of its own; it works directly in the folder.</div>');
         return;
       }
-      // Try the honest endpoint; Stream B Phase 6 will provide it
+
+      const panel = ccPanel(body, GIT_ICON, 'Git', 'Recent commits on this branch');
       const ph = document.createElement('div');
       ph.className = 'empty-note';
       ph.textContent = 'Loading git…';
-      body.appendChild(ph);
+      panel.appendChild(ph);
       fetch(`/api/agents/${a.id}/git`).then(async (res) => {
         if (!res.ok) {
           if (res.status === 404) ph.textContent = 'Git not available yet — server has no git endpoint.';
@@ -4298,33 +4427,53 @@
           return;
         }
         ph.remove();
-        const info = document.createElement('div');
-        info.style.cssText = 'display:grid;gap:8px;margin-top:12px';
-        const row = (k, v) => {
-          const el = document.createElement('div');
-          el.style.cssText = 'display:flex;justify-content:space-between;font-size:12.5px;padding:8px 10px;background:var(--surface-2);border:1px solid var(--border-soft);border-radius:8px';
-          const kk = document.createElement('span'); kk.style.cssText = 'color:var(--text-faint);font-weight:600'; kk.textContent = k;
-          const vv = document.createElement('span'); vv.style.cssText = 'font-weight:600;color:var(--text)'; vv.textContent = v;
-          el.append(kk, vv); return el;
-        };
-        info.append(row('Branch', data.branch ?? 'unknown'));
-        info.append(row('Status', data.clean === true ? 'clean' : data.clean === false ? 'dirty' : 'unknown'));
-        if (Number.isFinite(data.ahead) || Number.isFinite(data.behind)) {
-          info.append(row('Ahead/behind', `${data.ahead ?? '?'} / ${data.behind ?? '?'}`));
+
+        // Branch state as one summary row, then the commits as the list —
+        // the reference leads with commits because that is the actual output.
+        const sub = panel.querySelector('.cc-panel-sub');
+        if (sub && data.branch) {
+          const dirty = data.clean === false ? ' · dirty' : data.clean === true ? ' · clean' : '';
+          const track = (Number.isFinite(data.ahead) || Number.isFinite(data.behind))
+            ? ` · ↑${data.ahead ?? 0} ↓${data.behind ?? 0}` : '';
+          sub.textContent = data.branch + dirty + track;
         }
+
         if (Array.isArray(data.changedFiles) && data.changedFiles.length) {
           const cf = document.createElement('div');
-          cf.style.cssText = 'font-size:12px;padding:8px 10px;background:var(--surface-2);border:1px solid var(--border-soft);border-radius:8px';
-          cf.innerHTML = '<div style="font-weight:600;color:var(--text-faint);margin-bottom:4px">Changed files</div>' + data.changedFiles.map((f) => `<div style="font-family:monospace;font-size:11.5px">${f}</div>`).join('');
-          info.append(cf);
+          cf.className = 'cc-row';
+          cf.innerHTML =
+            '<div class="cc-row-main"><div class="cc-row-meta"><span class="cc-kind">changed</span></div>' +
+            data.changedFiles.map((f) => `<div class="cc-row-mono">${esc(String(f))}</div>`).join('') +
+            '</div>';
+          panel.appendChild(cf);
         }
+
         if (Array.isArray(data.commits) && data.commits.length) {
-          const cl = document.createElement('div');
-          cl.style.cssText = 'font-size:12px;padding:8px 10px;background:var(--surface-2);border:1px solid var(--border-soft);border-radius:8px';
-          cl.innerHTML = '<div style="font-weight:600;color:var(--text-faint);margin-bottom:4px">Recent commits</div>' + data.commits.slice(0, 5).map((c) => `<div style="margin-bottom:4px"><span style="font-family:monospace;font-size:11px;color:var(--text-faint)">${(c.sha ?? '').slice(0, 7)}</span> ${c.message ?? ''}</div>`).join('');
-          info.append(cl);
+          for (const c of data.commits.slice(0, 8)) {
+            const row = document.createElement('div');
+            row.className = 'cc-row';
+            const dot = document.createElement('div');
+            dot.className = 'cc-commit-dot';
+            dot.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.5"/><path d="M12 2v6.5M12 15.5V22"/></svg>';
+            const main = document.createElement('div');
+            main.className = 'cc-row-main';
+            const msg = document.createElement('div');
+            msg.style.cssText = 'font-size:13px;color:var(--text);';
+            msg.textContent = c.message ?? '';
+            const sha = document.createElement('div');
+            sha.className = 'cc-row-idx';
+            sha.style.marginTop = '3px';
+            sha.textContent = (c.sha ?? '').slice(0, 8);
+            main.append(msg, sha);
+            const right = document.createElement('div');
+            right.className = 'cc-row-right';
+            right.textContent = c.at ? relativeTime(c.at) : '';
+            row.append(dot, main, right);
+            panel.appendChild(row);
+          }
+        } else {
+          panel.insertAdjacentHTML('beforeend', '<div class="empty-note">No commits on this branch yet.</div>');
         }
-        body.appendChild(info);
       }).catch(() => { ph.textContent = 'Could not reach server for git.'; });
     }
 
@@ -5473,7 +5622,83 @@
       loadMessages();
     }
 
+    // What this agent pulls in before it starts work, ranked.
+    //
+    // The badge and the placeholder both say "keyword", not "semantic",
+    // because retrieval is SQLite FTS5/BM25 — there is no embedding model
+    // wired in anywhere (DECISIONS.md D25). A search box that implied
+    // semantic matching would be a stub wearing the word.
     function ccRenderMemory(body, a) {
+      body.innerHTML = '';
+      const panel = ccPanel(body,
+        '<path d="M9.5 3A3.5 3.5 0 0 0 6 6.5v.6A3 3 0 0 0 6 13v3a3 3 0 0 0 6 0V6.5A3.5 3.5 0 0 0 9.5 3z"/><path d="M14.5 3A3.5 3.5 0 0 1 18 6.5v.6a3 3 0 0 1 0 5.9v3a3 3 0 0 1-6 0"/>',
+        'Recall', 'What this agent pulls in before starting work', 'BM25 keyword');
+
+      const all = (activeRoom()?.memories ?? []);
+
+      const search = document.createElement('div');
+      search.className = 'cc-search';
+      search.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>';
+      const input = document.createElement('input');
+      input.placeholder = 'Keyword search (not semantic)…';
+      search.appendChild(input);
+      panel.appendChild(search);
+
+      const rows = document.createElement('div');
+      panel.appendChild(rows);
+
+      const draw = (q) => {
+        rows.innerHTML = '';
+        const terms = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        // Rank the same way the server does in spirit: term matches first,
+        // recency as the tiebreak. Shown as a score so the ordering is legible
+        // rather than mysterious.
+        const scored = all.map((m) => {
+          const text = (m.text || '').toLowerCase();
+          const hits = terms.length ? terms.filter((t) => text.includes(t)).length : 0;
+          const ageH = Math.max(0, (Date.now() - Date.parse(m.createdAt || 0)) / 3.6e6);
+          const recency = 1 / (1 + ageH / 24);
+          const score = terms.length ? (hits / terms.length) * 0.8 + recency * 0.2 : recency;
+          return { m, hits, score };
+        }).filter((r) => !terms.length || r.hits > 0)
+          .sort((x, y) => y.score - x.score);
+
+        if (!scored.length) {
+          rows.innerHTML = '<div class="empty-note">' +
+            (terms.length ? 'No memory matches those keywords.' : 'Nothing recalled yet.') + '</div>';
+          return;
+        }
+        for (const { m, score } of scored) {
+          const row = document.createElement('div');
+          row.className = 'cc-row';
+          const rel = document.createElement('div');
+          rel.className = 'cc-relevance';
+          rel.textContent = Math.round(score * 100) + '%';
+          const main = document.createElement('div');
+          main.className = 'cc-row-main';
+          const t = document.createElement('div');
+          t.style.cssText = 'font-size:13px;color:var(--text);line-height:1.45;';
+          t.textContent = m.text || '';
+          const meta = document.createElement('div');
+          meta.className = 'cc-row-idx';
+          meta.style.marginTop = '4px';
+          meta.innerHTML =
+            esc(m.scope === 'agent' ? 'Agent' : 'Project') + ' · ' +
+            '<span style="color:var(--st-reviewing)">' + esc(m.agentName || '—') + '</span> · ' +
+            esc(m.createdAt ? relativeTime(m.createdAt) : '');
+          main.append(t, meta);
+          row.append(rel, main);
+          rows.appendChild(row);
+        }
+      };
+      draw('');
+      input.oninput = () => draw(input.value);
+    }
+
+    // The split memory-file editor. No longer mounted as a tab (the reference
+    // Memory tab is Recall); kept because it is the only writer for
+    // /api/hive/memory/:agentId.
+    function ccRenderMemoryEditor(body, a) {
       body.innerHTML = '';
       const split = document.createElement('div');
       split.className = 'hive-mem-split';

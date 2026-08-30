@@ -218,13 +218,30 @@
             <button class="zoom-btn" onclick="adjustZoom(-0.15)" title="Zoom out (or Scroll Down)">−</button>
           </div>
 
-          <!-- Glassmorphic Layer Legend -->
-          <div id="office-legend" style="position:absolute;bottom:14px;left:14px;z-index:120;display:flex;flex-direction:column;gap:6px;background:rgba(15,23,42,0.88);border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-radius:11px;padding:9px 13px;font-size:11px;color:var(--text-dim);box-shadow:0 8px 24px rgba(0,0,0,0.5);">
-            <div style="display:flex;gap:10px;flex-wrap:wrap;max-width:340px;" id="legend-chips"></div>
-            <div style="display:flex;gap:10px;border-top:1px solid rgba(255,255,255,0.08);padding-top:7px;">
-              <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" id="flt-agents" checked> Agents</label>
-              <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" id="flt-humans" checked> People</label>
-              <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" id="flt-bubbles" checked> Task bubbles</label>
+          <!-- Status key. The colours here are the office's own carpets, so
+               this legend explains the floor as well as the pills. -->
+          <div id="office-legend" class="status-key">
+            <div class="sk-title">Status key</div>
+            <div class="sk-chips" id="legend-chips"></div>
+            <div class="sk-toggles">
+              <label class="sk-toggle">
+                <span class="sk-toggle-label">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M12 8V5M9 3h6M9 14h.01M15 14h.01"/></svg>
+                  Agents</span>
+                <input type="checkbox" id="flt-agents" checked><span class="sk-switch"></span>
+              </label>
+              <label class="sk-toggle">
+                <span class="sk-toggle-label">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/></svg>
+                  People</span>
+                <input type="checkbox" id="flt-humans" checked><span class="sk-switch"></span>
+              </label>
+              <label class="sk-toggle">
+                <span class="sk-toggle-label">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                  Task bubbles</span>
+                <input type="checkbox" id="flt-bubbles" checked><span class="sk-switch"></span>
+              </label>
             </div>
           </div>
 
@@ -316,7 +333,9 @@
         <div class="strip">
           <div class="card">
             <div class="card-head">
-              <div class="card-title">Current Task</div>
+              <div class="card-title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                Current task</div>
               <button class="card-link" onclick="setView('tasks')">View all</button>
             </div>
             <div id="ct-empty" class="empty-note" style="padding:14px 0;">Nothing running right now.</div>
@@ -335,21 +354,27 @@
 
           <div class="card">
             <div class="card-head">
-              <div class="card-title">Recent Activity</div>
+              <div class="card-title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12.5a7 7 0 0 1 7-7M2 12.5a10 10 0 0 1 10-10"/><circle cx="12" cy="12.5" r="1.5"/><path d="M19 12.5a7 7 0 0 0-7-7M22 12.5a10 10 0 0 0-10-10"/></svg>
+                Recent activity</div>
               <button class="card-link" onclick="setView('tasks')">View all</button>
             </div>
             <div class="feed" id="feed"></div>
           </div>
 
           <div class="card">
-            <div class="card-head"><div class="card-title">Quick Actions</div></div>
+            <div class="card-head"><div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+              Quick actions</div></div>
             <div class="qa">
+              <button class="qa-btn" onclick="openDispatchTaskModal()">
+                <svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg> Dispatch task</button>
+              <button class="qa-btn" onclick="openAddAgent()">
+                <svg viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M12 8V5M9 3h6M9 14h.01M15 14h.01"/></svg> Add agent</button>
               <button class="qa-btn" onclick="setView('chat')">
-                <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> Create Task</button>
-              <button class="qa-btn" onclick="setView('projects')">
-                <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> Workspaces</button>
+                <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Open chat</button>
               <button class="qa-btn" onclick="setView('memory')">
-                <svg viewBox="0 0 24 24"><path d="M9.5 3A3.5 3.5 0 0 0 6 6.5v.6A3 3 0 0 0 6 13v3a3 3 0 0 0 6 0V6.5A3.5 3.5 0 0 0 9.5 3z"/></svg> Team Memory</button>
+                <svg viewBox="0 0 24 24"><path d="M9.5 3A3.5 3.5 0 0 0 6 6.5v.6A3 3 0 0 0 6 13v3a3 3 0 0 0 6 0V6.5A3.5 3.5 0 0 0 9.5 3z"/><path d="M14.5 3A3.5 3.5 0 0 1 18 6.5v.6a3 3 0 0 1 0 5.9v3a3 3 0 0 1-6 0"/></svg> Team memory</button>
             </div>
           </div>
         </div>
@@ -386,39 +411,115 @@
       <!-- ===== command center (one agent) ===== -->
       <section class="view" id="view-agent">
         <div class="panel-card">
+          <button class="cc-back" onclick="setView('office')">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            back to floor
+          </button>
           <div class="cc-head">
             <div class="cc-id">
               <div class="cc-portrait" id="cc-portrait"></div>
-              <div>
-                <div class="cc-name" id="cc-name">—</div>
-                <div class="cc-sub"><span class="cc-status" id="cc-status">idle</span>
-                  <span id="cc-desc"></span></div>
+              <div class="cc-id-text">
+                <div class="cc-title-row">
+                  <div class="cc-name" id="cc-name">—</div>
+                  <span class="cc-status-pill" id="cc-status">idle</span>
+                  <span class="cc-role-badge" id="cc-role-badge">EMPLOYEE AGENT</span>
+                </div>
+                <div class="cc-sub"><span id="cc-desc"></span></div>
               </div>
             </div>
-            <div style="display:flex;gap:8px;align-items:center">
-              <button id="cc-meet-btn" class="ap-summon-btn" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color: var(--text);font-weight:600;" onclick="openMeetingPrompt()">🤝 Meet with...</button>
-              <button id="cc-summon-btn" class="ap-summon-btn" style="display:none">Call here</button>
+            <div class="cc-head-actions">
+              <button id="cc-meet-btn" class="cc-hbtn" onclick="openMeetingPrompt()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                Meet with…
+              </button>
+              <button id="cc-summon-btn" class="cc-hbtn" style="display:none">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                <span>Call here</span>
+              </button>
               <span id="cc-summon-err" style="font-size:11px;color:var(--red);display:none;max-width:160px;line-height:1.3"></span>
-              <button class="card-link" onclick="setView('office')">← Office Floor</button>
+              <button class="cc-hbtn" onclick="openCommandsDrawer()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>
+                Commands
+              </button>
             </div>
           </div>
-          <div id="cc-manage" style="display:flex;gap:6px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--border-soft);align-items:center;background:rgba(255,255,255,0.02);">
-            <button class="cc-tab" id="cc-assign-task-btn" style="background: var(--accent);color: var(--accent-fg);border:1px solid var(--accent);font-weight:700;" onclick="openDispatchTaskModal()">🚀 Assign Task</button>
-            <button class="cc-tab" id="cc-breakdown-btn" style="display:none;background:rgba(212,157,73,0.12);color:var(--st-blocked);border:1px solid rgba(212,157,73,0.25);font-weight:700;" onclick="openCommanderBreakdownModal()">👑 Delegate Epic</button>
-            <button class="cc-tab" id="cc-task-pause-btn" style="display:none;" onclick="controlActiveTask('pause')">⏸️ Pause Task</button>
-            <button class="cc-tab" id="cc-task-resume-btn" style="display:none;" onclick="controlActiveTask('resume')">▶️ Resume Task</button>
-            <button class="cc-tab" id="cc-task-halt-btn" style="display:none;color:var(--red);border-color:rgba(239,68,68,0.3);background:rgba(239,68,68,0.08);" onclick="controlActiveTask('halt')">⏹️ Halt Task</button>
-            <button class="cc-tab" onclick="openEditAgent()">Edit</button>
-            <button class="cc-tab" onclick="openNoteDialog()">Note</button>
-            <button class="cc-tab" id="cc-pause-btn" onclick="togglePause()">Pause</button>
-            <button class="cc-tab" onclick="retireAgent()">Retire</button>
-            <button class="cc-tab" style="color:var(--red);border-color:rgba(239,68,68,0.3);background:rgba(239,68,68,0.08);" onclick="deleteAgent()">Delete</button>
+
+          <!-- Two groups, because they act on two different things: the work
+               in flight, and the agent itself. Conflating them is what made
+               the old flat row of ten buttons unreadable. -->
+          <div id="cc-manage" class="cc-manage">
+            <div class="cc-actgroup" id="cc-actgroup-task">
+              <span class="cc-actgroup-label">TASK</span>
+              <button class="cc-abtn" id="cc-assign-task-btn" onclick="openDispatchTaskModal()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                Assign
+              </button>
+              <button class="cc-abtn" id="cc-breakdown-btn" style="display:none" onclick="openCommanderBreakdownModal()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9"/></svg>
+                Delegate Epic
+              </button>
+              <button class="cc-abtn" id="cc-task-pause-btn" style="display:none" onclick="controlActiveTask('pause')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                Pause Task
+              </button>
+              <button class="cc-abtn" id="cc-task-resume-btn" style="display:none" onclick="controlActiveTask('resume')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 3l14 9-14 9V3z"/></svg>
+                Resume Task
+              </button>
+              <button class="cc-abtn" id="cc-task-halt-btn" style="display:none" onclick="controlActiveTask('halt')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg>
+                Halt Task
+              </button>
+            </div>
+
+            <div class="cc-actgroup" id="cc-actgroup-agent">
+              <span class="cc-actgroup-label">AGENT</span>
+              <button class="cc-abtn" onclick="openSteerDialog()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5 5-2z"/></svg>
+                Steer
+              </button>
+              <button class="cc-abtn" onclick="openEditAgent()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+                Edit
+              </button>
+              <button class="cc-abtn" onclick="openNoteDialog()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                Note
+              </button>
+              <button class="cc-abtn" id="cc-pause-btn" onclick="togglePause()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 1l22 22"/><path d="M10 4v6M14 4v10"/></svg>
+                Pause
+              </button>
+              <button class="cc-abtn" onclick="retireAgent()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="4" width="20" height="5" rx="1"/><path d="M4 9v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9M10 13h4"/></svg>
+                Retire
+              </button>
+              <button class="cc-abtn is-danger" onclick="deleteAgent()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6"/></svg>
+                Delete
+              </button>
+            </div>
             <span id="cc-manage-err" style="font-size:11px;color:var(--red);display:none;margin-left:6px"></span>
           </div>
 
           <div class="cc-tabs" id="cc-tabs"></div>
           <div class="panel-body" id="cc-body"></div>
         </div>
+
+        <!-- Commands is a static reference catalogue, not live state — it is
+             a drawer rather than a tab for exactly that reason. -->
+        <div class="cc-drawer-scrim" id="cc-drawer-scrim" onclick="closeCommandsDrawer()"></div>
+        <aside class="cc-drawer" id="cc-drawer" aria-label="Commands">
+          <div class="cc-drawer-head">
+            <div class="cc-drawer-title">
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>
+              Commands
+            </div>
+            <button class="cc-drawer-close" onclick="closeCommandsDrawer()">×</button>
+          </div>
+          <div class="cc-drawer-sub">Static reference — the commands this agent can run. Not live state.</div>
+          <div class="cc-drawer-body" id="cc-drawer-body"></div>
+        </aside>
       </section>
 
       <!-- ===== agents ===== -->
