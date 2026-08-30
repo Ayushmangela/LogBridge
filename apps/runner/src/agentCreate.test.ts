@@ -114,7 +114,7 @@ describe("runtime agent creation", () => {
     expect(body.agentId).toMatch(/^agt_node_open_browser-made/);
 
     // The card arrived — the agent exists server-side and is idle.
-    await waitFor(() => !!server.db.prepare("SELECT 1 FROM agents WHERE id = ?").get(body.agentId), 5000, "agent card registered");
+    await waitFor(() => (server.db.prepare("SELECT status FROM agents WHERE id = ?").get(body.agentId) as any)?.status === "idle", 5000, "agent card registered");
     const row = server.db.prepare("SELECT * FROM agents WHERE id = ?").get(body.agentId) as any;
     expect(row.status).toBe("idle");
     expect(row.project_id).toBe("prj_test");

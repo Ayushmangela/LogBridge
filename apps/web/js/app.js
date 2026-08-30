@@ -817,6 +817,29 @@
     const HUD_TINT = { starting: 's-starting', working: 's-working', reviewing: 's-reviewing', collaborating: 's-reviewing',
                        needs_input: 's-needs', needs_human: 's-needs', blocked: 's-blocked',
                        idle: 's-idle', done: 's-done', completed: 's-done' };
+    let popupCloseTimer = null;
+    let popupAnchoredEl = null;
+
+    function openAgentPopupAtEl(a, anchorEl) {
+      selectedAgentId = a.id;
+      popupAnchoredEl = anchorEl;
+      updateAgentPopupContent(a);
+      const popup = document.getElementById('agent-popup');
+      const officeCard = document.querySelector('.office-card');
+      if (!popup || !officeCard || !anchorEl) return;
+      popup.classList.add('open');
+      const cardRect = officeCard.getBoundingClientRect();
+      const elRect = anchorEl.getBoundingClientRect();
+      const popupW = popup.offsetWidth || 244;
+      const popupH = popup.offsetHeight || 130;
+      let targetX = (elRect.left + elRect.width / 2) - cardRect.left;
+      let targetY = (elRect.bottom + 8) - cardRect.top;
+      let x = Math.max(10, Math.min(targetX - popupW / 2, cardRect.width - popupW - 10));
+      let y = Math.max(10, Math.min(targetY, cardRect.height - popupH - 10));
+      popup.style.left = x + 'px';
+      popup.style.top = y + 'px';
+    }
+
     function renderHudAgents(room) {
       const el = document.getElementById('hud-agents');
       if (!el) return;
@@ -836,16 +859,30 @@
         // covers the map and cannot be styled. The island's subtitle names
         // the agent instead, which is what "hover an agent" refers to.
         av.setAttribute('aria-label', `${a.name} — ${String(a.status || '').replace(/_/g, ' ')}`);
-        av.onclick = () => openCommandCenter(a.id);
-        // Hovering the strip names the agent in the island's subtitle, which
-        // is what "hover an agent" in the placeholder is telling you to do.
+        // Clicking opens the full right Inspector panel
+        av.onclick = (e) => {
+          e.stopPropagation();
+          openInspector(a);
+        };
+        // Hovering the strip names the agent in the island's subtitle and opens the hover card
         av.onmouseenter = () => {
           const z = document.getElementById('zone-stat');
           if (z) { z.dataset.prev ??= z.textContent; z.textContent = a.name + ' · ' + String(a.status || '').replace(/_/g, ' '); }
+          clearTimeout(popupCloseTimer);
+          const insp = document.getElementById('inspector');
+          if (!insp || !insp.classList.contains('open')) {
+            openAgentPopupAtEl(a, av);
+          }
         };
         av.onmouseleave = () => {
           const z = document.getElementById('zone-stat');
           if (z && z.dataset.prev !== undefined) { z.textContent = z.dataset.prev; delete z.dataset.prev; }
+          popupCloseTimer = setTimeout(() => {
+            const pop = document.getElementById('agent-popup');
+            if (!pop || !pop.matches(':hover')) {
+              closeAgentPopup();
+            }
+          }, 140);
         };
         el.appendChild(av);
       }
@@ -7958,6 +7995,21 @@
       sprite.anchor.set(0.5, 0.75);
       sprite.interactive = true;
       sprite.cursor = 'pointer';
+      sprite.on('pointerover', () => {
+        const insp = document.getElementById('inspector');
+        if (!insp || !insp.classList.contains('open')) {
+          clearTimeout(popupCloseTimer);
+          openAgentPopup(a);
+        }
+      });
+      sprite.on('pointerout', () => {
+        popupCloseTimer = setTimeout(() => {
+          const pop = document.getElementById('agent-popup');
+          if (!pop || !pop.matches(':hover')) {
+            closeAgentPopup();
+          }
+        }, 140);
+      });
       sprite.on('pointerdown', (e) => {
         // stopPropagation() only stops PIXI's OWN federated event — the DOM
         // pointerdown underneath keeps bubbling from the canvas to window,
@@ -7966,7 +8018,7 @@
         // handler "this click was on an agent".
         e.stopPropagation();
         if (e.nativeEvent) e.nativeEvent.__agentSpriteClick = true;
-        inspectAgent(a);
+        openInspector(a);
       });
       const tag = makeNameTag(a.name, 0x00e5ff);
       sprite.addChild(tag);
@@ -8149,6 +8201,21 @@
       try {
         const popup = document.getElementById('agent-popup');
         if (!popup || !popup.classList.contains('open') || !selectedAgentId) return;
+        if (popupAnchoredEl) {
+          const officeCard = document.querySelector('.office-card');
+          if (!officeCard || !popupAnchoredEl.isConnected) return;
+          const cardRect = officeCard.getBoundingClientRect();
+          const elRect = popupAnchoredEl.getBoundingClientRect();
+          const popupW = popup.offsetWidth || 244;
+          const popupH = popup.offsetHeight || 130;
+          let targetX = (elRect.left + elRect.width / 2) - cardRect.left;
+          let targetY = (elRect.bottom + 8) - cardRect.top;
+          let x = Math.max(10, Math.min(targetX - popupW / 2, cardRect.width - popupW - 10));
+          let y = Math.max(10, Math.min(targetY, cardRect.height - popupH - 10));
+          popup.style.left = x + 'px';
+          popup.style.top = y + 'px';
+          return;
+        }
         const entry = renderedAgents.get(selectedAgentId);
         if (!entry) { closeAgentPopup(); return; }
         // Use PIXI global position for correct screen mapping (accounts for zoom and camera)
@@ -8178,8 +8245,8 @@
         }
         // Head is ~36px above anchor (sprite height 48, anchor 0.75)
         const headY = cssY - 36 * zoomLevel;
-        const popupW = popup.offsetWidth || 176;
-        const popupH = popup.offsetHeight || 60;
+        const popupW = popup.offsetWidth || 244;
+        const popupH = popup.offsetHeight || 130;
         const pos = clampPopupPosition(cssX, headY, popupW, popupH, cardRect.width, cardRect.height);
         popup.style.left = pos.x + 'px';
         popup.style.top = pos.y + 'px';
@@ -8188,6 +8255,7 @@
 
     function openAgentPopup(a) {
       selectedAgentId = a.id;
+      popupAnchoredEl = null;
       updateAgentPopupContent(a);
       const popup = document.getElementById('agent-popup');
       if (popup) {
@@ -8195,13 +8263,12 @@
         // Position immediately so it doesn't flash at old coords
         updateAgentPopupPosition();
       }
-      // Keep inspector closed when the head card is open — they are separate
-      // glimpses, not stacked panels.
-      document.getElementById('inspector')?.classList.remove('open');
     }
 
     function closeAgentPopup() {
       selectedAgentId = null;
+      popupAnchoredEl = null;
+      clearTimeout(popupCloseTimer);
       const popup = document.getElementById('agent-popup');
       if (popup) popup.classList.remove('open');
     }
@@ -8224,12 +8291,10 @@
           const msg = data.error || `summon failed (${res.status})`;
           if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
           if (ccErr) { ccErr.textContent = msg; ccErr.style.display = 'block'; }
-          // Keep popup open so the error is visible
           return;
         }
         if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
         if (ccErr) { ccErr.textContent = ''; ccErr.style.display = 'none'; }
-        // View will arrive via broadcast; no local tween
       } catch (e) {
         const msg = e.message || 'could not reach server';
         if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
@@ -8264,12 +8329,19 @@
     window.doSummon = doSummon;
     window.doDismissSummon = doDismissSummon;
 
+    function openInspector(a) {
+      closeAgentPopup();
+      const insp = document.getElementById('inspector');
+      if (insp) {
+        insp.classList.add('open');
+        updateInspector(a);
+      }
+    }
+    window.openInspector = openInspector;
+
     // ---------------- Inspector: shows the real agent record ----------------
     function inspectAgent(a) {
-      // Phase 3: the head card is the primary glance; keep the old inspector
-      // available but not as the click target (spec: this is a third thing).
-      // For now clicking an agent opens the head card, not the large panel.
-      openAgentPopup(a);
+      openInspector(a);
     }
 
     function updateInspector(a) {
@@ -8622,20 +8694,24 @@
         adjustZoom(e.deltaY < 0 ? 0.08 : -0.08);
       }, { passive: false });
 
-      // Clicking anywhere outside an agent closes the head card.
+      // Clicking anywhere outside an agent closes the head card and inspector.
       window.addEventListener('pointerdown', (e) => {
-        // A click ON an agent reaches here too: PIXI's stopPropagation does
-        // not stop the DOM event, so without this the card opened and closed
-        // on the same click and clicking an agent appeared to do nothing.
         if (e.__agentSpriteClick) return;
-        if (!selectedAgentId) return;
+        const hud = document.getElementById('hud-agents');
+        if (hud && hud.contains(e.target)) return;
         const popup = document.getElementById('agent-popup');
         if (popup && popup.contains(e.target)) return;
-        // Inspector's close button is inside #inspector, not the popup
         const insp = document.getElementById('inspector');
         if (insp && insp.contains(e.target)) return;
         closeAgentPopup();
+        closeInspector();
       });
+
+      const popup = document.getElementById('agent-popup');
+      if (popup) {
+        popup.addEventListener('mouseenter', () => clearTimeout(popupCloseTimer));
+        popup.addEventListener('mouseleave', () => closeAgentPopup());
+      }
 
       const chatInput = document.getElementById('chat-input');
       if (chatInput) {

@@ -155,17 +155,19 @@ test.describe("surfaces that need a real agent", () => {
       if (!el) return null;
       const cs = getComputedStyle(el);
       const scale = parseFloat(cs.backgroundSize.split(" ").pop()!) / 48;
+      const frameWidth = 32 * scale;
+      const posX = Math.abs(parseFloat(cs.backgroundPosition));
       return {
         rendering: cs.imageRendering,
-        frameWidth: 32 * scale,
+        frameWidth,
         boxWidth: parseFloat(cs.width),
-        anchoredAtOrigin: cs.backgroundPosition.startsWith("0px"),
+        anchoredAtFrame: Math.abs(posX % frameWidth) < 0.5,
       };
     });
 
     expect(crop).not.toBeNull();
     expect(crop!.rendering).toBe("pixelated");
-    expect(crop!.anchoredAtOrigin).toBe(true);
+    expect(crop!.anchoredAtFrame).toBe(true);
     // Exactly one frame fills the box, or you are looking at two characters.
     expect(Math.abs(crop!.frameWidth - crop!.boxWidth)).toBeLessThan(0.5);
   });

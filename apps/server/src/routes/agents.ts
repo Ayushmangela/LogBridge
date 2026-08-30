@@ -429,10 +429,12 @@ export function registerAgentRoutes(app: FastifyInstance, deps: RouteDeps) {
         });
       }
 
-      const ptyName = 'pty-' + String(b.name).toLowerCase().replace(/[^a-z0-9]/g, '') + '-' + result.agentId.slice(-8);
-      try {
-        spawnOrGetPtySession(db, ptyName, result.agentId, 100, 30, hive);
-      } catch {}
+      if (b.machineId === "local" || !nodeSockets.has(b.machineId)) {
+        const ptyName = 'pty-' + String(b.name).toLowerCase().replace(/[^a-z0-9]/g, '') + '-' + result.agentId.slice(-8);
+        try {
+          spawnOrGetPtySession(db, ptyName, result.agentId, 100, 30, hive);
+        } catch {}
+      }
     }
     return reply.code(result.ok ? 200 : 409).send(result);
   });
