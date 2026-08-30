@@ -6,7 +6,7 @@
   <title>LogBridge Office — Virtual Workspace</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,600&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/vendor/xterm/xterm.css">
   <script src="/assets/vendor/xterm/xterm.js"></script>
   <script src="/assets/vendor/xterm/addon-fit.js"></script>
@@ -15,7 +15,7 @@
 <body>
 
 <!-- ================= 1. Sign In / Sign Up Screen ================= -->
-<div id="view-auth" style="display:none;position:fixed;inset:0;background:#08090b;z-index:9999;align-items:center;justify-content:center;font-family:inherit;">
+<div id="view-auth" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:9999;align-items:center;justify-content:center;font-family:inherit;">
   <!-- Ambient Dot Grid -->
   <div style="position:absolute;inset:0;background-image:radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px);background-size:24px 24px;opacity:0.6;pointer-events:none;"></div>
   
@@ -23,42 +23,42 @@
   <div style="position:relative;width:400px;max-width:92vw;padding:4px;background:rgba(255, 255, 255, 0.03);border:1px solid rgba(255, 255, 255, 0.1);border-radius:18px;box-shadow:0 30px 80px -10px rgba(0,0,0,0.9), 0 0 1px 1px rgba(255,255,255,0.06);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);">
     
     <!-- Inner Concentric Core Card -->
-    <div style="background:#0e1015;border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:28px 26px;display:flex;flex-direction:column;gap:18px;">
+    <div style="background:var(--surface);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:28px 26px;display:flex;flex-direction:column;gap:18px;">
       
       <!-- Branding Header -->
       <div style="text-align:center;display:flex;flex-direction:column;align-items:center;">
-        <div style="width:42px;height:42px;border-radius:10px;background:#161920;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#f4f4f6;box-shadow:0 4px 16px rgba(0,0,0,0.5);margin-bottom:12px;border:1px solid rgba(255,255,255,0.15);">LB</div>
-        <div style="font-size:18px;font-weight:700;color:#f4f4f6;letter-spacing:-.3px;">LogBridge Workplace</div>
-        <div style="font-size:12px;color:#9ea3ae;margin-top:3px;">Autonomous Multi-Agent AI Office</div>
+        <div style="width:42px;height:42px;border-radius:10px;background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color: var(--text);box-shadow:0 4px 16px rgba(0,0,0,0.5);margin-bottom:12px;border:1px solid rgba(93,179,192,0.25);">LB</div>
+        <div style="font-size:18px;font-weight:700;color: var(--text);letter-spacing:-.3px;">LogBridge Workplace</div>
+        <div style="font-size:12px;color:var(--text-dim);margin-top:3px;">Autonomous Multi-Agent AI Office</div>
       </div>
 
       <!-- Auth Tabs -->
       <div style="display:flex;background:rgba(255,255,255,0.04);padding:3px;border-radius:9px;gap:3px;border:1px solid rgba(255,255,255,0.06);">
-        <button id="auth-tab-login" onclick="switchAuthMode('login')" style="flex:1;padding:7px 12px;border:1px solid #ffffff;border-radius:7px;font:inherit;font-size:12.5px;font-weight:650;cursor:pointer;background:#f4f4f6;color:#08090b;box-shadow:0 2px 8px rgba(0,0,0,0.3);transition:all .16s var(--ease-spring);">Sign In</button>
-        <button id="auth-tab-signup" onclick="switchAuthMode('signup')" style="flex:1;padding:7px 12px;border:1px solid transparent;border-radius:7px;font:inherit;font-size:12.5px;font-weight:550;cursor:pointer;background:transparent;color:#9ea3ae;transition:all .16s var(--ease-spring);">Create Account</button>
+        <button id="auth-tab-login" onclick="switchAuthMode('login')" style="flex:1;padding:7px 12px;border:1px solid var(--accent);border-radius:7px;font:inherit;font-size:12.5px;font-weight:650;cursor:pointer;background: var(--accent);color: var(--accent-fg);box-shadow:0 2px 8px rgba(0,0,0,0.3);transition:all .16s var(--ease-spring);">Sign In</button>
+        <button id="auth-tab-signup" onclick="switchAuthMode('signup')" style="flex:1;padding:7px 12px;border:1px solid transparent;border-radius:7px;font:inherit;font-size:12.5px;font-weight:550;cursor:pointer;background:transparent;color:var(--text-dim);transition:all .16s var(--ease-spring);">Create Account</button>
       </div>
 
       <!-- Error Alert -->
-      <div id="auth-error" style="display:none;background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.25);color:#fda4af;padding:9px 12px;border-radius:8px;font-size:12px;"></div>
+      <div id="auth-error" style="display:none;background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.25);color:var(--st-fail);padding:9px 12px;border-radius:8px;font-size:12px;"></div>
 
       <!-- Form Fields -->
       <form onsubmit="handleAuthSubmit(event)" style="display:flex;flex-direction:column;gap:12px;">
         <div id="auth-name-group" style="display:none;flex-direction:column;gap:5px;">
-          <label style="font-size:11px;font-weight:650;color:#9ea3ae;letter-spacing:.4px;">FULL NAME</label>
-          <input id="auth-name" type="text" placeholder="e.g. Ayush Mangela" style="padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:#14171d;color:#fff;font:inherit;font-size:12.5px;outline:none;" />
+          <label style="font-size:11px;font-weight:650;color:var(--text-dim);letter-spacing:.4px;">FULL NAME</label>
+          <input id="auth-name" type="text" placeholder="e.g. Ayush Mangela" style="padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:var(--surface-2);color: var(--text);font:inherit;font-size:12.5px;outline:none;" />
         </div>
 
         <div style="display:flex;flex-direction:column;gap:5px;">
-          <label style="font-size:11px;font-weight:650;color:#9ea3ae;letter-spacing:.4px;">EMAIL OR USERNAME</label>
-          <input id="auth-email" type="text" placeholder="ayush@example.com" style="padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:#14171d;color:#fff;font:inherit;font-size:12.5px;outline:none;" required />
+          <label style="font-size:11px;font-weight:650;color:var(--text-dim);letter-spacing:.4px;">EMAIL OR USERNAME</label>
+          <input id="auth-email" type="text" placeholder="ayush@example.com" style="padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:var(--surface-2);color: var(--text);font:inherit;font-size:12.5px;outline:none;" required />
         </div>
 
         <div style="display:flex;flex-direction:column;gap:5px;">
-          <label style="font-size:11px;font-weight:650;color:#9ea3ae;letter-spacing:.4px;">PASSWORD</label>
-          <input id="auth-password" type="password" placeholder="••••••••" style="padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:#14171d;color:#fff;font:inherit;font-size:12.5px;outline:none;" required minlength="6" />
+          <label style="font-size:11px;font-weight:650;color:var(--text-dim);letter-spacing:.4px;">PASSWORD</label>
+          <input id="auth-password" type="password" placeholder="••••••••" style="padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:var(--surface-2);color: var(--text);font:inherit;font-size:12.5px;outline:none;" required minlength="6" />
         </div>
 
-        <button type="submit" id="auth-submit-btn" class="primary" style="margin-top:4px;padding:10px;border-radius:8px;border:1px solid #ffffff;background:#f4f4f6;color:#08090b;font:inherit;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;">
+        <button type="submit" id="auth-submit-btn" class="primary" style="margin-top:4px;padding:10px;border-radius:8px;border:1px solid var(--accent);background: var(--accent);color: var(--accent-fg);font:inherit;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;">
           <span>Sign In</span>
           <span class="btn-icon-disc">→</span>
         </button>
@@ -66,7 +66,7 @@
 
       <!-- Quick Demo Access -->
       <div style="border-top:1px solid rgba(255,255,255,0.06);padding-top:12px;text-align:center;">
-        <button onclick="quickDemoLogin()" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);color:#9ea3ae;padding:8px 12px;border-radius:8px;font:inherit;font-size:11.5px;font-weight:550;cursor:pointer;width:100%;transition:all .16s var(--ease-spring);">
+        <button onclick="quickDemoLogin()" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);color:var(--text-dim);padding:8px 12px;border-radius:8px;font:inherit;font-size:11.5px;font-weight:550;cursor:pointer;width:100%;transition:all .16s var(--ease-spring);">
           ⚡ One-Click Demo Access (Ayush)
         </button>
       </div>
@@ -219,7 +219,7 @@
           </div>
 
           <!-- Glassmorphic Layer Legend -->
-          <div id="office-legend" style="position:absolute;bottom:14px;left:14px;z-index:120;display:flex;flex-direction:column;gap:6px;background:rgba(15,23,42,0.88);border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-radius:11px;padding:9px 13px;font-size:11px;color:#94a3b8;box-shadow:0 8px 24px rgba(0,0,0,0.5);">
+          <div id="office-legend" style="position:absolute;bottom:14px;left:14px;z-index:120;display:flex;flex-direction:column;gap:6px;background:rgba(15,23,42,0.88);border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-radius:11px;padding:9px 13px;font-size:11px;color:var(--text-dim);box-shadow:0 8px 24px rgba(0,0,0,0.5);">
             <div style="display:flex;gap:10px;flex-wrap:wrap;max-width:340px;" id="legend-chips"></div>
             <div style="display:flex;gap:10px;border-top:1px solid rgba(255,255,255,0.08);padding-top:7px;">
               <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" id="flt-agents" checked> Agents</label>
@@ -234,16 +234,16 @@
               <div style="display:flex;align-items:center;gap:8px;">
                 <span id="room-comms-icon" style="font-size:18px;">🔒</span>
                 <div>
-                  <div id="room-comms-title" style="font-size:13px;font-weight:700;color:#fff;display:flex;align-items:center;gap:6px;">
+                  <div id="room-comms-title" style="font-size:13px;font-weight:700;color: var(--text);display:flex;align-items:center;gap:6px;">
                     Boss Cabin (Private Channel)
                   </div>
-                  <div id="room-comms-occupants" style="font-size:11.5px;color:#94a3b8;">
+                  <div id="room-comms-occupants" style="font-size:11.5px;color:var(--text-dim);">
                     🟢 You are in this room
                   </div>
                 </div>
               </div>
               <div style="display:flex;align-items:center;gap:8px;">
-                <button id="btn-room-mic" onclick="toggleRoomMic()" style="display:flex;align-items:center;gap:6px;background:rgba(239,68,68,0.18);border:1px solid rgba(239,68,68,0.4);color:#fca5a5;padding:5px 11px;border-radius:7px;font-size:11.5px;font-weight:600;cursor:pointer;transition:all .15s ease;">
+                <button id="btn-room-mic" onclick="toggleRoomMic()" style="display:flex;align-items:center;gap:6px;background:rgba(239,68,68,0.18);border:1px solid rgba(239,68,68,0.4);color:var(--st-fail);padding:5px 11px;border-radius:7px;font-size:11.5px;font-weight:600;cursor:pointer;transition:all .15s ease;">
                   <span id="mic-status-icon">🔇</span> <span id="mic-status-label">Mic: Muted</span> <span style="font-size:9.5px;opacity:0.75;background:rgba(0,0,0,0.25);padding:1px 4px;border-radius:3px;">M</span>
                 </button>
                 <div id="mic-level-meter" style="display:none;align-items:flex-end;gap:2px;height:14px;padding:0 2px;">
@@ -251,19 +251,19 @@
                   <div class="mic-bar" style="width:3px;height:8px;background:#4ade80;border-radius:1px;transition:height 0.05s;"></div>
                   <div class="mic-bar" style="width:3px;height:6px;background:#4ade80;border-radius:1px;transition:height 0.05s;"></div>
                 </div>
-                <button onclick="leavePrivateRoom()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#cbd5e1;padding:5px 11px;border-radius:7px;font-size:11.5px;font-weight:550;cursor:pointer;transition:all .15s;">
+                <button onclick="leavePrivateRoom()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(93,179,192,0.25);color:var(--text-dim);padding:5px 11px;border-radius:7px;font-size:11.5px;font-weight:550;cursor:pointer;transition:all .15s;">
                   Step Out
                 </button>
               </div>
             </div>
 
             <!-- In-room message history -->
-            <div id="room-comms-messages" style="display:flex;flex-direction:column;gap:4px;max-height:85px;overflow-y:auto;font-size:12px;color:#e2e8f0;padding:2px 0;"></div>
+            <div id="room-comms-messages" style="display:flex;flex-direction:column;gap:4px;max-height:85px;overflow-y:auto;font-size:12px;color:var(--text);padding:2px 0;"></div>
 
             <!-- In-room talk input -->
             <form onsubmit="sendRoomMessage(event)" style="display:flex;gap:7px;margin-top:2px;">
-              <input id="room-comms-input" type="text" placeholder="Say something to people in this room... (Press Enter)" style="flex:1;padding:7px 12px;border-radius:7px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#fff;font:inherit;font-size:12px;outline:none;" />
-              <button type="submit" style="background:#f4f4f6;color:#08090b;border:1px solid #ffffff;border-radius:7px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.3);">
+              <input id="room-comms-input" type="text" placeholder="Say something to people in this room... (Press Enter)" style="flex:1;padding:7px 12px;border-radius:7px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color: var(--text);font:inherit;font-size:12px;outline:none;" />
+              <button type="submit" style="background: var(--accent);color: var(--accent-fg);border:1px solid var(--accent);border-radius:7px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.3);">
                 Talk 💬
               </button>
             </form>
@@ -278,7 +278,7 @@
             <div style="background:var(--surface-2);border:1px solid var(--border-soft);padding:11px;border-radius:9px;margin-bottom:10px;">
               <div class="meta-k">Active task</div>
               <div style="font-weight:600;font-size:13px;margin-top:3px;" id="insp-task-title">—</div>
-              <div style="display:flex;justify-content:space-between;margin-top:7px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-faint);">
+              <div style="display:flex;justify-content:space-between;margin-top:7px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-faint);">
                 <span id="insp-elapsed"></span><span id="insp-cost"></span></div>
               <div id="insp-task-controls" style="display:none;gap:6px;margin-top:9px;padding-top:8px;border-top:1px solid var(--border-soft);">
                 <button id="insp-pause-btn" class="cc-tab" style="flex:1;padding:5px;font-size:11px;" onclick="controlActiveTask('pause')">⏸️ Pause</button>
@@ -396,15 +396,15 @@
               </div>
             </div>
             <div style="display:flex;gap:8px;align-items:center">
-              <button id="cc-meet-btn" class="ap-summon-btn" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#f4f4f6;font-weight:600;" onclick="openMeetingPrompt()">🤝 Meet with...</button>
+              <button id="cc-meet-btn" class="ap-summon-btn" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color: var(--text);font-weight:600;" onclick="openMeetingPrompt()">🤝 Meet with...</button>
               <button id="cc-summon-btn" class="ap-summon-btn" style="display:none">Call here</button>
               <span id="cc-summon-err" style="font-size:11px;color:var(--red);display:none;max-width:160px;line-height:1.3"></span>
               <button class="card-link" onclick="setView('office')">← Office Floor</button>
             </div>
           </div>
           <div id="cc-manage" style="display:flex;gap:6px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--border-soft);align-items:center;background:rgba(255,255,255,0.02);">
-            <button class="cc-tab" id="cc-assign-task-btn" style="background:#f4f4f6;color:#08090b;border:1px solid #ffffff;font-weight:700;" onclick="openDispatchTaskModal()">🚀 Assign Task</button>
-            <button class="cc-tab" id="cc-breakdown-btn" style="display:none;background:rgba(245,158,11,0.12);color:#fbbf24;border:1px solid rgba(245,158,11,0.25);font-weight:700;" onclick="openCommanderBreakdownModal()">👑 Delegate Epic</button>
+            <button class="cc-tab" id="cc-assign-task-btn" style="background: var(--accent);color: var(--accent-fg);border:1px solid var(--accent);font-weight:700;" onclick="openDispatchTaskModal()">🚀 Assign Task</button>
+            <button class="cc-tab" id="cc-breakdown-btn" style="display:none;background:rgba(212,157,73,0.12);color:var(--st-blocked);border:1px solid rgba(212,157,73,0.25);font-weight:700;" onclick="openCommanderBreakdownModal()">👑 Delegate Epic</button>
             <button class="cc-tab" id="cc-task-pause-btn" style="display:none;" onclick="controlActiveTask('pause')">⏸️ Pause Task</button>
             <button class="cc-tab" id="cc-task-resume-btn" style="display:none;" onclick="controlActiveTask('resume')">▶️ Resume Task</button>
             <button class="cc-tab" id="cc-task-halt-btn" style="display:none;color:var(--red);border-color:rgba(239,68,68,0.3);background:rgba(239,68,68,0.08);" onclick="controlActiveTask('halt')">⏹️ Halt Task</button>
@@ -432,10 +432,10 @@
             <p style="font-size:13px; color:var(--text-dim); line-height:1.55; max-width:620px; margin:0 0 12px;">
               Creates a real agent on one of your machines — it appears on the floor as soon as that
               machine accepts. Only machines whose owner started them with
-              <code style="background:#f1f3f8;padding:1px 5px;border-radius:4px;">--allow-agent-creation</code>
+              <code style="background:var(--surface-3);padding:1px 5px;border-radius:4px;">--allow-agent-creation</code>
               will agree.
             </p>
-            <button class="btn-primary" id="open-add-agent" style="padding:9px 18px;border-radius:8px;border:1px solid var(--accent);cursor:pointer;font-family:inherit;font-weight:700;font-size:13px;background:var(--accent);color:#fff;">
+            <button class="btn-primary" id="open-add-agent" style="padding:9px 18px;border-radius:8px;border:1px solid var(--accent);cursor:pointer;font-family:inherit;font-weight:700;font-size:13px;background:var(--accent);color: var(--text);">
               + Add Agent
             </button>
           </div>
@@ -688,7 +688,7 @@
         <input id="ea-caps" placeholder="implement_feature, fix_test">
       </div>
     </div>
-    <div id="edit-agent-error" style="display:none;margin-top:12px;padding:10px 12px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:var(--red);font-size:12.5px"></div>
+    <div id="edit-agent-error" style="display:none;margin-top:12px;padding:10px 12px;border-radius:8px;background:rgba(221,85,75,0.10);border:1px solid rgba(221,85,75,0.30);color:var(--red);font-size:12.5px"></div>
     <div class="dialog-actions">
       <button class="btn-ghost" id="ea-cancel">Cancel</button>
       <button class="btn-primary" id="ea-save">Save</button>
@@ -704,7 +704,7 @@
       <label for="na-note">Note</label>
       <input id="na-note" maxlength="120" placeholder="flaky on staging">
     </div>
-    <div id="note-agent-error" style="display:none;margin-top:12px;padding:10px 12px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:var(--red);font-size:12.5px"></div>
+    <div id="note-agent-error" style="display:none;margin-top:12px;padding:10px 12px;border-radius:8px;background:rgba(221,85,75,0.10);border:1px solid rgba(221,85,75,0.30);color:var(--red);font-size:12.5px"></div>
     <div class="dialog-actions">
       <button class="btn-ghost" id="na-cancel">Cancel</button>
       <button class="btn-primary" id="na-save">Save note</button>
@@ -756,7 +756,7 @@
           </select>
         </div>
       </div>
-      <div id="cp-err" style="color:var(--red);font-size:12px;display:none;padding:8px 12px;border-radius:6px;background:#fef2f2;border:1px solid #fecaca;"></div>
+      <div id="cp-err" style="color:var(--red);font-size:12px;display:none;padding:8px 12px;border-radius:6px;background:rgba(221,85,75,0.10);border:1px solid rgba(221,85,75,0.30);"></div>
       <div class="dialog-actions" style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px;">
         <button class="btn-ghost" onclick="closeCreateProjectModal()">Cancel</button>
         <button class="btn-primary" id="cp-submit-btn" onclick="submitCreateProject()">Launch Project →</button>
@@ -793,7 +793,7 @@
       <button type="button" class="btn-ghost" id="fp-up-btn" onclick="navigateFolderPickerUp()" style="padding:8px 12px;font-size:12px;font-weight:600;border:1px solid var(--border-soft);background:var(--surface-2);border-radius:8px;display:flex;align-items:center;gap:4px;color:var(--text);" title="Go Up One Level">
         <span>⬆</span> Up
       </button>
-      <input id="fp-current-path" type="text" style="flex:1;box-sizing:border-box;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font:inherit;font-family:'JetBrains Mono',monospace;font-size:12px;background:var(--surface-2);color:var(--text);" onkeydown="if(event.key==='Enter') loadFolderPickerDirectory(this.value)">
+      <input id="fp-current-path" type="text" style="flex:1;box-sizing:border-box;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font:inherit;font-family:'IBM Plex Mono',monospace;font-size:12px;background:var(--surface-2);color:var(--text);" onkeydown="if(event.key==='Enter') loadFolderPickerDirectory(this.value)">
       <button type="button" class="btn-ghost" onclick="loadFolderPickerDirectory(document.getElementById('fp-current-path').value)" style="padding:8px 12px;font-size:12px;border-radius:8px;border:1px solid var(--border-soft);color:var(--text);">Go</button>
     </div>
 
@@ -817,7 +817,7 @@
       </div>
       <div style="display:flex;gap:8px;">
         <button type="button" class="btn-ghost" onclick="closeFolderPickerModal()">Cancel</button>
-        <button type="button" class="btn-primary" onclick="applySelectedFolder()" style="padding:8px 16px;font-size:12.5px;font-weight:650;background:var(--accent);color:#fff;border-color:var(--accent);">
+        <button type="button" class="btn-primary" onclick="applySelectedFolder()" style="padding:8px 16px;font-size:12.5px;font-weight:650;background:var(--accent);color: var(--text);border-color:var(--accent);">
           Select This Folder ✓
         </button>
       </div>
@@ -857,7 +857,7 @@
       <div id="dt-err" style="color:var(--red);font-size:12px;display:none;padding:8px 12px;border-radius:6px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);"></div>
       <div class="dialog-actions" style="display:flex;justify-content:flex-end;gap:10px;margin-top:10px;">
         <button class="btn-ghost" onclick="closeDispatchTaskModal()">Cancel</button>
-        <button class="btn-primary" id="dt-submit-btn" onclick="submitDispatchTask()" style="background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700;">🚀 Launch Task</button>
+        <button class="btn-primary" id="dt-submit-btn" onclick="submitDispatchTask()" style="background:var(--accent);color: var(--text);border-color:var(--accent);font-weight:700;">🚀 Launch Task</button>
       </div>
     </div>
   </div>
@@ -884,7 +884,7 @@
       <div id="cbd-err" style="color:var(--red);font-size:12px;display:none;padding:8px 12px;border-radius:6px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);"></div>
       <div class="dialog-actions" style="display:flex;justify-content:flex-end;gap:10px;margin-top:10px;">
         <button class="btn-ghost" onclick="closeCommanderBreakdownModal()">Cancel</button>
-        <button class="btn-primary" id="cbd-submit-btn" onclick="submitCommanderBreakdown()" style="background:#f4f4f6;color:#08090b;border:1px solid #ffffff;font-weight:700;">👑 Decompose & Delegate →</button>
+        <button class="btn-primary" id="cbd-submit-btn" onclick="submitCommanderBreakdown()" style="background: var(--accent);color: var(--accent-fg);border:1px solid var(--accent);font-weight:700;">👑 Decompose & Delegate →</button>
       </div>
     </div>
   </div>

@@ -338,6 +338,7 @@ export function buildView(db: Db, positions: Positions, meId: string, hive?: Hiv
       name: p.name ?? p.gh_repo ?? p.id,
       callLink: p.call_link ?? null,
       layout: p.layout ?? "office",
+      ghRepo: p.gh_repo ?? null,
       humans: roomHumans,
       agents: views,
       machines: roomMachines,

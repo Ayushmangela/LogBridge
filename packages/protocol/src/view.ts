@@ -325,6 +325,9 @@ export const Room = z.object({
   name: z.string(),
   callLink: z.string().nullable(),
   layout: z.string(),
+  // ★ 1.26 "owner/repo" the mirror polls, so the browser can link a PullView
+  // straight to github.com without reconstructing it from the room name.
+  ghRepo: z.string().nullable(),
   humans: z.array(HumanView),
   agents: z.array(AgentView),
   machines: z.array(MachineView),

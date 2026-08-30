@@ -527,12 +527,12 @@
       const tabLog = document.getElementById('auth-tab-login');
       const tabSign = document.getElementById('auth-tab-signup');
       if (tabLog) {
-        tabLog.style.background = isLogin ? '#6366f1' : 'transparent';
-        tabLog.style.color = isLogin ? '#fff' : '#94a3b8';
+        tabLog.style.background = isLogin ? 'var(--accent)' : 'transparent';
+        tabLog.style.color = isLogin ? '#fff' : 'var(--text-dim)';
       }
       if (tabSign) {
-        tabSign.style.background = !isLogin ? '#6366f1' : 'transparent';
-        tabSign.style.color = !isLogin ? '#fff' : '#94a3b8';
+        tabSign.style.background = !isLogin ? 'var(--accent)' : 'transparent';
+        tabSign.style.color = !isLogin ? '#fff' : 'var(--text-dim)';
       }
       const nameGrp = document.getElementById('auth-name-group');
       if (nameGrp) nameGrp.style.display = isLogin ? 'none' : 'flex';
@@ -756,7 +756,7 @@
         const dot = document.createElement('span');
         dot.style.cssText = 'width:8px;height:8px;border-radius:50%;background:' +
           ({ idle: '#b3b8c8', working: '#22c55e', reviewing: '#5b5ef0', collaborating: '#8b5cf6',
-             blocked: '#f59e0b', needs_human: '#ef4444', done: '#3b82f6' }[zone] ?? '#b3b8c8');
+             blocked: 'var(--st-blocked)', needs_human: 'var(--st-fail)', done: '#3b82f6' }[zone] ?? '#b3b8c8');
         const txt = document.createElement('span');
         txt.textContent = label.toLowerCase();
         chip.append(dot, txt);
@@ -1108,8 +1108,15 @@
       for (const [folder, agents] of groups) {
         const h = document.createElement('div');
         h.className = 'roster-folder';
-        h.textContent = folderLabel(folder);
         h.title = folder;                      // the full path on hover
+        const hName = document.createElement('span');
+        hName.className = 'rf-name';
+        hName.textContent = folderLabel(folder);
+        // How many agents are touching this repo — the roster's actual question.
+        const hCount = document.createElement('span');
+        hCount.className = 'rf-count';
+        hCount.textContent = agents.length;
+        h.append(hName, hCount);
         el.appendChild(h);
         agents.forEach(addRow);
       }
@@ -1181,9 +1188,9 @@
         card.style.cssText = `
           padding: 5px;
           background: rgba(255, 255, 255, 0.03);
-          border: 1px solid ${isActive ? 'rgba(99,102,241,0.45)' : 'rgba(255,255,255,0.08)'};
+          border: 1px solid ${isActive ? 'rgba(93,179,192,0.45)' : 'rgba(255,255,255,0.08)'};
           border-radius: 18px;
-          box-shadow: ${isActive ? '0 12px 36px -4px rgba(99,102,241,0.25), 0 0 1px 1px rgba(99,102,241,0.4)' : 'var(--shadow)'};
+          box-shadow: ${isActive ? '0 12px 36px -4px rgba(93,179,192,0.25), 0 0 1px 1px rgba(93,179,192,0.4)' : 'var(--shadow)'};
           transition: all 0.25s var(--ease-spring);
         `;
 
@@ -1208,10 +1215,10 @@
               </div>
               <div>
                 <div style="font-size:16px;font-weight:700;color:var(--text);">${escapeHtml(p.name)}</div>
-                <div style="font-size:12px;color:var(--text-faint);font-family:'JetBrains Mono',monospace;margin-top:2px;">${escapeHtml(p.gh_repo || p.id)}</div>
+                <div style="font-size:12px;color:var(--text-faint);font-family:'IBM Plex Mono',monospace;margin-top:2px;">${escapeHtml(p.gh_repo || p.id)}</div>
               </div>
             </div>
-            ${isActive ? '<span style="background:rgba(99,102,241,0.15);color:#818cf8;font-size:10.5px;font-weight:700;padding:4px 9px;border-radius:12px;border:1px solid rgba(99,102,241,0.4);display:inline-flex;align-items:center;gap:5px;"><span style="width:6px;height:6px;border-radius:50%;background:#818cf8;box-shadow:0 0 8px #818cf8;"></span> ACTIVE</span>' : ''}
+            ${isActive ? '<span style="background:rgba(93,179,192,0.15);color:var(--accent);font-size:10.5px;font-weight:700;padding:4px 9px;border-radius:12px;border:1px solid rgba(93,179,192,0.4);display:inline-flex;align-items:center;gap:5px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);"></span> ACTIVE</span>' : ''}
           </div>
 
           <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:12px;">
@@ -1222,7 +1229,7 @@
               📋 <b>${p.taskCount}</b> Tasks
             </div>
             ${p.commanderName ? `
-              <div style="background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.25);color:#fbbf24;padding:5px 11px;border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:5px;">
+              <div style="background:rgba(212,157,73,0.12);border:1px solid rgba(212,157,73,0.25);color:var(--st-blocked);padding:5px 11px;border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:5px;">
                 👑 ${escapeHtml(p.commanderName)}
               </div>
             ` : ''}
@@ -1234,15 +1241,15 @@
               <span class="btn-icon-disc">→</span>
             </button>
             ${p.id !== 'prj_demo' ? `
-              <button class="cc-tab" style="color:var(--red);border-color:rgba(239,68,68,0.25);background:rgba(239,68,68,0.06);padding:8px 12px;border-radius:9px;" onclick="deleteProjectPrompt('${p.id}', '${escapeHtml(p.name)}')">
+              <button class="cc-tab" style="color:var(--red);border-color:rgba(221,85,75,0.25);background:rgba(221,85,75,0.06);padding:8px 12px;border-radius:9px;" onclick="deleteProjectPrompt('${p.id}', '${escapeHtml(p.name)}')">
                 Delete
               </button>
             ` : ''}
           </div>
         `;
         card.appendChild(innerCard);
-        card.onmouseenter = () => { card.style.transform = 'translateY(-3px)'; card.style.borderColor = 'rgba(99,102,241,0.5)'; card.style.boxShadow = '0 16px 40px -6px rgba(0,0,0,0.7), 0 0 20px rgba(99,102,241,0.2)'; };
-        card.onmouseleave = () => { card.style.transform = 'none'; card.style.borderColor = isActive ? 'rgba(99,102,241,0.45)' : 'rgba(255,255,255,0.08)'; card.style.boxShadow = isActive ? '0 12px 36px -4px rgba(99,102,241,0.25), 0 0 1px 1px rgba(99,102,241,0.4)' : 'var(--shadow)'; };
+        card.onmouseenter = () => { card.style.transform = 'translateY(-3px)'; card.style.borderColor = 'rgba(93,179,192,0.5)'; card.style.boxShadow = '0 16px 40px -6px rgba(0,0,0,0.7), 0 0 20px rgba(93,179,192,0.2)'; };
+        card.onmouseleave = () => { card.style.transform = 'none'; card.style.borderColor = isActive ? 'rgba(93,179,192,0.45)' : 'rgba(255,255,255,0.08)'; card.style.boxShadow = isActive ? '0 12px 36px -4px rgba(93,179,192,0.25), 0 0 1px 1px rgba(93,179,192,0.4)' : 'var(--shadow)'; };
         grid.appendChild(card);
       }
 
@@ -1271,12 +1278,12 @@
         transition: background 0.2s;
       `;
       addInner.innerHTML = `
-        <div style="width:48px;height:48px;border-radius:50%;background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.3);display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--accent);margin-bottom:12px;box-shadow:0 0 16px rgba(99,102,241,0.2);">+</div>
+        <div style="width:48px;height:48px;border-radius:50%;background:rgba(93,179,192,0.12);border:1px solid rgba(93,179,192,0.3);display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--accent);margin-bottom:12px;box-shadow:0 0 16px rgba(93,179,192,0.2);">+</div>
         <div style="font-size:15px;font-weight:700;color:var(--text);">Create New Project</div>
         <div style="font-size:12px;color:var(--text-faint);margin-top:4px;max-width:220px;">Spawn a new workspace with a dedicated Central Commander agent</div>
       `;
       addCard.appendChild(addInner);
-      addCard.onmouseenter = () => { addCard.style.borderColor = 'var(--accent)'; addCard.style.transform = 'translateY(-3px)'; addCard.style.boxShadow = '0 16px 40px -6px rgba(0,0,0,0.7), 0 0 20px rgba(99,102,241,0.2)'; addInner.style.background = 'var(--surface-2)'; };
+      addCard.onmouseenter = () => { addCard.style.borderColor = 'var(--accent)'; addCard.style.transform = 'translateY(-3px)'; addCard.style.boxShadow = '0 16px 40px -6px rgba(0,0,0,0.7), 0 0 20px rgba(93,179,192,0.2)'; addInner.style.background = 'var(--surface-2)'; };
       addCard.onmouseleave = () => { addCard.style.borderColor = 'var(--border-hover)'; addCard.style.transform = 'none'; addCard.style.boxShadow = 'none'; addInner.style.background = 'var(--surface)'; };
       addCard.onclick = () => openCreateProjectModal();
 
@@ -1505,7 +1512,7 @@
               <span style="font-size:16px;">📁</span>
               <span style="font-size:12.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(dir.name)}</span>
             </div>
-            <span style="font-size:11px;color:var(--text-faint);font-family:'JetBrains Mono',monospace;">Enter →</span>
+            <span style="font-size:11px;color:var(--text-faint);font-family:'IBM Plex Mono',monospace;">Enter →</span>
           `;
           item.onmouseenter = () => {
             item.style.background = 'var(--surface-2)';
@@ -1879,6 +1886,7 @@
         { id: 'activity', label: 'Activity', surface: 'floor' },
         { id: 'triggers', label: 'Triggers', surface: 'floor' },
         { id: 'graph', label: 'Graph', surface: 'floor' },
+        { id: 'pulls', label: 'Pull Requests', surface: 'floor' },
       ];
       if (!a) return all;
       if (isOrchestrator(a)) return all.filter((t) => t.surface === 'floor' || t.surface === 'both');
@@ -1905,7 +1913,7 @@
       const statusEl = document.getElementById('cc-status');
       if (a.zone === 'collaborating') {
         statusEl.textContent = 'IN MEETING';
-        statusEl.style.color = '#7c3aed';
+        statusEl.style.color = 'var(--st-done)';
         statusEl.style.fontWeight = '700';
         const partner = a.waitingOn ? 'with ' + a.waitingOn : '';
         document.getElementById('cc-desc').textContent = `🤝 Collaborating ${partner} in Conference Room`;
@@ -2011,6 +2019,7 @@
       else if (ccTab === 'git') ccRenderGit(body, a);
       else if (ccTab === 'output') ccRenderTerminal(body, a);
       else if (ccTab === 'graph') ccRenderGraph(body, a);
+      else if (ccTab === 'pulls') ccRenderPulls(body, a);
       else if (ccTab === 'messages') ccRenderMessages(body, a);
       else ccRenderActivity(body, a);
     }
@@ -2128,6 +2137,93 @@
         t.textContent = it.summary;
         main.appendChild(t);
         row.appendChild(main);
+        body.appendChild(row);
+      }
+    }
+
+    function ccRenderPulls(body, a) {
+      body.innerHTML = '';
+      const room = activeRoom();
+      const pulls = room?.pulls ?? [];
+      // gh_repo is overloaded in this codebase — the GitHub mirror writes
+      // "owner/repo" slugs there, but a project created by hand can have a
+      // local filesystem path in the same column (see routes/agents.ts's use
+      // of it as a workspace folder). Only build a github.com link when it
+      // actually looks like a slug, so a local path never becomes a bogus URL.
+      const repoSlug = room?.ghRepo && /^[\w.-]+\/[\w.-]+$/.test(room.ghRepo) ? room.ghRepo : null;
+
+      const header = document.createElement('div');
+      header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;';
+      const title = document.createElement('span');
+      title.style.cssText = 'font-weight:700;font-size:13px;';
+      title.textContent = 'Pull Requests';
+      const sub = document.createElement('span');
+      sub.style.cssText = 'font-size:11px;color:var(--text-faint);';
+      sub.textContent = repoSlug ? repoSlug : 'no linked repo';
+      header.append(title, sub);
+      body.appendChild(header);
+
+      if (!pulls.length) {
+        const empty = document.createElement('div');
+        empty.className = 'empty-note';
+        empty.textContent = repoSlug
+          ? 'No pull requests yet.'
+          : 'This room has no GitHub repo linked — the mirror only tracks projects created from a repo.';
+        body.appendChild(empty);
+        return;
+      }
+
+      const stateBadge = { open: 'badge-working', draft: 'badge-idle', merged: 'badge-working', closed: 'badge-blocked' };
+      const ciBadge = { success: 'badge-working', pending: 'badge-needs', failure: 'badge-blocked' };
+
+      const sorted = [...pulls].sort((x, y) => (y.updatedAt || '').localeCompare(x.updatedAt || ''));
+      for (const pr of sorted) {
+        const row = document.createElement('div');
+        row.className = 'cmd-row';
+
+        const main = document.createElement('div');
+        main.className = 'cmd-main';
+
+        const t = document.createElement('div');
+        t.className = 'cmd-desc';
+        t.style.cssText = 'font-weight:600;';
+        t.textContent = `#${pr.number} ${pr.title}`;
+        main.appendChild(t);
+
+        const metaLine = document.createElement('div');
+        metaLine.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap;';
+
+        const st = document.createElement('span');
+        st.className = 'inspector-badge ' + (stateBadge[pr.state] || 'badge-idle');
+        st.textContent = pr.state;
+        metaLine.appendChild(st);
+
+        if (pr.ci) {
+          const ci = document.createElement('span');
+          ci.className = 'inspector-badge ' + (ciBadge[pr.ci] || 'badge-idle');
+          ci.textContent = 'CI: ' + pr.ci;
+          metaLine.appendChild(ci);
+        }
+
+        const meta = document.createElement('span');
+        meta.style.cssText = 'font-size:11px;color:var(--text-faint);';
+        meta.textContent = (pr.author ? 'by ' + pr.author + ' · ' : '') + relativeTime(pr.updatedAt);
+        metaLine.appendChild(meta);
+
+        main.appendChild(metaLine);
+        row.appendChild(main);
+
+        if (repoSlug) {
+          const link = document.createElement('a');
+          link.href = `https://github.com/${repoSlug}/pull/${pr.number}`;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.className = 'code-btn';
+          link.style.cssText = 'align-self:center;text-decoration:none;';
+          link.textContent = 'Open ↗';
+          row.appendChild(link);
+        }
+
         body.appendChild(row);
       }
     }
@@ -2401,16 +2497,16 @@
             const st = (att.state || 'running').toLowerCase();
             if (st === 'completed') {
               badge.textContent = '✓ Completed';
-              badge.style.cssText = 'background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid rgba(34,197,94,0.3);';
+              badge.style.cssText = 'background:rgba(34,197,94,0.15);color:var(--st-working);border:1px solid rgba(34,197,94,0.3);';
             } else if (st === 'failed') {
               badge.textContent = '✕ Failed';
-              badge.style.cssText = 'background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3);';
+              badge.style.cssText = 'background:rgba(221,85,75,0.15);color:var(--st-fail);border:1px solid rgba(221,85,75,0.3);';
             } else if (st === 'timed_out') {
               badge.textContent = '⏱ Timed Out';
-              badge.style.cssText = 'background:rgba(245,158,11,0.15);color:#fbbf24;border:1px solid rgba(245,158,11,0.3);';
+              badge.style.cssText = 'background:rgba(212,157,73,0.15);color:var(--st-blocked);border:1px solid rgba(212,157,73,0.3);';
             } else if (st === 'canceled') {
               badge.textContent = '⊘ Canceled';
-              badge.style.cssText = 'background:rgba(148,163,184,0.15);color:#94a3b8;border:1px solid rgba(148,163,184,0.3);';
+              badge.style.cssText = 'background:rgba(148,163,184,0.15);color:var(--text-dim);border:1px solid rgba(148,163,184,0.3);';
             } else {
               badge.textContent = '● Running';
               badge.style.cssText = 'background:rgba(59,130,246,0.15);color:#60a5fa;border:1px solid rgba(59,130,246,0.3);';
@@ -2440,7 +2536,7 @@
 
             if (att.error_message) {
               const errBox = document.createElement('div');
-              errBox.style.cssText = 'font-family:\'JetBrains Mono\',monospace;font-size:11px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:6px;padding:8px 10px;color:#fca5a5;white-space:pre-wrap;word-break:break-all;';
+              errBox.style.cssText = 'font-family:\'IBM Plex Mono\',monospace;font-size:11px;background:rgba(221,85,75,0.08);border:1px solid rgba(221,85,75,0.25);border-radius:6px;padding:8px 10px;color:var(--st-fail);white-space:pre-wrap;word-break:break-all;';
               errBox.textContent = `Error: ${att.error_message}`;
               card.appendChild(errBox);
             }
@@ -2512,11 +2608,11 @@
 
             const stPill = document.createElement('span');
             stPill.style.cssText = 'font-size:10.5px;font-weight:800;letter-spacing:.4px;padding:3px 9px;border-radius:12px;text-transform:uppercase;';
-            if (g.state === 'executing' || g.state === 'approved') stPill.style.cssText += 'background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid rgba(34,197,94,0.3);';
-            else if (g.state === 'awaiting_approval' || g.state === 'planning') stPill.style.cssText += 'background:rgba(234,179,8,0.15);color:#fde047;border:1px solid rgba(234,179,8,0.3);';
+            if (g.state === 'executing' || g.state === 'approved') stPill.style.cssText += 'background:rgba(34,197,94,0.15);color:var(--st-working);border:1px solid rgba(34,197,94,0.3);';
+            else if (g.state === 'awaiting_approval' || g.state === 'planning') stPill.style.cssText += 'background:rgba(212,157,73,0.15);color:var(--st-blocked);border:1px solid rgba(212,157,73,0.3);';
             else if (g.state === 'replanning') stPill.style.cssText += 'background:rgba(249,115,22,0.15);color:#fb923c;border:1px solid rgba(249,115,22,0.3);';
-            else if (g.state === 'completed') stPill.style.cssText += 'background:rgba(99,102,241,0.15);color:#818cf8;border:1px solid rgba(99,102,241,0.3);';
-            else stPill.style.cssText += 'background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3);';
+            else if (g.state === 'completed') stPill.style.cssText += 'background:rgba(93,179,192,0.15);color:var(--accent);border:1px solid rgba(93,179,192,0.3);';
+            else stPill.style.cssText += 'background:rgba(221,85,75,0.15);color:var(--st-fail);border:1px solid rgba(221,85,75,0.3);';
             stPill.textContent = g.state;
 
             const gTitle = document.createElement('span');
@@ -2612,7 +2708,7 @@
                     const sCard = document.createElement('div');
                     sCard.style.cssText = 'display:flex;justify-content:space-between;align-items:center;background:rgba(0,0,0,0.15);padding:5px 8px;border-radius:5px;font-size:11.5px;';
                     const left = document.createElement('div');
-                    left.innerHTML = `<strong>#${s.stepNumber}</strong> ${escapeHtml(s.title)} <span style="font-size:9.5px;padding:1px 5px;border-radius:8px;background:rgba(99,102,241,0.2);color:#818cf8;margin-left:6px;">${s.suggestedRole}</span>`;
+                    left.innerHTML = `<strong>#${s.stepNumber}</strong> ${escapeHtml(s.title)} <span style="font-size:9.5px;padding:1px 5px;border-radius:8px;background:rgba(93,179,192,0.2);color:var(--accent);margin-left:6px;">${s.suggestedRole}</span>`;
                     const right = document.createElement('div');
                     right.style.cssText = 'font-size:10.5px;color:var(--text-faint);';
                     right.textContent = s.dependencies && s.dependencies.length > 0 ? `Deps: ${s.dependencies.join(', ')}` : 'Ready';
@@ -2739,10 +2835,10 @@
 
               const riskBadge = document.createElement('span');
               riskBadge.style.cssText = 'font-size:10px;font-weight:800;letter-spacing:.4px;padding:2px 7px;border-radius:10px;text-transform:uppercase;';
-              if (app.riskLevel === 'critical') riskBadge.style.cssText += 'background:rgba(239,68,68,0.2);color:#f87171;border:1px solid rgba(239,68,68,0.4);';
+              if (app.riskLevel === 'critical') riskBadge.style.cssText += 'background:rgba(221,85,75,0.2);color:var(--st-fail);border:1px solid rgba(221,85,75,0.4);';
               else if (app.riskLevel === 'high') riskBadge.style.cssText += 'background:rgba(249,115,22,0.2);color:#fb923c;border:1px solid rgba(249,115,22,0.4);';
-              else if (app.riskLevel === 'medium') riskBadge.style.cssText += 'background:rgba(234,179,8,0.2);color:#fde047;border:1px solid rgba(234,179,8,0.4);';
-              else riskBadge.style.cssText += 'background:rgba(34,197,94,0.2);color:#4ade80;border:1px solid rgba(34,197,94,0.4);';
+              else if (app.riskLevel === 'medium') riskBadge.style.cssText += 'background:rgba(212,157,73,0.2);color:var(--st-blocked);border:1px solid rgba(212,157,73,0.4);';
+              else riskBadge.style.cssText += 'background:rgba(34,197,94,0.2);color:var(--st-working);border:1px solid rgba(34,197,94,0.4);';
               riskBadge.textContent = app.riskLevel;
 
               const titleEl = document.createElement('strong');
@@ -2769,7 +2865,7 @@
 
                 const rejectBtn = document.createElement('button');
                 rejectBtn.className = 'cc-tab';
-                rejectBtn.style.cssText = 'padding:3px 10px;font-size:11px;color:var(--red);border-color:rgba(239,68,68,0.3);';
+                rejectBtn.style.cssText = 'padding:3px 10px;font-size:11px;color:var(--red);border-color:rgba(221,85,75,0.3);';
                 rejectBtn.textContent = '❌ Reject';
                 rejectBtn.onclick = () => {
                   const comment = prompt('Rejection reason (required):');
@@ -2807,15 +2903,15 @@
           if (escalations.length > 0) {
             const escSection = document.createElement('div');
             escSection.style.cssText = 'margin-bottom:20px;';
-            escSection.innerHTML = '<div style="font-size:13px;font-weight:800;letter-spacing:.3px;margin-bottom:10px;color:#f87171;display:flex;align-items:center;gap:6px;"><span>🚨</span> ACTIVE SUPERVISOR ESCALATIONS</div>';
+            escSection.innerHTML = '<div style="font-size:13px;font-weight:800;letter-spacing:.3px;margin-bottom:10px;color:var(--st-fail);display:flex;align-items:center;gap:6px;"><span>🚨</span> ACTIVE SUPERVISOR ESCALATIONS</div>';
 
             const eList = document.createElement('div');
             eList.style.cssText = 'display:flex;flex-direction:column;gap:8px;';
             for (const esc of escalations) {
               const eCard = document.createElement('div');
-              eCard.style.cssText = 'background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;';
+              eCard.style.cssText = 'background:rgba(221,85,75,0.06);border:1px solid rgba(221,85,75,0.3);border-radius:8px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;';
               const eLeft = document.createElement('div');
-              eLeft.innerHTML = `<div style="font-weight:700;font-size:12.5px;color:#fca5a5;">${escapeHtml(esc.title)}</div><div style="font-size:11.5px;color:var(--text-muted);">${escapeHtml(esc.reason)}</div>`;
+              eLeft.innerHTML = `<div style="font-weight:700;font-size:12.5px;color:var(--st-fail);">${escapeHtml(esc.title)}</div><div style="font-size:11.5px;color:var(--text-muted);">${escapeHtml(esc.reason)}</div>`;
               const resBtn = document.createElement('button');
               resBtn.className = 'btn-primary';
               resBtn.style.cssText = 'padding:3px 8px;font-size:11px;';
@@ -2865,7 +2961,7 @@
           for (const m of members) {
             const mBadge = document.createElement('div');
             mBadge.style.cssText = 'background:var(--surface-2);border:1px solid var(--border-soft);border-radius:6px;padding:6px 10px;font-size:11.5px;display:flex;align-items:center;gap:6px;';
-            mBadge.innerHTML = `<strong>${escapeHtml(m.name || m.ghLogin)}</strong> <span style="font-size:9.5px;padding:1px 6px;border-radius:8px;background:rgba(99,102,241,0.2);color:#818cf8;font-weight:700;text-transform:uppercase;">${m.role}</span>`;
+            mBadge.innerHTML = `<strong>${escapeHtml(m.name || m.ghLogin)}</strong> <span style="font-size:9.5px;padding:1px 6px;border-radius:8px;background:rgba(93,179,192,0.2);color:var(--accent);font-weight:700;text-transform:uppercase;">${m.role}</span>`;
             memList.appendChild(mBadge);
           }
           memSection.appendChild(memList);
@@ -2954,7 +3050,7 @@
           statGrid.innerHTML = `
             <div style="background:var(--surface-1);border:1px solid var(--border-soft);border-radius:8px;padding:12px;">
               <div style="font-size:11px;font-weight:700;color:var(--text-faint);margin-bottom:4px;text-transform:uppercase;">System Health</div>
-              <div style="font-size:18px;font-weight:800;color:${health.status === 'healthy' ? '#4ade80' : '#f87171'};">${escapeHtml(health.status.toUpperCase())}</div>
+              <div style="font-size:18px;font-weight:800;color:${health.status === 'healthy' ? 'var(--st-working)' : 'var(--st-fail)'};">${escapeHtml(health.status.toUpperCase())}</div>
               <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Uptime: ${health.uptimeSeconds}s · Latency: ${health.checks?.database?.latencyMs ?? 0}ms</div>
             </div>
             <div style="background:var(--surface-1);border:1px solid var(--border-soft);border-radius:8px;padding:12px;">
@@ -2969,7 +3065,7 @@
             </div>
             <div style="background:var(--surface-1);border:1px solid var(--border-soft);border-radius:8px;padding:12px;">
               <div style="font-size:11px;font-weight:700;color:var(--text-faint);margin-bottom:4px;text-transform:uppercase;">Dead Letter Queue</div>
-              <div style="font-size:18px;font-weight:800;color:${deadLetters.length > 0 ? '#f87171' : '#4ade80'};">${deadLetters.length} Blocked</div>
+              <div style="font-size:18px;font-weight:800;color:${deadLetters.length > 0 ? 'var(--st-fail)' : 'var(--st-working)'};">${deadLetters.length} Blocked</div>
               <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${deadLetters.filter((d) => d.status === 'pending').length} pending human review</div>
             </div>
           `;
@@ -2996,7 +3092,7 @@
               left.style.cssText = 'display:flex;align-items:center;gap:8px;';
 
               const catBadge = document.createElement('span');
-              catBadge.style.cssText = 'font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;background:rgba(239,68,68,0.2);color:#f87171;border:1px solid rgba(239,68,68,0.4);text-transform:uppercase;';
+              catBadge.style.cssText = 'font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;background:rgba(221,85,75,0.2);color:var(--st-fail);border:1px solid rgba(221,85,75,0.4);text-transform:uppercase;';
               catBadge.textContent = dl.failureCategory;
 
               const taskTitle = document.createElement('strong');
@@ -3045,7 +3141,7 @@
 
               if (dl.lastError) {
                 const errBox = document.createElement('div');
-                errBox.style.cssText = 'font-size:11.5px;color:#fca5a5;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);padding:6px 10px;border-radius:6px;';
+                errBox.style.cssText = 'font-size:11.5px;color:var(--st-fail);background:rgba(221,85,75,0.06);border:1px solid rgba(221,85,75,0.2);padding:6px 10px;border-radius:6px;';
                 errBox.textContent = `Error: ${dl.lastError}`;
                 card.appendChild(errBox);
               }
@@ -3086,7 +3182,7 @@
       title.style.cssText = 'font-weight:700;font-size:14px;color:var(--text);display:flex;align-items:center;gap:6px;';
       title.innerHTML = '<span>⚡</span> Agent Communication & Sequence Flow Inspector';
       const liveBadge = document.createElement('span');
-      liveBadge.style.cssText = 'font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid rgba(34,197,94,0.3);';
+      liveBadge.style.cssText = 'font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;background:rgba(34,197,94,0.15);color:var(--st-working);border:1px solid rgba(34,197,94,0.3);';
       liveBadge.textContent = '● LIVE STREAMING';
       titleWrap.append(title, liveBadge);
 
@@ -3132,12 +3228,12 @@
 
           // Lifeline participants
           const participants = [
-            { id: 'commander', label: '👑 Commander', color: '#f59e0b' },
-            { id: 'developer', label: '💻 Developer', color: '#38bdf8' },
-            { id: 'reviewer', label: '🔍 Reviewer', color: '#a855f7' },
+            { id: 'commander', label: '👑 Commander', color: 'var(--st-blocked)' },
+            { id: 'developer', label: '💻 Developer', color: 'var(--st-reviewing)' },
+            { id: 'reviewer', label: '🔍 Reviewer', color: 'var(--st-done)' },
             { id: 'qa', label: '🧪 QA / Spec', color: '#ec4899' },
-            { id: 'artifact_store', label: '📦 Artifact Store', color: '#10b981' },
-            { id: 'system', label: '⚙️ System', color: '#94a3b8' },
+            { id: 'artifact_store', label: '📦 Artifact Store', color: 'var(--st-working)' },
+            { id: 'system', label: '⚙️ System', color: 'var(--text-dim)' },
           ];
 
           function getParticipantCol(actor) {
@@ -3186,16 +3282,16 @@
             row.onmouseleave = () => row.style.background = 'transparent';
 
             // Determine arrow direction and color
-            let arrowColor = '#38bdf8';
-            if (ev.type.includes('CFP')) arrowColor = '#f59e0b';
+            let arrowColor = 'var(--st-reviewing)';
+            if (ev.type.includes('CFP')) arrowColor = 'var(--st-blocked)';
             else if (ev.type.includes('PROPOSAL_ACCEPTED')) arrowColor = '#22c55e';
             else if (ev.type.includes('PROPOSAL_DECLINED')) arrowColor = '#64748b';
-            else if (ev.type.includes('PROPOSAL')) arrowColor = '#a855f7';
-            else if (ev.type.includes('HANDOFF')) arrowColor = '#6366f1';
+            else if (ev.type.includes('PROPOSAL')) arrowColor = 'var(--st-done)';
+            else if (ev.type.includes('HANDOFF')) arrowColor = 'var(--accent)';
             else if (ev.type.includes('REVIEW_RESULT')) arrowColor = ev.metadata?.status === 'ACCEPT' ? '#22c55e' : '#f43f5e';
             else if (ev.type.includes('REWORK')) arrowColor = '#f97316';
             else if (ev.type.includes('COMPLETED')) arrowColor = '#22c55e';
-            else if (ev.type.includes('ARTIFACT')) arrowColor = '#10b981';
+            else if (ev.type.includes('ARTIFACT')) arrowColor = 'var(--st-working)';
 
             const start = Math.min(fromCol, toCol) + 1;
             const span = Math.abs(toCol - fromCol) || 1;
@@ -3263,8 +3359,8 @@
             mBody.innerHTML = `
               <div><strong>Summary:</strong> <span style="color:var(--text);">${escapeHtml(ev.summary)}</span></div>
               <div><strong>Timestamp:</strong> <span style="color:var(--text-muted);">${escapeHtml(ev.timestamp)}</span></div>
-              <div><strong>Source:</strong> <span style="color:#38bdf8;">${escapeHtml(ev.source.label)} (${escapeHtml(ev.source.type)})</span></div>
-              ${ev.target ? `<div><strong>Target:</strong> <span style="color:#a855f7;">${escapeHtml(ev.target.label)} (${escapeHtml(ev.target.type)})</span></div>` : ''}
+              <div><strong>Source:</strong> <span style="color:var(--st-reviewing);">${escapeHtml(ev.source.label)} (${escapeHtml(ev.source.type)})</span></div>
+              ${ev.target ? `<div><strong>Target:</strong> <span style="color:var(--st-done);">${escapeHtml(ev.target.label)} (${escapeHtml(ev.target.type)})</span></div>` : ''}
               ${ev.taskId ? `<div><strong>Task ID:</strong> <code>${escapeHtml(ev.taskId)}</code></div>` : ''}
               ${ev.correlationId ? `<div><strong>Correlation ID:</strong> <code>${escapeHtml(ev.correlationId)}</code></div>` : ''}
             `;
@@ -3354,16 +3450,16 @@
             const k = (art.kind || 'output').toLowerCase();
             if (k === 'diff') {
               kindBadge.textContent = '📄 DIFF';
-              kindBadge.style.cssText = 'background:rgba(99,102,241,0.15);color:#818cf8;border:1px solid rgba(99,102,241,0.3);';
+              kindBadge.style.cssText = 'background:rgba(93,179,192,0.15);color:var(--accent);border:1px solid rgba(93,179,192,0.3);';
             } else if (k === 'test_report') {
               kindBadge.textContent = '🧪 TEST REPORT';
-              kindBadge.style.cssText = 'background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid rgba(34,197,94,0.3);';
+              kindBadge.style.cssText = 'background:rgba(34,197,94,0.15);color:var(--st-working);border:1px solid rgba(34,197,94,0.3);';
             } else if (k === 'review') {
               kindBadge.textContent = '🔍 REVIEW';
-              kindBadge.style.cssText = 'background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3);';
+              kindBadge.style.cssText = 'background:rgba(162,141,211,0.15);color:var(--st-done);border:1px solid rgba(162,141,211,0.3);';
             } else {
               kindBadge.textContent = `📋 ${k.toUpperCase()}`;
-              kindBadge.style.cssText = 'background:rgba(148,163,184,0.15);color:#94a3b8;border:1px solid rgba(148,163,184,0.3);';
+              kindBadge.style.cssText = 'background:rgba(148,163,184,0.15);color:var(--text-dim);border:1px solid rgba(148,163,184,0.3);';
             }
 
             const artTitle = document.createElement('span');
@@ -3388,7 +3484,7 @@
 
             if (art.file_path) {
               const fileBox = document.createElement('div');
-              fileBox.style.cssText = 'display:flex;align-items:center;gap:6px;font-family:\'JetBrains Mono\',monospace;font-size:11px;color:var(--accent);background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.2);border-radius:6px;padding:6px 10px;';
+              fileBox.style.cssText = 'display:flex;align-items:center;gap:6px;font-family:\'IBM Plex Mono\',monospace;font-size:11px;color:var(--accent);background:rgba(93,179,192,0.06);border:1px solid rgba(93,179,192,0.2);border-radius:6px;padding:6px 10px;';
               fileBox.innerHTML = `<span>📁</span> <span style="word-break:break-all;">${escapeHtml(art.file_path)}</span>`;
               card.appendChild(fileBox);
             }
@@ -3467,10 +3563,10 @@
 
             const stPill = document.createElement('span');
             stPill.style.cssText = 'font-size:10.5px;font-weight:800;letter-spacing:.4px;padding:3px 9px;border-radius:12px;text-transform:uppercase;';
-            if (wf.state === 'active') stPill.style.cssText += 'background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid rgba(34,197,94,0.3);';
-            else if (wf.state === 'paused') stPill.style.cssText += 'background:rgba(234,179,8,0.15);color:#fde047;border:1px solid rgba(234,179,8,0.3);';
-            else if (wf.state === 'completed') stPill.style.cssText += 'background:rgba(99,102,241,0.15);color:#818cf8;border:1px solid rgba(99,102,241,0.3);';
-            else stPill.style.cssText += 'background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3);';
+            if (wf.state === 'active') stPill.style.cssText += 'background:rgba(34,197,94,0.15);color:var(--st-working);border:1px solid rgba(34,197,94,0.3);';
+            else if (wf.state === 'paused') stPill.style.cssText += 'background:rgba(212,157,73,0.15);color:var(--st-blocked);border:1px solid rgba(212,157,73,0.3);';
+            else if (wf.state === 'completed') stPill.style.cssText += 'background:rgba(93,179,192,0.15);color:var(--accent);border:1px solid rgba(93,179,192,0.3);';
+            else stPill.style.cssText += 'background:rgba(221,85,75,0.15);color:var(--st-fail);border:1px solid rgba(221,85,75,0.3);';
             stPill.textContent = wf.state;
 
             const healthPill = document.createElement('span');
@@ -3550,13 +3646,13 @@
                 const hp = document.getElementById(`wf-health-${wf.id}`);
                 if (hp) {
                   hp.textContent = `🏥 ${rep.health}`;
-                  if (rep.health === 'HEALTHY' || rep.health === 'COMPLETED') hp.style.color = '#4ade80';
-                  else if (rep.health === 'DEGRADED') hp.style.color = '#fde047';
-                  else hp.style.color = '#f87171';
+                  if (rep.health === 'HEALTHY' || rep.health === 'COMPLETED') hp.style.color = 'var(--st-working)';
+                  else if (rep.health === 'DEGRADED') hp.style.color = 'var(--st-blocked)';
+                  else hp.style.color = 'var(--st-fail)';
                 }
                 if (rep.recommendations && rep.recommendations.length > 0) {
                   supervisorBanner.style.display = 'flex';
-                  supervisorBanner.style.cssText = 'background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.25);border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;font-size:11.5px;';
+                  supervisorBanner.style.cssText = 'background:rgba(93,179,192,0.08);border:1px solid rgba(93,179,192,0.25);border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;font-size:11.5px;';
                   const rec = rep.recommendations[0];
                   const recText = document.createElement('div');
                   recText.innerHTML = `<strong>Supervisor Diagnostic:</strong> ${escapeHtml(rec.reason)}`;
@@ -3608,19 +3704,19 @@
                   stBadge.style.cssText = 'font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;';
                   if (t.state === 'completed') {
                     stBadge.textContent = '✓ Done';
-                    stBadge.style.cssText += 'background:rgba(34,197,94,0.15);color:#4ade80;';
+                    stBadge.style.cssText += 'background:rgba(34,197,94,0.15);color:var(--st-working);';
                   } else if (t.state === 'working') {
                     stBadge.textContent = '● Working';
                     stBadge.style.cssText += 'background:rgba(59,130,246,0.15);color:#60a5fa;';
                   } else if (t.derivedStatus === 'waiting') {
                     stBadge.textContent = '○ Waiting';
-                    stBadge.style.cssText += 'background:rgba(234,179,8,0.15);color:#fde047;';
+                    stBadge.style.cssText += 'background:rgba(212,157,73,0.15);color:var(--st-blocked);';
                   } else if (t.derivedStatus === 'blocked') {
                     stBadge.textContent = '⊘ Blocked';
-                    stBadge.style.cssText += 'background:rgba(239,68,68,0.15);color:#f87171;';
+                    stBadge.style.cssText += 'background:rgba(221,85,75,0.15);color:var(--st-fail);';
                   } else {
                     stBadge.textContent = '● Ready';
-                    stBadge.style.cssText += 'background:rgba(148,163,184,0.15);color:#94a3b8;';
+                    stBadge.style.cssText += 'background:rgba(148,163,184,0.15);color:var(--text-dim);';
                   }
 
                   const titleText = document.createElement('span');
@@ -3782,8 +3878,8 @@
       const statusBox = document.createElement('div');
       statusBox.style.cssText = `
         padding:12px 16px;border-radius:10px;margin-bottom:14px;
-        background:${isWorking ? 'rgba(99,102,241,0.1)' : 'rgba(255,255,255,0.03)'};
-        border:1px solid ${isWorking ? 'rgba(99,102,241,0.3)' : 'var(--border)'};
+        background:${isWorking ? 'rgba(93,179,192,0.1)' : 'rgba(255,255,255,0.03)'};
+        border:1px solid ${isWorking ? 'rgba(93,179,192,0.3)' : 'var(--border)'};
         display:flex;align-items:center;gap:12px;
       `;
       statusBox.innerHTML = `
@@ -3826,7 +3922,7 @@
         if (!text) {
           err.textContent = 'Please enter a line of guidance.';
           err.style.display = 'block';
-          err.style.background = 'rgba(239,68,68,0.1)';
+          err.style.background = 'rgba(221,85,75,0.1)';
           err.style.color = 'var(--red)';
           return;
         }
@@ -3844,7 +3940,7 @@
             const msg = data.error || `Steer failed (${res.status})`;
             err.textContent = msg;
             err.style.display = 'block';
-            err.style.background = 'rgba(239,68,68,0.1)';
+            err.style.background = 'rgba(221,85,75,0.1)';
             err.style.color = 'var(--red)';
           } else {
             inp.value = '';
@@ -3852,15 +3948,15 @@
             const modeText = data.mode === 'live' ? 'Injected directly into live running task!' : 'Saved for next task.';
             err.textContent = `✓ Guidance steered successfully: "${text}" (${modeText})`;
             err.style.display = 'block';
-            err.style.background = 'rgba(16,185,129,0.12)';
-            err.style.border = '1px solid rgba(16,185,129,0.3)';
+            err.style.background = 'rgba(116,175,125,0.12)';
+            err.style.border = '1px solid rgba(116,175,125,0.3)';
             err.style.color = 'var(--green)';
             setTimeout(() => { err.style.display = 'none'; }, 4000);
           }
         } catch (e) {
           err.textContent = e.message || 'Could not reach server';
           err.style.display = 'block';
-          err.style.background = 'rgba(239,68,68,0.1)';
+          err.style.background = 'rgba(221,85,75,0.1)';
           err.style.color = 'var(--red)';
         } finally {
           btn.disabled = false;
@@ -3931,20 +4027,20 @@
           const leftGroup = document.createElement('div');
           leftGroup.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
 
-          let badgeBg = 'rgba(99,102,241,0.15)';
-          let badgeColor = '#818cf8';
-          let badgeBorder = 'rgba(99,102,241,0.3)';
+          let badgeBg = 'rgba(93,179,192,0.15)';
+          let badgeColor = 'var(--accent)';
+          let badgeBorder = 'rgba(93,179,192,0.3)';
           let icon = '🛠️';
           const k = (ev.kind || ev.type || '').toLowerCase();
 
           if (k.includes('thought') || k.includes('reason')) {
             badgeBg = 'rgba(139,92,246,0.15)'; badgeColor = '#a78bfa'; badgeBorder = 'rgba(139,92,246,0.3)'; icon = '🧠';
           } else if (k.includes('steer')) {
-            badgeBg = 'rgba(245,158,11,0.15)'; badgeColor = '#fbbf24'; badgeBorder = 'rgba(245,158,11,0.3)'; icon = '🧭';
+            badgeBg = 'rgba(212,157,73,0.15)'; badgeColor = 'var(--st-blocked)'; badgeBorder = 'rgba(212,157,73,0.3)'; icon = '🧭';
           } else if (k.includes('control') || k.includes('pause') || k.includes('halt')) {
             badgeBg = 'rgba(244,63,94,0.15)'; badgeColor = '#fb7185'; badgeBorder = 'rgba(244,63,94,0.3)'; icon = '⏸️';
           } else if (k.includes('result') || k.includes('output')) {
-            badgeBg = 'rgba(16,185,129,0.15)'; badgeColor = '#34d399'; badgeBorder = 'rgba(16,185,129,0.3)'; icon = '📄';
+            badgeBg = 'rgba(116,175,125,0.15)'; badgeColor = 'var(--st-working)'; badgeBorder = 'rgba(116,175,125,0.3)'; icon = '📄';
           } else if (k.includes('task')) {
             badgeBg = 'rgba(59,130,246,0.15)'; badgeColor = '#60a5fa'; badgeBorder = 'rgba(59,130,246,0.3)'; icon = '📋';
           }
@@ -3963,7 +4059,7 @@
           }
 
           const time = document.createElement('span');
-          time.style.cssText = 'font-size:11px;color:var(--text-faint);font-family:\'JetBrains Mono\',monospace;';
+          time.style.cssText = 'font-size:11px;color:var(--text-faint);font-family:\'IBM Plex Mono\',monospace;';
           time.textContent = ev.ts ? new Date(ev.ts).toLocaleTimeString() : '';
 
           head.append(leftGroup, time);
@@ -3981,7 +4077,7 @@
               detailsWrapper.style.cssText = 'margin-top:4px;font-size:11.5px;color:var(--text-dim);cursor:pointer;';
               detailsWrapper.innerHTML = `
                 <summary style="font-size:11px;color:var(--text-faint);outline:none;user-select:none;">View Payload Details</summary>
-                <pre style="font-family:'JetBrains Mono',monospace;font-size:11px;background:rgba(0,0,0,0.3);border:1px solid var(--border-soft);padding:8px 12px;border-radius:6px;margin-top:6px;overflow-x:auto;white-space:pre-wrap;color:#cbd5e1;">${escapeHtml(detailStr)}</pre>
+                <pre style="font-family:'IBM Plex Mono',monospace;font-size:11px;background:rgba(0,0,0,0.3);border:1px solid var(--border-soft);padding:8px 12px;border-radius:6px;margin-top:6px;overflow-x:auto;white-space:pre-wrap;color:var(--text-dim);">${escapeHtml(detailStr)}</pre>
               `;
               card.appendChild(detailsWrapper);
             }
@@ -4260,13 +4356,13 @@
           version: 'v1.0.8',
           modelText: (a?.model || 'Qwen 2.5 Coder 32B') + ' · Local Ollama/vLLM Harness',
           badge: '• fast · /opencode',
-          accent: '#10b981',
-          svg: `<svg viewBox="0 0 16 14" width="36" height="30" style="image-rendering:pixelated;flex:none;" fill="#10b981">
+          accent: 'var(--st-working)',
+          svg: `<svg viewBox="0 0 16 14" width="36" height="30" style="image-rendering:pixelated;flex:none;" fill="var(--st-working)">
             <rect x="1" y="1" width="14" height="12" rx="2" fill="#047857"/>
             <rect x="3" y="3" width="10" height="8" fill="#faf8ee"/>
-            <rect x="4" y="4" width="2" height="6" fill="#10b981"/>
-            <rect x="6" y="6" width="3" height="2" fill="#10b981"/>
-            <rect x="9" y="8" width="3" height="2" fill="#10b981"/>
+            <rect x="4" y="4" width="2" height="6" fill="var(--st-working)"/>
+            <rect x="6" y="6" width="3" height="2" fill="var(--st-working)"/>
+            <rect x="9" y="8" width="3" height="2" fill="var(--st-working)"/>
           </svg>`
         };
       }
@@ -4333,16 +4429,16 @@
       selectionForeground: '#ffffff',
       black:        '#181a1f',
       red:          '#f43f5e',
-      green:        '#10b981',
-      yellow:       '#f59e0b',
-      blue:         '#38bdf8',
-      magenta:      '#c084fc',
+      green:        'var(--st-working)',
+      yellow:       'var(--st-blocked)',
+      blue:         'var(--st-reviewing)',
+      magenta:      'var(--st-done)',
       cyan:         '#2dd4bf',
       white:        '#f4f4f6',
       brightBlack:  '#52525b',
       brightRed:    '#fb7185',
-      brightGreen:  '#34d399',
-      brightYellow: '#fbbf24',
+      brightGreen:  'var(--st-working)',
+      brightYellow: 'var(--st-blocked)',
       brightBlue:   '#60a5fa',
       brightMagenta:'#d8b4fe',
       brightCyan:   '#5eead4',
@@ -4364,7 +4460,7 @@
       if (typeof Terminal !== 'undefined') {
         term = new Terminal({
           theme: XTERM_STUDIO_DARK_THEME,
-          fontFamily: '"JetBrains Mono", "SF Mono", Menlo, monospace',
+          fontFamily: '"IBM Plex Mono", "SF Mono", Menlo, monospace',
           fontSize: window._ccTermFontSize || 12,
           lineHeight: 1.15,
           cursorBlink: true,
@@ -4487,7 +4583,7 @@
 
       const saveBtn = document.createElement('button');
       saveBtn.className = 'code-btn';
-      saveBtn.style.cssText = 'background:#16a34a;color:#fff;border-color:#15803d;font-weight:700;';
+      saveBtn.style.cssText = 'background:#16a34a;color:#fff;border-color:var(--st-working);font-weight:700;';
       saveBtn.textContent = 'Save';
 
       topRight.append(btnCodeOnly, btnSplit, btnTermOnly, refreshBtn, newFileBtn, saveBtn);
@@ -4690,7 +4786,7 @@
             openFile(activeFile);
           }
         } catch (e) {
-          treeList.innerHTML = '<div style="padding:10px;font-size:11px;color:#dc2626;">Failed to load files.</div>';
+          treeList.innerHTML = '<div style="padding:10px;font-size:11px;color:var(--st-fail);">Failed to load files.</div>';
         }
       };
 
@@ -5392,7 +5488,7 @@
 
       const saveLeftBtn = document.createElement('button');
       saveLeftBtn.className = 'code-btn';
-      saveLeftBtn.style.cssText = 'background:#16a34a;color:#fff;border-color:#15803d;font-weight:700;';
+      saveLeftBtn.style.cssText = 'background:#16a34a;color:#fff;border-color:var(--st-working);font-weight:700;';
       saveLeftBtn.textContent = 'Save Memory';
 
       leftHead.appendChild(saveLeftBtn);
@@ -6878,14 +6974,14 @@
       if (isMicLive) {
         btn.style.background = 'rgba(34, 197, 94, 0.22)';
         btn.style.borderColor = 'rgba(34, 197, 94, 0.55)';
-        btn.style.color = '#4ade80';
+        btn.style.color = 'var(--st-working)';
         if (icon) icon.textContent = '🎙️';
         if (label) label.textContent = 'Mic: Live';
         if (meter) meter.style.display = 'flex';
       } else {
-        btn.style.background = 'rgba(239, 68, 68, 0.18)';
-        btn.style.borderColor = 'rgba(239, 68, 68, 0.4)';
-        btn.style.color = '#fca5a5';
+        btn.style.background = 'rgba(221,85,75, 0.18)';
+        btn.style.borderColor = 'rgba(221,85,75, 0.4)';
+        btn.style.color = 'var(--st-fail)';
         if (icon) icon.textContent = '🔇';
         if (label) label.textContent = 'Mic: Muted';
         if (meter) meter.style.display = 'none';
@@ -7209,12 +7305,12 @@
               const isSelf = h.id === myId;
               const isSpeaking = isSelf ? isLocalSpeaking : (peerAnalysers.get(h.id)?.isSpeaking ?? false);
               const name = isSelf ? 'You' : (h.name || 'Colleague');
-              const micBadge = isSpeaking ? '🔊 <b style="color:#4ade80;">(Speaking...)</b>' : (isSelf ? (isMicLive ? '🎙️' : '🔇') : '🎙️');
+              const micBadge = isSpeaking ? '🔊 <b style="color:var(--st-working);">(Speaking...)</b>' : (isSelf ? (isMicLive ? '🎙️' : '🔇') : '🎙️');
               return `${name} ${micBadge}`;
             });
-            occEl.innerHTML = `<span style="color:#4ade80;font-weight:600;">🟢 ${occupants.length} in Room:</span> ${occupantChips.join(', ')}`;
+            occEl.innerHTML = `<span style="color:var(--st-working);font-weight:600;">🟢 ${occupants.length} in Room:</span> ${occupantChips.join(', ')}`;
           } else {
-            occEl.innerHTML = `<span style="color:#94a3b8;">🟢 You are in this room.</span> Others who enter will connect to voice & chat automatically.`;
+            occEl.innerHTML = `<span style="color:var(--text-dim);">🟢 You are in this room.</span> Others who enter will connect to voice & chat automatically.`;
           }
         }
 
@@ -7272,7 +7368,7 @@
       const line = document.createElement('div');
       line.style.cssText = 'padding:2px 0;line-height:1.4;';
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      line.innerHTML = `<span style="color:${isSelf ? '#818cf8' : '#38bdf8'};font-weight:600;">${escapeHtml(sender)}</span> <span style="font-size:10px;color:#64748b;">${timeStr}</span>: <span>${escapeHtml(text)}</span>`;
+      line.innerHTML = `<span style="color:${isSelf ? 'var(--accent)' : 'var(--st-reviewing)'};font-weight:600;">${escapeHtml(sender)}</span> <span style="font-size:10px;color:#64748b;">${timeStr}</span>: <span>${escapeHtml(text)}</span>`;
       box.appendChild(line);
       box.scrollTop = box.scrollHeight;
     }
@@ -7776,7 +7872,7 @@
             contentEl.innerHTML = `
               <div style="font-size:10.5px;">
                 <div style="color:var(--accent);font-weight:700;margin-bottom:4px;">📦 Assembled Context (${data.totalLength} chars)</div>
-                <pre style="font-family:'JetBrains Mono',monospace;font-size:10px;background:var(--surface-2);padding:6px;border-radius:5px;white-space:pre-wrap;max-height:120px;overflow-y:auto;color:var(--text-muted);">${escapeHtml(data.formattedContext || '')}</pre>
+                <pre style="font-family:'IBM Plex Mono',monospace;font-size:10px;background:var(--surface-2);padding:6px;border-radius:5px;white-space:pre-wrap;max-height:120px;overflow-y:auto;color:var(--text-muted);">${escapeHtml(data.formattedContext || '')}</pre>
               </div>`;
           })
           .catch(() => { if (contentEl) contentEl.innerHTML = '<div style="color:var(--red);">Failed loading context.</div>'; });
