@@ -1009,6 +1009,38 @@
       const tasks = room.tasks ?? [];
       cols.innerHTML = '';
 
+      // Sprite lookup once per render — the board shows the same portraits the
+      // floor does, so a row and a character are recognisably one agent.
+      const agentById = new Map((room.agents ?? []).map((a) => [a.id, a]));
+      const spriteFor = (a) => {
+        if (!a) return null;
+        return (a.character && CHAR_NAMES.includes(a.character))
+          ? a.character
+          : CHAR_NAMES[hashString(a.id) % CHAR_NAMES.length];
+      };
+
+      // What the room is carrying and costing right now.
+      const stats = document.getElementById('board-stats');
+      if (stats) {
+        const live = tasks.filter((t) => t.state === 'working').length;
+        const waiting = tasks.filter((t) => t.state === 'submitted').length;
+        const spend = tasks.reduce((n, t) => n + (t.costUsd || 0), 0);
+        stats.innerHTML = '';
+        for (const [n, k] of [
+          [String(tasks.length), 'total'],
+          [String(live), 'running'],
+          [String(waiting), 'awaiting approval'],
+          ['$' + spend.toFixed(2), 'spent'],
+        ]) {
+          const s = document.createElement('div');
+          s.className = 'board-stat';
+          s.innerHTML = `<span class="board-stat-n"></span><span class="board-stat-k"></span>`;
+          s.querySelector('.board-stat-n').textContent = n;
+          s.querySelector('.board-stat-k').textContent = k;
+          stats.appendChild(s);
+        }
+      }
+
       for (const col of BOARD_COLUMNS) {
         const inCol = tasks.filter((t) => col.states.includes(t.state));
         const el = document.createElement('div');
@@ -1024,28 +1056,59 @@
         if (inCol.length === 0) {
           const empty = document.createElement('div');
           empty.className = 'board-empty';
-          empty.textContent = '—';
+          empty.textContent = 'Nothing here';
           body.appendChild(empty);
         }
         for (const t of inCol) {
           const card = document.createElement('div');
           card.className = 'board-card';
+
+          const id = document.createElement('div');
+          id.className = 'board-card-id';
+          // Ids are `tsk_<uuid>` — 40 characters, which is a line of noise on a
+          // card. Keep the prefix and the first block, the way a short SHA
+          // works: enough to recognise and quote, not enough to dominate.
+          id.textContent = String(t.id).replace(/^(\w+_[0-9a-f]{8}).*$/, '$1');
+          id.title = t.id;
+
           // textContent, not innerHTML — a task title is human/agent-authored
           // text and must never be able to inject markup into this page.
           const title = document.createElement('div');
           title.className = 'board-card-title';
           title.textContent = t.title;
+
           const meta = document.createElement('div');
           meta.className = 'board-card-meta';
+
+          const who = document.createElement('div');
+          who.className = 'board-card-who';
+          const agentRow = agentById.get(t.agentId);
+          const sprite = spriteFor(agentRow);
+          if (sprite) {
+            const av = document.createElement('span');
+            av.className = 'board-card-av';
+            av.style.backgroundImage = 'url(/assets/characters/' + sprite + '.png)';
+            who.appendChild(av);
+          }
           const agent = document.createElement('span');
           agent.className = 'board-card-agent' + (t.agentName ? '' : ' unassigned');
           agent.textContent = t.agentName ?? 'unassigned';
+          who.appendChild(agent);
+
           const when = document.createElement('span');
           when.className = 'board-card-when';
           const cost = t.costUsd > 0 ? ` · $${t.costUsd.toFixed(2)}` : '';
           when.textContent = relativeTime(t.startedAt ?? t.createdAt) + cost;
-          meta.append(agent, when);
-          card.append(title, meta);
+
+          meta.append(who, when);
+          card.append(id, title, meta);
+          // A task's most useful next click is the agent running it.
+          if (t.agentId) {
+            card.onclick = () => openCommandCenter(t.agentId);
+            card.title = `Open ${t.agentName}'s Command Center`;
+          } else {
+            card.style.cursor = 'default';
+          }
           body.appendChild(card);
         }
         cols.appendChild(el);

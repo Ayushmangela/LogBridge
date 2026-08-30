@@ -490,10 +490,13 @@
     .cc-id { display: flex; align-items: center; gap: 12px; min-width: 0; }
     /* Same 32x48-frame-0 trick the character picker uses, so an agent looks
        the same here as it does in the office. */
-    .cc-portrait { width: 40px; height: 60px; flex: none; border-radius: 8px;
+    /* Square, like the roster / hover card / inspector. It used to be a tall
+       40x60 showing the whole sprite, which made the one biggest instance of
+       an agent's face the only differently-shaped one. 48/32*48 = 72. */
+    .cc-portrait { width: 48px; height: 48px; flex: none; border-radius: 10px;
                    border: 1px solid var(--border); background-color: var(--surface-2);
                    background-repeat: no-repeat; background-position: 0 0;
-                   background-size: auto 60px; image-rendering: pixelated; }
+                   background-size: auto 72px; image-rendering: pixelated; }
     .cc-id-text { min-width: 0; }
     .cc-title-row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
     .cc-name { font-size: 19px; font-weight: 700; letter-spacing: -.3px; }
@@ -1092,29 +1095,72 @@
     .panel-body { flex: 1; overflow-y: auto; padding: 16px 20px; min-height: 0; }
 
     /* board */
-    .board-cols { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 12px; }
+    /* A summary strip above the board: what the room is actually costing and
+       carrying right now, which is the first question the board is asked. */
+    .board-stats { display: flex; gap: 26px; padding: 0 0 16px; flex-wrap: wrap; }
+    .board-stat { display: flex; flex-direction: column; gap: 3px; }
+    .board-stat-n { font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                    font-size: 22px; font-weight: 500; color: var(--text); line-height: 1; }
+    .board-stat-k { font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                    font-size: 9.5px; letter-spacing: .8px; text-transform: uppercase; color: var(--text-faint); }
+
+    .board-cols { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 12px;
+                  align-items: start; }
     @media (max-width: 1250px) { .board-cols { grid-template-columns: repeat(3, minmax(0,1fr)); } }
-    .board-col { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 11px; padding: 11px; }
-    .board-col-title { font-size: 11px; font-weight: 750; letter-spacing: .5px; text-transform: uppercase;
-                       display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-    .board-col-count { background: var(--surface-3); color: var(--text-faint); border-radius: 20px; padding: 1px 8px; font-size: 10px; font-weight: 700; }
+    .board-col { background: var(--surface-2); border: 1px solid var(--border-soft);
+                 border-radius: 12px; padding: 12px; min-width: 0; }
+    /* Dot + label + count. The dot carries the column's colour so the header
+       does not have to be coloured text, which reads as a warning. */
+    .board-col-title { font-size: 11.5px; font-weight: 600; letter-spacing: .3px;
+                       display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+                       color: var(--text-dim); }
+    .board-col-title::before { content: ""; width: 7px; height: 7px; border-radius: 50%;
+                               background: var(--st-muted); flex-shrink: 0; }
+    .board-col-count { margin-left: auto; background: var(--surface-3); color: var(--text-faint);
+                       border-radius: 20px; padding: 1px 8px; font-size: 10.5px;
+                       font-family: 'IBM Plex Mono', ui-monospace, monospace; }
     .board-col-body { display: flex; flex-direction: column; gap: 8px; }
+
     .board-card {
-      background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--gray);
-      border-radius: 9px; padding: 10px 11px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 11px 12px; cursor: pointer;
+      transition: border-color .15s, transform .15s var(--ease-spring);
     }
-    .board-card-title { font-size: 12.5px; font-weight: 600; line-height: 1.35; margin-bottom: 7px; overflow-wrap: break-word; }
-    .board-card-meta { display: flex; justify-content: space-between; gap: 8px; font-size: 10.5px;
-                       color: var(--text-faint); font-family: 'IBM Plex Mono', monospace; align-items: baseline; }
-    .board-card-agent { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-    .board-card-agent.unassigned { font-style: italic; opacity: .65; font-weight: 400; }
-    .board-card-when { white-space: nowrap; flex-shrink: 0; }
-    .col-proposed .board-col-title { color: var(--st-blocked); } .col-proposed .board-card { border-left-color: var(--orange); }
-    .col-working  .board-col-title { color: var(--st-working); } .col-working  .board-card { border-left-color: var(--green); }
-    .col-blocked  .board-col-title { color: var(--st-done); } .col-blocked  .board-card { border-left-color: var(--purple); }
-    .col-done     .board-col-title { color: var(--st-reviewing); } .col-done     .board-card { border-left-color: var(--blue); }
-    .col-closed   .board-col-title { color: var(--st-fail); } .col-closed   .board-card { border-left-color: var(--red); }
-    .board-empty { color: var(--text-faint); font-size: 11.5px; text-align: center; padding: 14px 4px; opacity: .7; }
+    .board-card:hover { border-color: var(--border-hover); transform: translateY(-1px); }
+    .board-card-id { font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                     font-size: 10px; color: var(--text-faint); margin-bottom: 5px; }
+    .board-card-title { font-size: 13px; font-weight: 550; line-height: 1.4; margin-bottom: 10px;
+                        overflow-wrap: break-word; color: var(--text); }
+    .board-card-meta { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+    /* The assignee as a real portrait, so the board matches the floor. */
+    .board-card-who { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .board-card-av { width: 20px; height: 20px; flex-shrink: 0; border-radius: 5px;
+                     background-color: var(--surface-3); background-repeat: no-repeat;
+                     background-position: 0 0; background-size: auto 30px;  /* 20/32*48 */
+                     image-rendering: pixelated; }
+    .board-card-agent { font-size: 11.5px; color: var(--text-dim); overflow: hidden;
+                        text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .board-card-agent.unassigned { font-style: italic; opacity: .6; }
+    .board-card-when { white-space: nowrap; flex-shrink: 0;
+                       font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                       font-size: 10.5px; color: var(--text-faint); }
+
+    /* Column colours are the office's own rooms: a task waiting on a person is
+       the warm grey of the cabins, work in flight is the sage of the desks,
+       blocked is the atrium amber, finished is the chill-room plum. */
+    .col-proposed .board-col-title::before { background: var(--st-needs); }
+    .col-working  .board-col-title::before { background: var(--st-working); }
+    .col-blocked  .board-col-title::before { background: var(--st-blocked); }
+    .col-done     .board-col-title::before { background: var(--st-done); }
+    .col-closed   .board-col-title::before { background: var(--st-muted); }
+    .col-proposed .board-card { border-left: 2px solid rgba(206,196,161,0.5); }
+    .col-working  .board-card { border-left: 2px solid rgba(116,175,125,0.6); }
+    .col-blocked  .board-card { border-left: 2px solid rgba(212,157,73,0.6); }
+    .col-done     .board-card { border-left: 2px solid rgba(162,141,211,0.5); }
+    .col-closed   .board-card { border-left: 2px solid var(--border); opacity: .72; }
+
+    .board-empty { color: var(--text-faint); font-size: 11.5px; text-align: center;
+                   padding: 18px 4px; border: 1px dashed var(--border-soft); border-radius: 9px; }
 
     /* chat */
     .chat-wrap { display: flex; flex-direction: column; height: 100%; }
