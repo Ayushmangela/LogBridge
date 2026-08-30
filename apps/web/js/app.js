@@ -8422,9 +8422,8 @@
       const moreBtn = document.getElementById('insp-more');
       if (moreBtn) {
         moreBtn.onclick = () => {
-          setCCAgent(a.id);
-          setView('agent');
-          insp.classList.remove('open');
+          closeInspector();
+          openCommandCenter(a.id);
         };
       }
     }
