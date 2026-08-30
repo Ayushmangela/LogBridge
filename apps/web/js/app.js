@@ -809,6 +809,50 @@
       }
     }
 
+    // Everyone on the floor, as a strip of portraits ringed by status.
+    // Rebuilt from the view like everything else — the strip cannot show an
+    // agent the server has not projected.
+    const HUD_TINT = { working: 's-working', reviewing: 's-reviewing', collaborating: 's-reviewing',
+                       needs_input: 's-needs', needs_human: 's-needs', blocked: 's-blocked',
+                       idle: 's-idle', done: 's-done', completed: 's-done' };
+    function renderHudAgents(room) {
+      const el = document.getElementById('hud-agents');
+      if (!el) return;
+      el.innerHTML = '';
+      for (const a of room?.agents ?? []) {
+        const av = document.createElement('button');
+        av.className = 'hud-av ' + (HUD_TINT[a.zone] || HUD_TINT[a.status] || 's-idle');
+        const sprite = (a.character && CHAR_NAMES.includes(a.character))
+          ? a.character
+          : CHAR_NAMES[hashString(a.id) % CHAR_NAMES.length];
+        av.style.backgroundImage = 'url(/assets/characters/' + sprite + '.png)';
+        av.title = `${a.name} — ${String(a.status || '').replace(/_/g, ' ')}`;
+        av.onclick = () => openCommandCenter(a.id);
+        // Hovering the strip names the agent in the island's subtitle, which
+        // is what "hover an agent" in the placeholder is telling you to do.
+        av.onmouseenter = () => {
+          const z = document.getElementById('zone-stat');
+          if (z) { z.dataset.prev ??= z.textContent; z.textContent = a.name + ' · ' + String(a.status || '').replace(/_/g, ' '); }
+        };
+        av.onmouseleave = () => {
+          const z = document.getElementById('zone-stat');
+          if (z && z.dataset.prev !== undefined) { z.textContent = z.dataset.prev; delete z.dataset.prev; }
+        };
+        el.appendChild(av);
+      }
+    }
+
+    // Walk the player into the meeting room. It is the one spatial action the
+    // HUD offers, and it is inert unless two DISTINCT owners are online —
+    // the office must not advertise a room nobody can be in.
+    window.enterMeetingRoom = function () {
+      const rect = zones?.collaborating;
+      if (!rect || !player) return;
+      player.x = (rect.x + rect.w / 2) * TILE;
+      player.y = (rect.y + rect.h / 2) * TILE;
+      sendPosition?.();
+    };
+
     // Rebuilt on every view, because whether collaboration is possible can
     // change the moment someone else's machine connects or drops.
     function renderLegend() {
@@ -1075,6 +1119,7 @@
       // never disagree with each other.
       updateProjectNavVisibility();
       renderLegend();
+      renderHudAgents(room);
       renderPeople(room);
       renderAgentRoster(room);
       renderCurrentTask(room);
@@ -7888,13 +7933,28 @@
         const statusEl = document.getElementById('ap-status');
         const taskEl = document.getElementById('ap-task');
         const noteEl = document.getElementById('ap-note');
-        const row = document.getElementById('ap-summon-row');
         const btn = document.getElementById('ap-summon-btn');
         const err = document.getElementById('ap-summon-err');
         if (!nameEl || !statusEl) return;
         nameEl.textContent = a.name;
+
+        // Portrait: same sprite the office draws, so the card and the floor
+        // never disagree about who this is.
+        const portrait = document.getElementById('ap-portrait');
+        if (portrait) {
+          const sprite = (a.character && CHAR_NAMES.includes(a.character))
+            ? a.character
+            : CHAR_NAMES[hashString(a.id) % CHAR_NAMES.length];
+          portrait.style.backgroundImage = 'url(/assets/characters/' + sprite + '.png)';
+        }
+
         const [label] = ZONE_BADGE[a.zone] ?? [a.status ?? 'unknown'];
-        statusEl.textContent = (label || a.status || 'unknown').toLowerCase();
+        const text = (label || a.status || 'unknown').replace(/_/g, ' ');
+        statusEl.textContent = text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
+        const TINT = { working: 's-working', reviewing: 's-reviewing', collaborating: 's-reviewing',
+                       needs_input: 's-needs', needs_human: 's-needs', blocked: 's-blocked',
+                       idle: 's-idle', done: 's-done', completed: 's-done' };
+        statusEl.className = 'ap-status ' + (TINT[a.zone] || TINT[a.status] || 's-idle');
         // Task title when present, otherwise hidden — keeps the card to 2-3 lines
         if (a.task && a.task.title) {
           taskEl.textContent = a.task.title;
@@ -7910,29 +7970,19 @@
           noteEl.textContent = '';
           noteEl.style.display = 'none';
         }
-        // Phase 4: summon row — "Call here" when idle and not summoned, "Dismiss" when summoned
-        if (row && btn) {
+        // Summon: "Call here" normally, "Dismiss" once the agent has been
+        // called. The button is always offered — whether a busy agent may be
+        // summoned is the server's ruling, not the browser's guess.
+        if (btn) {
           const isSummoned = !!(a.summonedPos && a.summonedPos.x != null);
-          if (a.status === 'idle' || isSummoned) {
-            row.style.display = 'flex';
-            if (isSummoned) {
-              btn.textContent = 'Dismiss';
-              btn.classList.add('dismiss');
-              btn.onclick = (e) => { e.stopPropagation(); doDismissSummon(a.id); };
-            } else {
-              btn.textContent = 'Call here';
-              btn.classList.remove('dismiss');
-              btn.onclick = (e) => { e.stopPropagation(); doSummon(a.id); };
-            }
-            if (err) { err.textContent = ''; err.style.display = 'none'; }
-          } else {
-            // Busy/offline agents still show row but disabled — error comes from server
-            row.style.display = 'flex';
-            btn.textContent = 'Call here';
-            btn.classList.remove('dismiss');
-            btn.onclick = (e) => { e.stopPropagation(); doSummon(a.id); };
-            if (err) { err.textContent = ''; err.style.display = 'none'; }
-          }
+          const lbl = document.getElementById('ap-summon-label');
+          if (lbl) lbl.textContent = isSummoned ? 'Dismiss' : 'Call here';
+          btn.classList.toggle('dismiss', isSummoned);
+          btn.onclick = (e) => {
+            e.stopPropagation();
+            isSummoned ? doDismissSummon(a.id) : doSummon(a.id);
+          };
+          if (err) { err.textContent = ''; err.style.display = 'none'; }
         }
         const assignBtn = document.getElementById('ap-assign-btn');
         if (assignBtn) {
@@ -8583,6 +8633,8 @@
 
       const zoneName = detectZoneName(player.x, player.y);
       document.getElementById('current-zone-name').textContent = zoneName;
+      // The HUD reads "Floor 1 / <where you are>" — the zone is the subtitle,
+      // which is what makes the island say something as you walk.
       document.getElementById('zone-stat').textContent = zoneName;
       document.getElementById('pos-stat').textContent = `X: ${Math.round(player.x)}, Y: ${Math.round(player.y)}`;
       document.getElementById('coord-display').textContent = `${Math.floor(player.x / TILE)}, ${Math.floor(player.y / TILE)}`;

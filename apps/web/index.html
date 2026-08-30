@@ -204,25 +204,35 @@
         <div class="office-card">
           <div id="canvas-container"><canvas id="canvas"></canvas></div>
           
-          <!-- Unified Floating Top Command Island -->
-          <div class="office-hud-top">
-            <div class="hud-chip">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg>
-              <span>Floor 1</span>
-            </div>
-            <div class="hud-divider"></div>
-            <div class="hud-chip">
-              <span style="font-size:12.5px;">📍</span>
-              <span>Zone: <b id="zone-stat" style="color:var(--accent);font-weight:700;">—</b></span>
-            </div>
-            <div class="hud-divider"></div>
-            <div class="hud-chip">
-              <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
-              <span style="opacity:0.65;font-size:11px;margin-right:2px;">move</span>
-              <kbd>Shift</kbd>
-              <span style="opacity:0.65;font-size:11px;margin-right:2px;">run</span>
-              <kbd>M</kbd>
-              <span style="opacity:0.65;font-size:11px;">mic</span>
+          <!-- The floor HUD. Left: the one spatial action. Right: where you
+               are, who is on the floor, and how to move. -->
+          <div class="office-hud-row">
+            <button class="hud-meeting-btn" id="hud-meeting-btn" onclick="enterMeetingRoom()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              enter meeting room
+            </button>
+
+            <div class="office-hud-top">
+              <div class="hud-place">
+                <span class="hud-live"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.5a7 7 0 0 1 7-7M2 12.5a10 10 0 0 1 10-10"/><circle cx="12" cy="12.5" r="1.5"/><path d="M19 12.5a7 7 0 0 0-7-7M22 12.5a10 10 0 0 0-10-10"/></svg></span>
+                <span class="hud-place-text">
+                  <b id="hud-floor">Floor 1</b>
+                  <i id="zone-stat">hover an agent</i>
+                </span>
+              </div>
+              <div class="hud-divider"></div>
+              <!-- Everyone on the floor, ringed by status. Clicking one opens
+                   its Command Center; hovering highlights it on the map. -->
+              <div class="hud-agents" id="hud-agents"></div>
+              <div class="hud-divider"></div>
+              <div class="hud-chip">
+                <kbd>WASD</kbd>
+                <span class="hud-key-label">move</span>
+                <kbd>⇧</kbd>
+                <span class="hud-key-label">run</span>
+                <kbd>M</kbd>
+                <span class="hud-key-label">mic</span>
+              </div>
             </div>
           </div>
 
@@ -333,15 +343,26 @@
             <div style="font-size:12px;color:var(--text-faint);line-height:1.45;" id="insp-desc"></div>
           </div>
           <div id="agent-popup" class="agent-popup" role="dialog" aria-label="Agent details">
-            <div class="ap-name" id="ap-name">—</div>
-            <div class="ap-status" id="ap-status">—</div>
+            <div class="ap-head">
+              <div class="ap-portrait" id="ap-portrait"></div>
+              <div class="ap-id">
+                <div class="ap-name" id="ap-name">—</div>
+                <span class="ap-status" id="ap-status">—</span>
+              </div>
+            </div>
             <div class="ap-task" id="ap-task" style="display:none"></div>
             <div class="ap-note" id="ap-note" style="display:none"></div>
-            <div class="ap-summon-row" id="ap-summon-row" style="display:none">
-              <button class="ap-summon-btn" id="ap-summon-btn">Call here</button>
-              <span class="ap-summon-err" id="ap-summon-err" style="display:none"></span>
+            <div class="ap-actions">
+              <button class="ap-btn" id="ap-summon-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                <span id="ap-summon-label">Call here</span>
+              </button>
+              <button class="ap-btn is-primary" id="ap-assign-btn" onclick="openDispatchTaskModal()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                Assign
+              </button>
             </div>
-            <button class="primary" id="ap-assign-btn" style="width:100%;margin-top:6px;font-weight:700;display:block;" onclick="openDispatchTaskModal()">🚀 Assign Task</button>
+            <span class="ap-summon-err" id="ap-summon-err" style="display:none"></span>
           </div>
         </div>
 

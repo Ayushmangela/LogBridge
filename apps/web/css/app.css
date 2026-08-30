@@ -362,17 +362,62 @@
     canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
 
     /* Floating Top Command Island */
-    .office-hud-top {
-      position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 50;
-      display: flex; align-items: center; gap: 11px; padding: 6px 16px;
-      background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 30px;
-      box-shadow: 0 10px 30px -5px rgba(0,0,0,0.6), 0 0 15px rgba(99,102,241,0.15);
-      color: var(--text); font-size: 12px; font-weight: 600;
+    /* One row across the top of the map: the meeting-room action on the left,
+       the floor island in the middle. */
+    .office-hud-row {
+      position: absolute; top: 12px; left: 14px; right: 14px; z-index: 50;
+      display: flex; align-items: flex-start; gap: 14px; pointer-events: none;
       animation: fadeInDown .22s cubic-bezier(.2,0,0,1);
     }
-    .hud-chip { display: flex; align-items: center; gap: 6px; }
-    .hud-divider { width: 1px; height: 14px; background: rgba(255, 255, 255, 0.12); }
+    .office-hud-row > * { pointer-events: auto; }
+    .hud-meeting-btn {
+      display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0;
+      font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px;
+      padding: 10px 15px; border-radius: 11px; cursor: pointer;
+      background: rgba(28, 25, 23, 0.9); border: 1px solid var(--border); color: var(--text-dim);
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      transition: all .16s var(--ease-spring);
+    }
+    .hud-meeting-btn:hover { color: var(--text); border-color: var(--border-hover); background: rgba(36, 33, 30, 0.94); }
+    .hud-meeting-btn svg { width: 15px; height: 15px; }
+    .hud-meeting-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+    .office-hud-top {
+      display: flex; align-items: center; gap: 13px; padding: 8px 14px; margin: 0 auto;
+      background: rgba(28, 25, 23, 0.9); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border); border-radius: 13px;
+      box-shadow: 0 12px 32px -6px rgba(0,0,0,0.6);
+      color: var(--text); font-size: 12px; font-weight: 600; min-width: 0;
+    }
+    .hud-place { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .hud-live { color: var(--st-working); display: flex; }
+    .hud-live svg { width: 15px; height: 15px; }
+    .hud-place-text { display: flex; flex-direction: column; line-height: 1.3; }
+    .hud-place-text b { font-size: 13px; font-weight: 650; }
+    .hud-place-text i { font-style: normal; font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                        font-size: 10.5px; font-weight: 400; color: var(--text-faint); }
+    /* the roster strip */
+    .hud-agents { display: flex; align-items: center; gap: 5px; overflow-x: auto; max-width: 46vw; padding: 1px; }
+    .hud-agents::-webkit-scrollbar { height: 0; }
+    .hud-av {
+      width: 32px; height: 32px; flex-shrink: 0; border-radius: 7px; cursor: pointer;
+      background-color: var(--surface-2); background-repeat: no-repeat;
+      background-position: center -2px; background-size: auto 38px;
+      image-rendering: pixelated; border: 1.5px solid var(--border);
+      transition: transform .14s var(--ease-spring), border-color .14s;
+    }
+    .hud-av:hover { transform: translateY(-2px) scale(1.06); }
+    /* The ring is the agent's status — the same carpet colours again. */
+    .hud-av.s-working   { border-color: var(--st-working); }
+    .hud-av.s-reviewing { border-color: var(--st-reviewing); }
+    .hud-av.s-needs     { border-color: var(--st-needs); }
+    .hud-av.s-blocked   { border-color: var(--st-blocked); }
+    .hud-av.s-idle      { border-color: var(--st-idle); }
+    .hud-av.s-done      { border-color: var(--st-done); }
+
+    .hud-chip { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .hud-key-label { opacity: .6; font-size: 11px; font-weight: 400; }
+    .hud-divider { width: 1px; height: 22px; background: var(--border); flex-shrink: 0; }
     .hud-chip kbd {
       background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15);
       border-radius: 4px; padding: 1px 5px; font-family: 'IBM Plex Mono', monospace;
@@ -1299,27 +1344,68 @@
     .badge-blocked { background: rgba(168, 85, 247, 0.15); color: var(--st-done); border: 1px solid rgba(168, 85, 247, 0.3); }
     .badge-needs   { background: rgba(212,157,73, 0.15); color: var(--st-blocked); border: 1px solid rgba(212,157,73, 0.3); }
     /* agent head popup (phase 3): glanceable card anchored above sprite */
+    /* The hover card. Wider than before because it now carries a portrait and
+       two side-by-side actions, matching the office-map card in the design. */
     .agent-popup {
-      position: absolute; z-index: 45; width: 186px; max-width: 196px;
-      background: rgba(15, 23, 42, 0.94); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px;
-      padding: 10px 12px; box-shadow: 0 10px 28px rgba(0,0,0,0.6);
+      position: absolute; z-index: 45; width: 244px;
+      background: rgba(28, 25, 23, 0.96); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border); border-radius: 13px;
+      padding: 13px; box-shadow: 0 16px 40px rgba(0,0,0,0.65);
       display: none; pointer-events: auto;
     }
     .agent-popup.open { display: block; }
-    .ap-name { font-weight: 750; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .ap-status { font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--accent); margin-top: 2px; }
-    .ap-task { font-size: 11.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 5px; }
-    .ap-note { font-size: 11px; color: var(--text-faint); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
-    .ap-summon-row { margin-top: 8px; display: flex; align-items: center; gap: 6px; }
-    .ap-summon-btn {
-      font: inherit; font-size: 11.5px; font-weight: 650; padding: 5px 11px; border-radius: 7px;
-      cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--text);
-      box-shadow: 0 2px 8px rgba(99,102,241,0.35); transition: all .14s ease;
+    .ap-head { display: flex; align-items: center; gap: 11px; }
+    /* Same 32x48-frame-0 crop the roster and Command Center use, so an agent
+       looks like itself everywhere. */
+    .ap-portrait {
+      width: 38px; height: 38px; flex: none; border-radius: 9px;
+      border: 1px solid var(--border); background-color: var(--surface-2);
+      background-repeat: no-repeat; background-position: center -2px;
+      background-size: auto 46px; image-rendering: pixelated;
     }
-    .ap-summon-btn:hover { filter: brightness(1.1); box-shadow: 0 4px 12px rgba(99,102,241,0.5); }
-    .ap-summon-btn.dismiss { background: rgba(255,255,255,0.06); color: var(--text-dim); border-color: var(--border); box-shadow: none; }
-    .ap-summon-btn.dismiss:hover { border-color: var(--red); color: var(--red); background: rgba(239,68,68,0.1); }
+    .ap-id { min-width: 0; display: flex; flex-direction: column; gap: 5px; align-items: flex-start; }
+    .ap-name { font-weight: 700; font-size: 14px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ap-status {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 11px; font-weight: 600; padding: 2px 9px 2px 7px; border-radius: 20px;
+      background: var(--surface-3); border: 1px solid var(--border); color: var(--text-dim);
+      text-transform: capitalize;
+    }
+    .ap-status::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+    .ap-status.s-working   { color: var(--st-working);   background: rgba(116,175,125,0.12); border-color: rgba(116,175,125,0.28); }
+    .ap-status.s-reviewing { color: var(--st-reviewing); background: rgba(128,179,219,0.12); border-color: rgba(128,179,219,0.28); }
+    .ap-status.s-needs     { color: var(--st-needs);     background: rgba(206,196,161,0.12); border-color: rgba(206,196,161,0.28); }
+    .ap-status.s-blocked   { color: var(--st-blocked);   background: rgba(212,157,73,0.12);  border-color: rgba(212,157,73,0.28); }
+    .ap-status.s-idle      { color: var(--st-idle);      background: rgba(202,158,119,0.12); border-color: rgba(202,158,119,0.28); }
+    .ap-status.s-done      { color: var(--st-done);      background: rgba(162,141,211,0.12); border-color: rgba(162,141,211,0.28); }
+
+    .ap-task { font-size: 12.5px; color: var(--text-dim); line-height: 1.4; margin-top: 11px; }
+    .ap-note { font-size: 11.5px; color: var(--text-faint); font-style: italic; margin-top: 5px; }
+    .ap-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 12px; }
+    .ap-btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      font: inherit; font-size: 12px; font-weight: 550; padding: 8px 10px; border-radius: 8px;
+      cursor: pointer; border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+      transition: all .14s var(--ease-spring);
+    }
+    .ap-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+    .ap-btn:hover { background: var(--surface-3); border-color: var(--border-hover); }
+    .ap-btn.is-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 650; }
+    .ap-btn.is-primary:hover { background: var(--accent-bright); }
+    .ap-btn.dismiss { color: var(--st-fail); }
+    .ap-btn.dismiss:hover { background: rgba(221,85,75,0.12); border-color: rgba(221,85,75,0.3); }
+    .ap-summon-err { display: block; font-size: 11px; color: var(--red); margin-top: 7px; line-height: 1.35; }
+
+    /* the Command Center header keeps its own summon button styling */
+    .ap-summon-btn {
+      display: inline-flex; align-items: center; gap: 7px;
+      font: inherit; font-size: 12.5px; font-weight: 550; padding: 7px 13px; border-radius: 9px;
+      cursor: pointer; border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+      transition: all .16s var(--ease-spring);
+    }
+    .ap-summon-btn:hover { background: var(--surface-3); border-color: var(--border-hover); }
+    .ap-summon-btn.dismiss { color: var(--st-fail); }
+    .ap-summon-btn.dismiss:hover { background: rgba(221,85,75,0.12); border-color: rgba(221,85,75,0.3); }
     /* ---- Hive Tasks Kanban Board ---- */
     .kanban-wrapper { display: flex; flex-direction: column; height: 100%; min-height: 480px; gap: 12px; }
     .kanban-topbar { display: flex; justify-content: space-between; align-items: center; padding: 4px 2px; }
