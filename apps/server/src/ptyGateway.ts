@@ -287,6 +287,37 @@ export function spawnOrGetPtySession(
 
   const currentSession = session;
 
+  // ---- readiness: "starting" until the CLI's prompt actually appears ----
+  //
+  // A cold CLI takes 10-20s to boot. Reporting "idle" through that window is
+  // a lie the office cannot recover from: idle means "ready and taking work",
+  // so a booting agent looked like one that was ignoring you.
+  //
+  // Only ever moves idle <-> starting. A real status (working, needs_input,
+  // ...) is never clobbered — the runner owns those, and a boot notice must
+  // not overwrite what an agent is actually doing.
+  let markedStarting = false;
+  const setStarting = () => {
+    if (!agentId) return;
+    const row = db.prepare("SELECT status FROM agents WHERE id = ?").get(agentId) as any;
+    if (!row || (row.status && row.status !== "idle")) return;
+    db.prepare("UPDATE agents SET status = 'starting' WHERE id = ?").run(agentId);
+    markedStarting = true;
+  };
+  const clearStarting = () => {
+    if (!agentId || !markedStarting) return;
+    markedStarting = false;
+    // Re-read: the agent may legitimately have started working while booting.
+    const row = db.prepare("SELECT status FROM agents WHERE id = ?").get(agentId) as any;
+    if (row?.status === "starting") {
+      db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(agentId);
+    }
+  };
+  setStarting();
+  // A CLI that never prints anything recognisable must not strand the agent
+  // in "starting" forever — silence is not a state the office can show.
+  const readyFallbackTimer = setTimeout(clearStarting, 45_000);
+
   // If fallback to shell, write initial banner into scrollback
   if (!isCli) {
     const banner = formatBanner(title, ver, desc, cwd, accent);
@@ -306,6 +337,13 @@ export function spawnOrGetPtySession(
   }
 
   proc.onData((data: string) => {
+    // The same readiness signal that decides when to seed a prompt also
+    // decides when the agent stops booting — checked unconditionally, because
+    // an agent with no initial prompt still finishes starting up.
+    if (markedStarting && looksReady(data)) {
+      clearTimeout(readyFallbackTimer);
+      clearStarting();
+    }
     // Detect when OpenCode / Claude Code is ready for user input
     if (!promptSeeded && initialPrompt) {
       if (looksReady(data)) {
@@ -328,6 +366,10 @@ export function spawnOrGetPtySession(
   });
 
   proc.onExit(({ exitCode, signal }) => {
+    // A CLI that died during boot never became ready — but leaving the agent
+    // stuck on "starting" would claim it is still coming up. Release it.
+    clearTimeout(readyFallbackTimer);
+    clearStarting();
     const exitMsg = `\r\n\x1b[2m─ process exited (code ${exitCode}${signal ? `, signal ${signal}` : ""}) ─\x1b[0m\r\n`;
     currentSession.scrollback += exitMsg;
     const payload = JSON.stringify({ type: "exit", ptyId, exitCode, signal });

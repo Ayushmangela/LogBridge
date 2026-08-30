@@ -43,6 +43,7 @@
       --st-idle:         #CA9E77;  /* tan        — cafeteria            */
       --st-done:         #A28DD3;  /* plum       — chill room           */
       --st-blocked:      #D49D49;  /* amber      — atrium, blocked      */
+      --st-starting:     #5DB3C0;  /* teal — booting, not yet available */
       --st-neutral:      #CCCCCC;  /* the base floor tile, literally    */
       --st-muted:        #7C756E;
       --st-fail:         #DD554B;  /* failure only — never decoration   */
@@ -183,6 +184,24 @@
     .r-dot.idle        { background: var(--st-idle);       box-shadow: 0 0 6px rgba(202,158,119,0.7); }
     .r-dot.done        { background: var(--st-done);       box-shadow: 0 0 6px rgba(162,141,211,0.7); }
     .r-dot.failed      { background: var(--st-fail);       box-shadow: 0 0 6px rgba(221,85,75,0.7); }
+    /* Booting. It pulses because it is the one status that is TRANSIENT —
+       the motion says "wait", which no static colour can. */
+    .r-dot.starting    { background: var(--st-starting);   animation: bootPulse 1.4s ease-in-out infinite; }
+    @keyframes bootPulse {
+      0%, 100% { opacity: 1;   box-shadow: 0 0 0 0 rgba(93,179,192,0.55); }
+      50%      { opacity: .55; box-shadow: 0 0 0 4px rgba(93,179,192,0); }
+    }
+
+    /* Every status pill in the app shares one "starting" treatment. */
+    .cc-status-pill.s-starting, .ap-status.s-starting,
+    .insp-status.s-starting, .chat-mention-sub.s-starting {
+      color: var(--st-starting); background: rgba(93,179,192,0.12); border-color: rgba(93,179,192,0.30);
+    }
+    .cc-status-pill.s-starting::before, .ap-status.s-starting::before,
+    .insp-status.s-starting::before {
+      animation: bootPulse 1.4s ease-in-out infinite;
+    }
+    .hud-av.s-starting { border-color: var(--st-starting); animation: bootPulse 1.4s ease-in-out infinite; }
 
     /* Pixel sprites must never be smoothed — the office art is 32px tiles. */
     .av.bot, .cc-portrait, .roster-av { image-rendering: pixelated; }
@@ -399,10 +418,15 @@
     /* the roster strip */
     .hud-agents { display: flex; align-items: center; gap: 5px; overflow-x: auto; max-width: 46vw; padding: 1px; }
     .hud-agents::-webkit-scrollbar { height: 0; }
+    /* The character sheets are 1664x48 — 52 frames of 32x48. To show FRAME 0
+       in a box W wide you must anchor at 0 0 and scale the sheet so one frame
+       is exactly W: height = W / 32 * 48. Anchoring at `center` lands halfway
+       along a 52-frame strip, which is why it rendered two characters at once.
+       36 wide -> 36/32*48 = 54. */
     .hud-av {
-      width: 32px; height: 32px; flex-shrink: 0; border-radius: 7px; cursor: pointer;
+      width: 36px; height: 36px; flex-shrink: 0; border-radius: 8px; cursor: pointer;
       background-color: var(--surface-2); background-repeat: no-repeat;
-      background-position: center -2px; background-size: auto 38px;
+      background-position: 0 0; background-size: auto 54px;
       image-rendering: pixelated; border: 1.5px solid var(--border);
       transition: transform .14s var(--ease-spring), border-color .14s;
     }
@@ -1322,22 +1346,114 @@
     #aa-import-note ul { margin: 6px 0 0 16px; }
 
     /* inspector, floated over the office */
+    /* A full-height rail down the right edge, not a floating card: it holds a
+       task, four controls, four sub-tabs and a pinned footer, and that does
+       not fit in a popover without becoming cramped. */
     .inspector {
-      position: absolute; left: 14px; bottom: 54px; z-index: 40; width: 310px;
-      background: rgba(15, 23, 42, 0.94); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-      border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 14px;
-      padding: 16px; box-shadow: 0 12px 36px rgba(0,0,0,0.6); display: none;
-      color: var(--text);
+      position: absolute; top: 0; right: 0; bottom: 0; z-index: 40; width: 380px; max-width: 92vw;
+      background: var(--surface); border-left: 1px solid var(--border);
+      box-shadow: -20px 0 50px -20px rgba(0,0,0,0.7);
+      display: none; flex-direction: column; color: var(--text);
+      transform: translateX(100%); transition: transform .24s var(--ease-spring);
     }
-    .inspector.open { display: block; }
-    .inspector-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
-    .inspector-name { font-weight: 750; font-size: 15px; color: var(--text); }
+    .inspector.open { display: flex; transform: translateX(0); }
+    .inspector-header {
+      display: flex; justify-content: space-between; align-items: center; gap: 12px;
+      padding: 15px 16px; border-bottom: 1px solid var(--border-soft); flex-shrink: 0;
+    }
+    .insp-id { display: flex; align-items: center; gap: 11px; min-width: 0; }
+    .insp-portrait {
+      width: 42px; height: 42px; flex: none; border-radius: 9px;
+      border: 1px solid var(--border); background-color: var(--surface-2);
+      background-repeat: no-repeat; background-position: 0 0;
+      background-size: auto 63px;   /* 42/32*48 — see .hud-av */ image-rendering: pixelated;
+    }
+    .insp-id-text { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }
+    .inspector-name { font-weight: 700; font-size: 16px; color: var(--text);
+                      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .insp-status {
+      display: inline-flex; align-items: center; gap: 6px; text-transform: capitalize;
+      font-size: 11.5px; font-weight: 600; padding: 2px 10px 2px 8px; border-radius: 20px;
+      background: var(--surface-3); border: 1px solid var(--border); color: var(--text-dim);
+    }
+    .insp-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .insp-status.s-working   { color: var(--st-working);   background: rgba(116,175,125,0.12); border-color: rgba(116,175,125,0.28); }
+    .insp-status.s-reviewing { color: var(--st-reviewing); background: rgba(128,179,219,0.12); border-color: rgba(128,179,219,0.28); }
+    .insp-status.s-needs     { color: var(--st-needs);     background: rgba(206,196,161,0.12); border-color: rgba(206,196,161,0.28); }
+    .insp-status.s-blocked   { color: var(--st-blocked);   background: rgba(212,157,73,0.12);  border-color: rgba(212,157,73,0.28); }
+    .insp-status.s-idle      { color: var(--st-idle);      background: rgba(202,158,119,0.12); border-color: rgba(202,158,119,0.28); }
+    .insp-status.s-done      { color: var(--st-done);      background: rgba(162,141,211,0.12); border-color: rgba(162,141,211,0.28); }
     .inspector-close {
-      background: rgba(255, 255, 255, 0.08); border: none; color: var(--text-dim); font-size: 14px;
-      cursor: pointer; width: 24px; height: 24px; border-radius: 6px; display: flex;
-      align-items: center; justify-content: center; transition: all .15s;
+      background: none; border: 1px solid var(--border); color: var(--text-dim);
+      cursor: pointer; width: 28px; height: 28px; border-radius: 7px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; transition: all .15s;
     }
-    .inspector-close:hover { background: rgba(255, 255, 255, 0.16); color: var(--text); }
+    .inspector-close svg { width: 15px; height: 15px; }
+    .inspector-close:hover { background: var(--surface-3); color: var(--text); }
+
+    .insp-scroll { flex: 1; overflow-y: auto; padding: 16px; min-height: 0; }
+    .insp-sub-line { font-size: 12px; color: var(--text-faint); margin-bottom: 12px; }
+    .insp-sub-line:empty { display: none; }
+
+    .insp-task { border: 1px dashed var(--border); border-radius: 11px; padding: 22px 16px; margin-bottom: 14px; }
+    .insp-task.has-task { border-style: solid; background: var(--surface-2); padding: 14px 16px; }
+    .insp-task-empty { text-align: center; font-size: 13px; color: var(--text-faint); }
+    .insp-task-title { font-size: 13.5px; font-weight: 600; line-height: 1.4; }
+    .insp-task-meta { display: flex; justify-content: space-between; margin-top: 9px;
+                      font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                      font-size: 11.5px; color: var(--text-faint); }
+
+    .insp-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+    .insp-btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+      font: inherit; font-size: 12.5px; font-weight: 550; padding: 10px; border-radius: 9px;
+      cursor: pointer; border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+      transition: all .15s var(--ease-spring);
+    }
+    .insp-btn svg { width: 14px; height: 14px; flex-shrink: 0; opacity: .85; }
+    .insp-btn:hover { background: var(--surface-3); border-color: var(--border-hover); }
+    .insp-btn.is-danger { color: var(--st-fail); }
+    .insp-btn.is-danger:hover { background: rgba(221,85,75,0.12); border-color: rgba(221,85,75,0.3); }
+    .insp-btn:disabled { opacity: .4; cursor: not-allowed; }
+    .insp-btn:disabled:hover { background: var(--surface-2); border-color: var(--border); }
+
+    /* Underline sub-tabs, matching the Command Center's tab bar. */
+    .insp-sections { margin-bottom: 14px; }
+    .insp-subtabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border-soft); margin-bottom: 12px; }
+    .insp-subtab {
+      font: inherit; font-size: 12.5px; font-weight: 500; padding: 9px 11px;
+      background: none; border: none; border-bottom: 2px solid transparent;
+      color: var(--text-dim); cursor: pointer; transition: color .15s, border-color .15s;
+      display: inline-flex; align-items: center; gap: 5px;
+    }
+    .insp-subtab:hover { color: var(--text); }
+    .insp-subtab.active { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
+    .insp-subtab-n { font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                     font-size: 10.5px; color: var(--text-faint); }
+    .insp-subtab-n:empty { display: none; }
+    .insp-sub-content { font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                        font-size: 12px; color: var(--text-dim); line-height: 1.9; }
+    .insp-desc { font-size: 12.5px; color: var(--text-faint); line-height: 1.5; }
+    .insp-desc:empty { display: none; }
+
+    .insp-foot { flex-shrink: 0; padding: 14px 16px; border-top: 1px solid var(--border-soft);
+                 display: flex; flex-direction: column; gap: 8px; }
+    .insp-primary {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
+      font: inherit; font-size: 13.5px; font-weight: 650; padding: 12px; border-radius: 10px;
+      cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg);
+      transition: background .15s;
+    }
+    .insp-primary:hover { background: var(--accent-bright); }
+    .insp-primary svg { width: 16px; height: 16px; }
+    .insp-more {
+      display: flex; align-items: center; justify-content: space-between; width: 100%;
+      font: inherit; font-size: 13px; font-weight: 550; padding: 11px 14px; border-radius: 10px;
+      cursor: pointer; border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+      transition: all .15s;
+    }
+    .insp-more:hover { background: var(--surface-3); border-color: var(--border-hover); }
+    .insp-more svg { width: 15px; height: 15px; color: var(--text-faint); }
     .inspector-badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 10.5px; font-weight: 700; }
     .badge-working { background: rgba(16, 185, 129, 0.15); color: var(--st-working); border: 1px solid rgba(16, 185, 129, 0.3); }
     .badge-idle    { background: rgba(148, 163, 184, 0.15); color: var(--text-dim); border: 1px solid rgba(148, 163, 184, 0.25); }
@@ -1360,8 +1476,8 @@
     .ap-portrait {
       width: 38px; height: 38px; flex: none; border-radius: 9px;
       border: 1px solid var(--border); background-color: var(--surface-2);
-      background-repeat: no-repeat; background-position: center -2px;
-      background-size: auto 46px; image-rendering: pixelated;
+      background-repeat: no-repeat; background-position: 0 0;
+      background-size: auto 57px;   /* 38/32*48 — see .hud-av */ image-rendering: pixelated;
     }
     .ap-id { min-width: 0; display: flex; flex-direction: column; gap: 5px; align-items: flex-start; }
     .ap-name { font-weight: 700; font-size: 14px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

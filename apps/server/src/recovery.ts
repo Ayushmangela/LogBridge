@@ -9,6 +9,8 @@ import { logger } from "./logger.js";
 export interface RecoveryReport {
   recoveredTasksCount: number;
   reconciledAttemptsCount: number;
+  /** Agents left mid-boot by an unclean restart; see recoverServerState. */
+  releasedStartingCount: number;
   timestamp: string;
 }
 
@@ -19,6 +21,7 @@ export function recoverServerState(db: Db): RecoveryReport {
   const now = new Date().toISOString();
   let recoveredTasksCount = 0;
   let reconciledAttemptsCount = 0;
+  let releasedStartingCount = 0;
 
   try {
     // 1. Identify tasks stranded in 'working' or 'assigned' states
@@ -79,9 +82,24 @@ export function recoverServerState(db: Db): RecoveryReport {
       });
     }
 
+    // 3. Release agents stranded in "starting".
+    //
+    // The status is persisted in the database, but the thing that clears it —
+    // the CLI's readiness signal, and its timeout — lives in the PTY session,
+    // which dies with the process. So a restart mid-boot would leave an agent
+    // claiming to be starting up forever, with nothing left alive to ever
+    // contradict it. A booting agent cannot survive a restart by definition:
+    // its PTY was a child of this process. Anything still "starting" here is
+    // therefore stale, not in progress.
+    const strandedStarting = db
+      .prepare("UPDATE agents SET status = 'idle' WHERE status = 'starting'")
+      .run();
+    releasedStartingCount = strandedStarting.changes ?? 0;
+
     logger.info("Startup state recovery completed", {
       recoveredTasksCount,
       reconciledAttemptsCount,
+      releasedStartingCount,
     });
   } catch (err: any) {
     logger.error("Error during startup recovery", { error: err.message });
@@ -90,6 +108,7 @@ export function recoverServerState(db: Db): RecoveryReport {
   return {
     recoveredTasksCount,
     reconciledAttemptsCount,
+    releasedStartingCount,
     timestamp: now,
   };
 }

@@ -7,6 +7,11 @@ export const AgentRole = z.enum([
 ]);
 
 export const AgentStatus = z.enum([
+  // ★ 1.27 "starting" — the agent exists and its CLI is booting, but it
+  // cannot take work yet. Before this, a booting agent reported "idle",
+  // which is indistinguishable from ready and made a 10-20s cold start look
+  // like an agent that was simply ignoring you.
+  "starting",
   "idle", "working", "waiting", "blocked",
   "needs_input", "reviewing", "completed", "failed",
 ]);
@@ -485,6 +490,13 @@ export function zoneFor(a: {
   if (a.status === "blocked" && a.waitingOn?.includes("@")) return "collaborating";
   if (a.status === "working" && a.hasLiveDelegation) return "collaborating";
   switch (a.status) {
+    // A booting agent stands where an agent with nothing to do stands. It is
+    // deliberately NOT given a zone of its own: the map has no lobby rect
+    // (assets/office.json ships cabin/working/blocked/reviewing/collaborating/
+    // idle/done), and inventing a ZoneId the renderer cannot place would blank
+    // the office. The distinction is carried by STATUS everywhere status is
+    // shown — roster dot, pills, HUD ring — which is where it is legible.
+    case "starting":
     case "idle":
     case "waiting":
       return "idle";

@@ -1,7 +1,7 @@
 # The Contract
 ### Single source of truth for everything exchanged between the office and the system.
 
-**Version 1.26** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
+**Version 1.27** · Copies of this appear inside `OFFICE.md` and `SYSTEM.md` for reading convenience. **If they ever disagree, this file wins.**
 
 > **Rule: never change this file alone.** Both people present, both agree, bump the version, add a changelog line. A contract one person edited is not a contract.
 
@@ -111,7 +111,7 @@ type AgentView = {
   machineId: string
   machineName: string          // "ayush-mbp"         ← display under the sprite
   role: AgentRole
-  status: AgentStatus
+  status: AgentStatus         // ★ 1.27 gains "starting" — booting, cannot take work yet
   zone: ZoneId                 // ★ server decides. office obeys.
   slot: number                 // ★ stable index within the zone
   zoneAnchor: number | null    // ★ when zone === "needs_human": WHICH cabin (0-3),
@@ -300,6 +300,7 @@ Five tilesets are registered in the map, all 32 px:
 
 | Version | Change | Why |
 |---|---|---|
+| **1.27** | **`AgentStatus` gains `"starting"`** — the agent exists, its CLI is booting, and it cannot take work yet | A cold CLI takes 10–20s to come up, and through that whole window the agent reported **`idle`** — the same value a ready agent reports. So a booting agent was indistinguishable from one ignoring you, and nothing on screen said "wait". The state is set when the PTY spawns and cleared on the CLI's own readiness signal (`looksReady()` in `ptyGateway.ts` — the same marker that already decides when a prompt can be seeded), with a 45s ceiling and a clear on process exit so a silent CLI can never strand an agent in it. Two invariants, both tested in `agentStarting.test.ts`: it **only ever moves `idle` ↔ `starting`**, never overwriting a real status the runner owns; and `zoneFor("starting")` returns the existing **`idle`** zone rather than a new `ZoneId` — `assets/office.json` has no lobby rect, and emitting a zone the renderer cannot place would fail view validation and blank the office for everyone, exactly as 1.22 did. The distinction is carried by status on every surface that shows status (roster dot, pills, HUD ring), which is where it is legible |
 | **1.26** | Added **`Room.ghRepo: string \| null`** | `Room.pulls` (1.16) has shipped since the GitHub mirror was built, but nothing in the browser ever rendered it — the office had no PR/CI panel, and the state the mirror had been tracking the whole time was invisible. Building that panel meant linking each `PullView` back to `github.com/<owner>/<repo>/pull/<n>`, and the browser had no way to know the repo slug: `Room.name` is a display string (`"acme/api"`), and the `projects.gh_repo` column is overloaded — the GitHub mirror writes an `owner/repo` slug there, but a hand-created project can carry a local filesystem path in the same column (`routes/agents.ts` reads it as a workspace folder). The new field just exposes the raw column; the browser is the one that checks the value looks like a slug (`/^[\w.-]+\/[\w.-]+$/`) before building a link, same shape-check either side of the wire could have done — done client-side so a local-path project never gets a garbage `github.com/...` link |
 | **1.25** | Added agent lifecycle fields (**`paused`**, **`retired`**), health metrics (**`health`**, **`machineOnline`**), monitor fields (**`contextUsed`**, **`contextLimit`**, **`toolCalls`**, **`cwd`**, **`model`**), and new HTTP endpoints (lifecycle, history, steer, move, clone, traces, output, git, engine, graph) | Supports floor management across HANDOFF-SERVER-2, 3, and 4. Paused and retired agents remain visible in the room while being excluded from orchestrator routing; health surfaces uptime and failure rates in the view; monitor console tracks context tokens and tool calls; git state inspects runner worktrees without server-side filesystem access; steer injects prompt context; message graph projects inter-agent communications strictly from envelope metadata without violating sealed payload confidentiality |
 | **1.24** | Added **`Room.triggers: TriggerView[]`** — standing rules that create tasks | Triggers are stored per project and projected into the view so the browser can list them without inventing its own. Always an array (empty when no triggers) so a database written before triggers existed still produces a valid view — a required field with no value would have blanked the office for every viewer until each trigger was recreated. Stream A builds its list UI against this |

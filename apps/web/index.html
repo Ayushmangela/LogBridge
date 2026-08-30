@@ -310,37 +310,79 @@
               </button>
             </form>
           </div>
+          <!-- Inspector: the full-height panel for one agent. Same identity
+               header as the hover card and the Command Center, so an agent
+               looks like itself on all three surfaces. -->
           <div class="inspector" id="inspector">
             <div class="inspector-header">
-              <div><div class="inspector-name" id="insp-name">—</div>
-                   <div style="font-size:11.5px;color:var(--text-faint);" id="insp-sub"></div></div>
-              <button class="inspector-close" onclick="closeInspector()">×</button>
-            </div>
-            <div style="margin-bottom:10px;"><span class="inspector-badge badge-idle" id="insp-badge">—</span></div>
-            <div style="background:var(--surface-2);border:1px solid var(--border-soft);padding:11px;border-radius:9px;margin-bottom:10px;">
-              <div class="meta-k">Active task</div>
-              <div style="font-weight:600;font-size:13px;margin-top:3px;" id="insp-task-title">—</div>
-              <div style="display:flex;justify-content:space-between;margin-top:7px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-faint);">
-                <span id="insp-elapsed"></span><span id="insp-cost"></span></div>
-              <div id="insp-task-controls" style="display:none;gap:6px;margin-top:9px;padding-top:8px;border-top:1px solid var(--border-soft);">
-                <button id="insp-pause-btn" class="cc-tab" style="flex:1;padding:5px;font-size:11px;" onclick="controlActiveTask('pause')">⏸️ Pause</button>
-                <button id="insp-resume-btn" class="cc-tab" style="flex:1;padding:5px;font-size:11px;display:none;" onclick="controlActiveTask('resume')">▶️ Resume</button>
-                <button id="insp-halt-btn" class="cc-tab" style="flex:1;padding:5px;font-size:11px;color:var(--red);border-color:rgba(239,68,68,0.3);" onclick="controlActiveTask('halt')">⏹️ Halt</button>
-                <button id="insp-steer-btn" class="cc-tab" style="flex:1;padding:5px;font-size:11px;color:var(--accent);" onclick="promptQuickSteer()">🧭 Steer</button>
-              </div>
-              <div id="insp-task-subsections" style="display:none;margin-top:10px;padding-top:8px;border-top:1px solid var(--border-soft);">
-                <div style="display:flex;gap:3px;margin-bottom:8px;overflow-x:auto;">
-                  <button id="insp-sub-attempts-btn" class="cc-tab active" style="flex:1;padding:4px 5px;font-size:10px;white-space:nowrap;" onclick="switchInspSection('attempts')">Attempts (<span id="insp-attempts-count">0</span>)</button>
-                  <button id="insp-sub-artifacts-btn" class="cc-tab" style="flex:1;padding:4px 5px;font-size:10px;white-space:nowrap;" onclick="switchInspSection('artifacts')">Artifacts (<span id="insp-artifacts-count">0</span>)</button>
-                  <button id="insp-sub-routing-btn" class="cc-tab" style="flex:1;padding:4px 5px;font-size:10px;white-space:nowrap;" onclick="switchInspSection('routing')">Routing</button>
-                  <button id="insp-sub-context-btn" class="cc-tab" style="flex:1;padding:4px 5px;font-size:10px;white-space:nowrap;" onclick="switchInspSection('context')">Context</button>
+              <div class="insp-id">
+                <div class="insp-portrait" id="insp-portrait"></div>
+                <div class="insp-id-text">
+                  <div class="inspector-name" id="insp-name">—</div>
+                  <span class="insp-status" id="insp-badge">—</span>
                 </div>
-                <div id="insp-sub-content" style="font-size:11.5px;max-height:160px;overflow-y:auto;"></div>
               </div>
+              <button class="inspector-close" onclick="closeInspector()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
             </div>
-            <button class="primary" id="insp-assign-btn" style="width:100%;margin-bottom:8px;padding:8px 12px;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px;" onclick="openDispatchTaskModal()">🚀 Assign Task</button>
-            <button class="card-link" id="insp-more" style="margin-bottom:10px;">Command Center →</button>
-            <div style="font-size:12px;color:var(--text-faint);line-height:1.45;" id="insp-desc"></div>
+
+            <div class="insp-scroll">
+              <div class="insp-sub-line" id="insp-sub"></div>
+
+              <!-- Active task. The dashed frame is the empty state: it reads
+                   as a slot waiting to be filled, not as a broken card. -->
+              <div class="insp-task" id="insp-task-card">
+                <div class="insp-task-empty" id="insp-task-empty">No active task</div>
+                <div class="insp-task-body" id="insp-task-body" style="display:none">
+                  <div class="insp-task-title" id="insp-task-title">—</div>
+                  <div class="insp-task-meta">
+                    <span id="insp-elapsed"></span><span id="insp-cost"></span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 2x2, because four equal verbs in one row read as a toolbar
+                   rather than as choices. -->
+              <div id="insp-task-controls" class="insp-controls">
+                <button id="insp-pause-btn" class="insp-btn" onclick="controlActiveTask('pause')">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                  Pause</button>
+                <button id="insp-resume-btn" class="insp-btn" onclick="controlActiveTask('resume')">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 3l14 9-14 9V3z"/></svg>
+                  Resume</button>
+                <button id="insp-halt-btn" class="insp-btn is-danger" onclick="controlActiveTask('halt')">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg>
+                  Halt</button>
+                <button id="insp-steer-btn" class="insp-btn" onclick="promptQuickSteer()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5 5-2z"/></svg>
+                  Steer</button>
+              </div>
+
+              <div id="insp-task-subsections" class="insp-sections">
+                <div class="insp-subtabs">
+                  <button id="insp-sub-attempts-btn" class="insp-subtab active" onclick="switchInspSection('attempts')">Attempts<span class="insp-subtab-n" id="insp-attempts-count"></span></button>
+                  <button id="insp-sub-artifacts-btn" class="insp-subtab" onclick="switchInspSection('artifacts')">Artifacts<span class="insp-subtab-n" id="insp-artifacts-count"></span></button>
+                  <button id="insp-sub-routing-btn" class="insp-subtab" onclick="switchInspSection('routing')">Routing</button>
+                  <button id="insp-sub-context-btn" class="insp-subtab" onclick="switchInspSection('context')">Context</button>
+                </div>
+                <div id="insp-sub-content" class="insp-sub-content"></div>
+              </div>
+
+              <div class="insp-desc" id="insp-desc"></div>
+            </div>
+
+            <!-- Pinned: the two things you came here to do. -->
+            <div class="insp-foot">
+              <button class="insp-primary" id="insp-assign-btn" onclick="openDispatchTaskModal()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                Assign Task
+              </button>
+              <button class="insp-more" id="insp-more">
+                Command Center
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              </button>
+            </div>
           </div>
           <div id="agent-popup" class="agent-popup" role="dialog" aria-label="Agent details">
             <div class="ap-head">

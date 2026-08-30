@@ -812,7 +812,7 @@
     // Everyone on the floor, as a strip of portraits ringed by status.
     // Rebuilt from the view like everything else — the strip cannot show an
     // agent the server has not projected.
-    const HUD_TINT = { working: 's-working', reviewing: 's-reviewing', collaborating: 's-reviewing',
+    const HUD_TINT = { starting: 's-starting', working: 's-working', reviewing: 's-reviewing', collaborating: 's-reviewing',
                        needs_input: 's-needs', needs_human: 's-needs', blocked: 's-blocked',
                        idle: 's-idle', done: 's-done', completed: 's-done' };
     function renderHudAgents(room) {
@@ -821,12 +821,19 @@
       el.innerHTML = '';
       for (const a of room?.agents ?? []) {
         const av = document.createElement('button');
-        av.className = 'hud-av ' + (HUD_TINT[a.zone] || HUD_TINT[a.status] || 's-idle');
+        // Status wins for "starting": its zone is `idle` (the map has no
+        // lobby), so keying off zone alone would silently drop the ring.
+        av.className = 'hud-av ' + (a.status === 'starting'
+          ? 's-starting'
+          : (HUD_TINT[a.zone] || HUD_TINT[a.status] || 's-idle'));
         const sprite = (a.character && CHAR_NAMES.includes(a.character))
           ? a.character
           : CHAR_NAMES[hashString(a.id) % CHAR_NAMES.length];
         av.style.backgroundImage = 'url(/assets/characters/' + sprite + '.png)';
-        av.title = `${a.name} — ${String(a.status || '').replace(/_/g, ' ')}`;
+        // Deliberately no title= — a native tooltip is a black OS box that
+        // covers the map and cannot be styled. The island's subtitle names
+        // the agent instead, which is what "hover an agent" refers to.
+        av.setAttribute('aria-label', `${a.name} — ${String(a.status || '').replace(/_/g, ' ')}`);
         av.onclick = () => openCommandCenter(a.id);
         // Hovering the strip names the agent in the island's subtitle, which
         // is what "hover an agent" in the placeholder is telling you to do.
@@ -1218,9 +1225,13 @@
 
       const addRow = (a) => el.appendChild(rosterRow({
         name: a.name, bot: true, status: a.status,
-        // The note is a human's annotation and wins over machine chatter:
-        // if someone wrote "flaky on staging", that is the thing to show.
-        sub: a.note || (a.task ? a.task.title : (a.description || a.status)),
+        // A booting agent says so before anything else: its description would
+        // read as though it were ready, which is the confusion "starting"
+        // exists to remove. Otherwise the human's note wins over machine
+        // chatter — if someone wrote "flaky on staging", show that.
+        sub: a.status === 'starting'
+          ? 'starting up…'
+          : (a.note || (a.task ? a.task.title : (a.description || a.status))),
         onClick: () => openCommandCenter(a.id),
       }));
 
@@ -2128,6 +2139,7 @@
       // The pill's tint is the office room this status maps to, so the header
       // and the floor agree without anyone having to learn a second legend.
       const STATUS_TINT = {
+        starting: 's-starting',
         working: 's-working', reviewing: 's-reviewing', collaborating: 's-reviewing',
         needs_input: 's-needs', blocked: 's-blocked', idle: 's-idle', done: 's-done',
       };
@@ -7164,7 +7176,7 @@
           name.textContent = it.name;
           const sub = document.createElement('div');
           // Tint the status the same way every other surface does.
-          const TINT = { working: 's-working', reviewing: 's-reviewing', collaborating: 's-reviewing',
+          const TINT = { starting: 's-starting', working: 's-working', reviewing: 's-reviewing', collaborating: 's-reviewing',
                          needs_input: 's-needs', blocked: 's-blocked', idle: 's-idle', done: 's-done' };
           sub.className = 'chat-mention-sub ' + (TINT[it.status] || '');
           sub.textContent = String(it.sub ?? '').replace(/_/g, ' ');
@@ -7948,13 +7960,19 @@
           portrait.style.backgroundImage = 'url(/assets/characters/' + sprite + '.png)';
         }
 
-        const [label] = ZONE_BADGE[a.zone] ?? [a.status ?? 'unknown'];
-        const text = (label || a.status || 'unknown').replace(/_/g, ' ');
+        // "starting" has no zone of its own — a booting agent stands in the
+        // idle zone — so the zone label would read "Idle", which is the exact
+        // confusion this status exists to remove. Status wins here.
+        const label = a.status === 'starting'
+          ? 'starting'
+          : (ZONE_BADGE[a.zone]?.[0] ?? a.status ?? 'unknown');
+        const text = String(label).replace(/_/g, ' ');
         statusEl.textContent = text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
-        const TINT = { working: 's-working', reviewing: 's-reviewing', collaborating: 's-reviewing',
+        const TINT = { starting: 's-starting', working: 's-working', reviewing: 's-reviewing', collaborating: 's-reviewing',
                        needs_input: 's-needs', needs_human: 's-needs', blocked: 's-blocked',
                        idle: 's-idle', done: 's-done', completed: 's-done' };
-        statusEl.className = 'ap-status ' + (TINT[a.zone] || TINT[a.status] || 's-idle');
+        statusEl.className = 'ap-status ' +
+          (a.status === 'starting' ? 's-starting' : (TINT[a.zone] || TINT[a.status] || 's-idle'));
         // Task title when present, otherwise hidden — keeps the card to 2-3 lines
         if (a.task && a.task.title) {
           taskEl.textContent = a.task.title;
@@ -8125,40 +8143,65 @@
       const nameEl = document.getElementById('insp-name');
       if (nameEl) nameEl.textContent = a.name;
       const subEl = document.getElementById('insp-sub');
-      if (subEl) subEl.textContent = a.role + ' · ' + (a.machineName || 'local');
+      if (subEl) subEl.textContent = a.description || (a.role + ' · ' + (a.machineName || 'local'));
+
+      // Same sprite as the office, the hover card and the Command Center.
+      const portrait = document.getElementById('insp-portrait');
+      if (portrait) {
+        const sprite = (a.character && CHAR_NAMES.includes(a.character))
+          ? a.character
+          : CHAR_NAMES[hashString(a.id) % CHAR_NAMES.length];
+        portrait.style.backgroundImage = 'url(/assets/characters/' + sprite + '.png)';
+      }
+
       const badge = document.getElementById('insp-badge');
       if (badge) {
-        badge.textContent = a.status;
-        badge.className = 'inspector-badge badge-' + (a.status === 'working' ? 'working' : (a.status === 'blocked' ? 'blocked' : 'idle'));
+        const text = String(a.status || 'idle').replace(/_/g, ' ');
+        badge.textContent = text.charAt(0).toUpperCase() + text.slice(1);
+        const TINT = { starting: 's-starting', working: 's-working', reviewing: 's-reviewing', collaborating: 's-reviewing',
+                       needs_input: 's-needs', blocked: 's-blocked', idle: 's-idle',
+                       done: 's-done', completed: 's-done' };
+        badge.className = 'insp-status ' + (TINT[a.status] || 's-idle');
       }
-      
+
       const titleEl = document.getElementById('insp-task-title');
       const elapsedEl = document.getElementById('insp-elapsed');
       const costEl = document.getElementById('insp-cost');
-      const controls = document.getElementById('insp-task-controls');
       const pauseBtn = document.getElementById('insp-pause-btn');
       const resumeBtn = document.getElementById('insp-resume-btn');
       
+      const taskCard = document.getElementById('insp-task-card');
+      const taskEmpty = document.getElementById('insp-task-empty');
+      const taskBody = document.getElementById('insp-task-body');
+      const haltBtn = document.getElementById('insp-halt-btn');
+      const steerBtn = document.getElementById('insp-steer-btn');
+
       if (a.task && a.task.title) {
+        if (taskCard) taskCard.classList.add('has-task');
+        if (taskEmpty) taskEmpty.style.display = 'none';
+        if (taskBody) taskBody.style.display = 'block';
         if (titleEl) titleEl.textContent = a.task.title;
-        if (elapsedEl) elapsedEl.textContent = '⏱ ' + formatElapsed(a.task.elapsedSec || 0);
-        if (costEl) costEl.textContent = '$' + (a.task.costUsd || 0).toFixed(3);
-        if (controls) controls.style.display = 'flex';
-        if (pauseBtn && resumeBtn) {
-          if (a.status === 'waiting' || a.status === 'paused') {
-            pauseBtn.style.display = 'none';
-            resumeBtn.style.display = 'inline-block';
-          } else {
-            pauseBtn.style.display = 'inline-block';
-            resumeBtn.style.display = 'none';
-          }
-        }
+        if (elapsedEl) elapsedEl.textContent = formatElapsed(a.task.elapsedSec || 0);
+        if (costEl) costEl.textContent = '$' + (a.task.costUsd || 0).toFixed(4);
+        const held = a.status === 'waiting' || a.status === 'paused';
+        // The grid keeps all four slots so the panel does not reflow as a
+        // task changes state; the inapplicable one is disabled, not removed.
+        if (pauseBtn) pauseBtn.disabled = held;
+        if (resumeBtn) resumeBtn.disabled = !held;
+        if (haltBtn) haltBtn.disabled = false;
         renderInspectorSubsections(a);
       } else {
-        if (titleEl) titleEl.textContent = 'No active task';
+        if (taskCard) taskCard.classList.remove('has-task');
+        if (taskEmpty) taskEmpty.style.display = 'block';
+        if (taskBody) taskBody.style.display = 'none';
         if (elapsedEl) elapsedEl.textContent = '';
         if (costEl) costEl.textContent = '';
-        if (controls) controls.style.display = 'none';
+        // Nothing to pause, resume or halt without a task. Steering still
+        // works — it applies to whatever this agent picks up next.
+        if (pauseBtn) pauseBtn.disabled = true;
+        if (resumeBtn) resumeBtn.disabled = true;
+        if (haltBtn) haltBtn.disabled = true;
+        if (steerBtn) steerBtn.disabled = false;
         const subWrap = document.getElementById('insp-task-subsections');
         if (subWrap) subWrap.style.display = 'none';
       }
@@ -8195,10 +8238,10 @@
       const routingBtn = document.getElementById('insp-sub-routing-btn');
       const contextBtn = document.getElementById('insp-sub-context-btn');
 
-      if (attemptsBtn) attemptsBtn.className = 'cc-tab' + (_inspActiveSub === 'attempts' ? ' active' : '');
-      if (artifactsBtn) artifactsBtn.className = 'cc-tab' + (_inspActiveSub === 'artifacts' ? ' active' : '');
-      if (routingBtn) routingBtn.className = 'cc-tab' + (_inspActiveSub === 'routing' ? ' active' : '');
-      if (contextBtn) contextBtn.className = 'cc-tab' + (_inspActiveSub === 'context' ? ' active' : '');
+      if (attemptsBtn) attemptsBtn.className = 'insp-subtab' + (_inspActiveSub === 'attempts' ? ' active' : '');
+      if (artifactsBtn) artifactsBtn.className = 'insp-subtab' + (_inspActiveSub === 'artifacts' ? ' active' : '');
+      if (routingBtn) routingBtn.className = 'insp-subtab' + (_inspActiveSub === 'routing' ? ' active' : '');
+      if (contextBtn) contextBtn.className = 'insp-subtab' + (_inspActiveSub === 'context' ? ' active' : '');
 
       if (_inspActiveSub === 'routing') {
         fetch(`/api/tasks/${taskId}/routing-explanation`)
