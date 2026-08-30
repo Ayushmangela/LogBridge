@@ -6254,9 +6254,15 @@
     let aaCharacter = null;   // null until the person picks; see aaDefaultChar
     let aaColor = null;
 
+    const AA_STEP_ORDER = ['identity', 'workspace', 'engine', 'briefing'];
     function aaShowStep(step) {
-      for (const b of document.querySelectorAll('.wiz-step'))
+      const at = AA_STEP_ORDER.indexOf(step);
+      for (const b of document.querySelectorAll('.wiz-step')) {
+        const i = AA_STEP_ORDER.indexOf(b.dataset.step);
         b.classList.toggle('active', b.dataset.step === step);
+        // Steps behind the current one show a tick instead of their number.
+        b.classList.toggle('done', at > -1 && i > -1 && i < at);
+      }
       for (const p of document.querySelectorAll('.wiz-pane'))
         p.classList.toggle('active', p.dataset.pane === step);
     }
@@ -6984,11 +6990,12 @@
       if (!room) return [];
       const frag = fragment.toLowerCase();
       const agents = (room.agents || []).map((a) => ({
-        id: a.id, name: a.name, bot: true, sub: a.status || a.role || '',
+        id: a.id, name: a.name, bot: true, status: a.status,
+        sub: a.status || a.role || '',
       }));
       const people = (room.humans || [])
         .filter((h) => h.id !== meId)
-        .map((h) => ({ id: h.id, name: h.name, bot: false, sub: 'online' }));
+        .map((h) => ({ id: h.id, name: h.name, bot: false, status: 'online', sub: 'online' }));
       const all = [...agents, ...people];
       if (!frag) return all;
       // Prefix matches first (the common case — typing the start of a
@@ -7039,8 +7046,11 @@
           name.className = 'chat-mention-name';
           name.textContent = it.name;
           const sub = document.createElement('div');
-          sub.className = 'chat-mention-sub';
-          sub.textContent = it.sub;
+          // Tint the status the same way every other surface does.
+          const TINT = { working: 's-working', reviewing: 's-reviewing', collaborating: 's-reviewing',
+                         needs_input: 's-needs', blocked: 's-blocked', idle: 's-idle', done: 's-done' };
+          sub.className = 'chat-mention-sub ' + (TINT[it.status] || '');
+          sub.textContent = String(it.sub ?? '').replace(/_/g, ' ');
           row.append(av, name, sub);
           // mousedown, not click: fires before the input's blur, so the
           // selection lands before anything closes the popup out from

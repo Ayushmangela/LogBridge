@@ -852,12 +852,28 @@
     /* ---- Add Agent wizard ---- */
     .wiz { display: grid; grid-template-columns: 190px 1fr; gap: 18px; align-items: start; }
     .wiz > * { min-width: 0; }
-    .wiz-rail { display: flex; flex-direction: column; gap: 6px; }
-    .wiz-step { text-align: left; border: 1px solid var(--border); background: var(--surface);
-                border-radius: 8px; padding: 9px 11px; cursor: pointer; font: inherit; }
-    .wiz-step b { display: block; font-size: 11.5px; letter-spacing: .6px; text-transform: uppercase; }
-    .wiz-step i { display: block; font-style: normal; font-size: 11px; color: var(--text-faint); margin-top: 2px; }
-    .wiz-step.active { border-color: var(--accent); background: var(--accent-soft); }
+    /* Numbered rail. The number becomes a tick once the step is behind you,
+       so the dialog says how far along you are without a progress bar. */
+    .wiz-rail { display: flex; flex-direction: column; gap: 4px; }
+    .wiz-step { display: flex; align-items: center; gap: 11px;
+                text-align: left; border: 1px solid transparent; background: transparent;
+                border-radius: 9px; padding: 10px 12px; cursor: pointer; font: inherit;
+                color: var(--text-faint); transition: all .15s var(--ease-spring); }
+    .wiz-step::before {
+      content: attr(data-n); flex-shrink: 0;
+      width: 24px; height: 24px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 600;
+      background: var(--surface-3); color: var(--text-faint);
+      transition: all .15s var(--ease-spring);
+    }
+    .wiz-step:hover { background: var(--surface-2); color: var(--text-dim); }
+    .wiz-step b { display: block; font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; }
+    .wiz-step i { display: none; }
+    .wiz-step.active { background: var(--surface-3); color: var(--text); }
+    .wiz-step.active::before { background: var(--accent); color: var(--accent-fg); }
+    .wiz-step.done::before { content: "✓"; background: var(--st-working); color: var(--accent-fg); }
+    .wiz-step.done { color: var(--text-dim); }
     /* Only one pane is in the DOM flow at a time — the dialog must not resize
        as you move between steps, so panes share a min-height. */
     .wiz-panes { min-height: 268px; }
@@ -985,31 +1001,65 @@
     /* chat */
     .chat-wrap { display: flex; flex-direction: column; height: 100%; }
     .chat-log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-bottom: 12px; }
-    .chat-msg { display: flex; gap: 10px; align-items: flex-start; max-width: 640px; }
+    /* Full width, not a 640px bubble column — the approval cards inside a
+       message carry a task spec and need the room. */
+    .chat-msg { display: flex; gap: 11px; align-items: flex-start; }
     .chat-main { flex: 1; min-width: 0; }
-    .chat-from { font-size: 12.5px; font-weight: 700; margin-bottom: 3px; }
-    .chat-from.agent { color: var(--accent); }
-    .chat-body { background: var(--surface-2); border: 1px solid var(--border); border-radius: 11px;
-                 padding: 10px 13px; font-size: 13.5px; line-height: 1.5; overflow-wrap: break-word; }
-    .chat-msg.ask .chat-body { background: rgba(212,157,73,0.08); border-color: rgba(212,157,73,0.35); }
-    .chat-actions { display: flex; gap: 8px; margin-top: 10px; }
-    .chat-actions button { padding: 7px 15px; border-radius: 8px; font-family: inherit;
-                           font-size: 12.5px; font-weight: 650; cursor: pointer; border: 1px solid; }
-    .btn-approve { background: var(--green); border-color: var(--green); color: var(--text); }
-    .btn-approve:hover { filter: brightness(1.07); }
-    .btn-reject { background: var(--surface); border-color: var(--border); color: var(--text-dim); }
-    .btn-reject:hover { border-color: var(--red); color: var(--red); }
+    .chat-from { font-size: 13px; font-weight: 650; margin-bottom: 4px;
+                 display: flex; align-items: center; gap: 8px; }
+    .chat-from.agent { color: var(--st-reviewing); }
+    /* A human's name gets a marker, because in a room where most speakers are
+       agents, the human is the exception worth spotting. */
+    .chat-from .who-tag {
+      font-family: 'IBM Plex Mono', ui-monospace, monospace;
+      font-size: 9px; letter-spacing: .6px; padding: 2px 5px; border-radius: 4px;
+      background: var(--surface-3); color: var(--text-faint); font-weight: 500;
+    }
+    .chat-from .when { font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                       font-size: 10.5px; color: var(--text-faint); font-weight: 400; }
+    .chat-body { font-size: 13.5px; line-height: 1.55; overflow-wrap: break-word; color: var(--text); }
+
+    /* The approval card: an agent proposes work and you act on it without
+       leaving the room. This is the product's most important interaction. */
+    .chat-msg.ask .chat-body {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 11px; padding: 0; overflow: hidden; margin-top: 6px;
+    }
+    .chat-msg.ask .chat-body::before {
+      content: "TASK PROPOSAL · NEEDS APPROVAL";
+      display: block; padding: 9px 14px;
+      background: rgba(212,157,73,0.08); border-bottom: 1px solid rgba(212,157,73,0.22);
+      font-family: 'IBM Plex Mono', ui-monospace, monospace;
+      font-size: 9.5px; letter-spacing: .8px; color: var(--st-blocked);
+    }
+    .chat-msg.ask .chat-body > * { padding-left: 14px; padding-right: 14px; }
+    .chat-msg.ask .chat-body > *:first-of-type { padding-top: 12px; }
+
+    .chat-actions { display: flex; gap: 8px; margin: 12px 0 14px; padding: 0 14px; }
+    .chat-actions button { padding: 8px 15px; border-radius: 8px; font-family: inherit;
+                           font-size: 12.5px; font-weight: 600; cursor: pointer;
+                           border: 1px solid var(--border); background: var(--surface-2);
+                           color: var(--text-dim); display: inline-flex; align-items: center; gap: 6px;
+                           transition: all .15s var(--ease-spring); }
+    .chat-actions button:hover { background: var(--surface-3); color: var(--text); }
+    .btn-approve { background: var(--accent) !important; border-color: var(--accent) !important;
+                   color: var(--accent-fg) !important; font-weight: 650 !important; }
+    .btn-approve:hover { background: var(--accent-bright) !important; }
+    .btn-reject { color: var(--st-fail) !important; }
+    .btn-reject:hover { background: rgba(221,85,75,0.12) !important; color: var(--st-fail) !important; }
     .chat-resolved { font-size: 11.5px; color: var(--text-faint); margin-top: 8px; font-style: italic; }
     .chat-input-row { display: flex; gap: 9px; padding-top: 13px; border-top: 1px solid var(--border-soft); flex-shrink: 0; }
     .chat-input-row input { flex: 1; min-width: 0; background: var(--surface-2); border: 1px solid var(--border);
                             border-radius: 10px; padding: 11px 14px; font-family: inherit; font-size: 13.5px; color: var(--text); }
     .chat-input-row input:focus { outline: none; border-color: var(--accent); background: var(--surface); }
-    .chat-input-row button { background: var(--accent); color: var(--text); border: none; border-radius: 10px;
-                             padding: 0 20px; font-weight: 700; cursor: pointer; font-size: 13px; font-family: inherit; }
+    .chat-input-row button { background: var(--accent); color: var(--accent-fg); border: none; border-radius: 10px;
+                             padding: 0 20px; font-weight: 650; cursor: pointer; font-size: 13px; font-family: inherit;
+                             transition: background .15s; }
+    .chat-input-row button:hover { background: var(--accent-bright); }
     .chat-tip { font-size: 11.5px; color: var(--text-faint); margin-top: 9px; }
     .chat-tip b { color: var(--accent); }
     .chat-mention-popup {
-      position: absolute; left: 0; bottom: calc(100% + 8px); width: 280px; max-height: 260px;
+      position: absolute; left: 0; bottom: calc(100% + 8px); width: 340px; max-height: 300px;
       overflow-y: auto; background: var(--surface-3); border: 1px solid var(--border-hover);
       border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); z-index: 40; padding: 6px;
     }
@@ -1023,7 +1073,16 @@
       justify-content: center; font-size: 12px; flex-shrink: 0; background: var(--surface-2);
     }
     .chat-mention-name { color: var(--text); font-weight: 600; }
-    .chat-mention-sub { color: var(--text-faint); font-size: 11px; margin-left: auto; padding-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* The status is a pill here too, same colours as everywhere else. */
+    .chat-mention-sub { margin-left: auto; padding: 2px 9px 2px 7px; border-radius: 20px; font-size: 11px;
+                        white-space: nowrap; background: var(--surface-2); border: 1px solid var(--border);
+                        color: var(--text-dim); display: inline-flex; align-items: center; gap: 5px; }
+    .chat-mention-sub::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+    .chat-mention-sub.s-working   { color: var(--st-working);   background: rgba(116,175,125,0.12); border-color: rgba(116,175,125,0.28); }
+    .chat-mention-sub.s-reviewing { color: var(--st-reviewing); background: rgba(128,179,219,0.12); border-color: rgba(128,179,219,0.28); }
+    .chat-mention-sub.s-needs     { color: var(--st-needs);     background: rgba(206,196,161,0.12); border-color: rgba(206,196,161,0.28); }
+    .chat-mention-sub.s-blocked   { color: var(--st-blocked);   background: rgba(212,157,73,0.12);  border-color: rgba(212,157,73,0.28); }
+    .chat-mention-sub.s-idle      { color: var(--st-idle);      background: rgba(202,158,119,0.12); border-color: rgba(202,158,119,0.28); }
     .chat-mention-empty { padding: 10px; color: var(--text-faint); font-size: 12px; text-align: center; }
 
     /* memory */
