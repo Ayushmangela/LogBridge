@@ -833,7 +833,9 @@
       const popupW = popup.offsetWidth || 244;
       const popupH = popup.offsetHeight || 130;
       let targetX = (elRect.left + elRect.width / 2) - cardRect.left;
-      let targetY = (elRect.bottom + 8) - cardRect.top;
+      const hudParent = anchorEl.closest('.office-hud-top') || anchorEl.closest('.office-hud-row');
+      const hudBottom = hudParent ? hudParent.getBoundingClientRect().bottom : elRect.bottom;
+      let targetY = (hudBottom + 12) - cardRect.top;
       let x = Math.max(10, Math.min(targetX - popupW / 2, cardRect.width - popupW - 10));
       let y = Math.max(10, Math.min(targetY, cardRect.height - popupH - 10));
       popup.style.left = x + 'px';
@@ -8209,7 +8211,9 @@
           const popupW = popup.offsetWidth || 244;
           const popupH = popup.offsetHeight || 130;
           let targetX = (elRect.left + elRect.width / 2) - cardRect.left;
-          let targetY = (elRect.bottom + 8) - cardRect.top;
+          const hudParent = popupAnchoredEl.closest('.office-hud-top') || popupAnchoredEl.closest('.office-hud-row');
+          const hudBottom = hudParent ? hudParent.getBoundingClientRect().bottom : elRect.bottom;
+          let targetY = (hudBottom + 12) - cardRect.top;
           let x = Math.max(10, Math.min(targetX - popupW / 2, cardRect.width - popupW - 10));
           let y = Math.max(10, Math.min(targetY, cardRect.height - popupH - 10));
           popup.style.left = x + 'px';
