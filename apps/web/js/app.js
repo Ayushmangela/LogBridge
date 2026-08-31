@@ -4664,9 +4664,14 @@
             eErr.style.display = 'block';
             if (res.status === 404) eErr.textContent = 'Engine change not available yet — server has no engine endpoint.';
           } else {
-            eErr.textContent = 'Restarting — engine will change on next heartbeat.';
+            // Report what the server actually did. This used to always claim
+            // "Restarting — engine will change on next heartbeat", which was
+            // untrue twice over: nothing restarted, and no heartbeat swaps a
+            // running process's model.
+            eErr.textContent = data.message
+              || 'Engine changed — the next task starts on the new model.';
             eErr.style.display = 'block';
-            eErr.style.color = 'var(--green)';
+            eErr.style.color = 'var(--st-working)';
             setTimeout(() => { eErr.style.display = 'none'; eErr.style.color = 'var(--red)'; }, 2500);
           }
         } catch (e) {

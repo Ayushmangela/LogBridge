@@ -15,7 +15,7 @@ import { existsSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
-import { getAgentOutput } from "./db.js";
+import { getAgentOutput, appendEvent } from "./db.js";
 import { buildCommanderHivePrompt, buildEmployeeHivePrompt } from "./hivePrompt.js";
 
 interface PtySession {
@@ -370,6 +370,39 @@ export function spawnOrGetPtySession(
     // stuck on "starting" would claim it is still coming up. Release it.
     clearTimeout(readyFallbackTimer);
     clearStarting();
+
+    // An agent whose process died mid-task was left `working`, holding its
+    // task, forever: recoverServerState() only runs at SERVER startup, so a
+    // single CLI crash while the server kept running stranded both the agent
+    // and the work. The agent then looked busy to the roster, to the office,
+    // and to the orchestrator's concurrency check — so nothing was ever
+    // routed to it again.
+    //
+    // The task goes back to `submitted` rather than `failed`: the process
+    // dying tells us nothing about whether the work was wrong, and
+    // `submitted` is a state sendTaskOffer picks straight back up.
+    if (agentId) {
+      try {
+        const row = db.prepare("SELECT status, current_task, project_id FROM agents WHERE id = ?").get(agentId) as any;
+        if (row && row.status === "working") {
+          db.prepare("UPDATE agents SET status = 'idle', current_task = NULL WHERE id = ?").run(agentId);
+          if (row.current_task) {
+            db.prepare(
+              "UPDATE tasks SET state = 'submitted', lease_expires = NULL WHERE id = ? AND state = 'working'"
+            ).run(row.current_task);
+            appendEvent(db, row.project_id, row.current_task, "task.recovered", {
+              agentId,
+              reason: "agent process exited mid-task",
+              exitCode, signal: signal ?? null,
+              recoveredAt: new Date().toISOString(),
+            });
+          }
+        }
+      } catch (err) {
+        // Never let recovery bookkeeping stop the exit handler from running.
+        try { console.warn("pty exit recovery failed", err); } catch {}
+      }
+    }
     const exitMsg = `\r\n\x1b[2m─ process exited (code ${exitCode}${signal ? `, signal ${signal}` : ""}) ─\x1b[0m\r\n`;
     currentSession.scrollback += exitMsg;
     const payload = JSON.stringify({ type: "exit", ptyId, exitCode, signal });
@@ -577,6 +610,36 @@ export function isPtySessionLive(agentId: string): boolean {
     if (session.agentId === agentId || session.id.endsWith(agentId.slice(-8))) return true;
   }
   return false;
+}
+
+/**
+ * Kill an agent's live CLI process, if it has one.
+ *
+ * Needed because the DB row and the OS process were never linked at teardown:
+ *  - deleting an agent removed the row and left its CLI running, burning
+ *    tokens with nothing left to attribute the spend to, and no UI able to
+ *    show or stop it;
+ *  - changing an agent's provider/model updated the row and reported
+ *    "Restarting — engine will change on next heartbeat" while the old
+ *    process kept running the OLD model indefinitely.
+ *
+ * Returns true if a session was actually killed.
+ */
+export function killAgentSession(agentId: string): boolean {
+  let killed = false;
+  for (const [ptyId, session] of sessions) {
+    if (session.agentId !== agentId && !session.id.endsWith(agentId.slice(-8))) continue;
+    try {
+      session.proc.kill();
+    } catch {
+      /* already dead — still drop it from the map below */
+    }
+    // onExit normally does this, but a process that was already gone will
+    // never fire it, and a stale entry makes isPtySessionLive() lie.
+    sessions.delete(ptyId);
+    killed = true;
+  }
+  return killed;
 }
 
 export function submitPromptToAgent(agentId: string, text: string): boolean {

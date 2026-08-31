@@ -8,7 +8,7 @@ import {
   getAgentTraces, getAgentOutput, appendEvent, getAgentMetrics
 } from "../db.js";
 import { requestAgentGit, requestAgentCreate } from "../nodeGateway.js";
-import { spawnOrGetPtySession } from "../ptyGateway.js";
+import { spawnOrGetPtySession, killAgentSession } from "../ptyGateway.js";
 import { registerAgentInProjectHive } from "../hive.js";
 import type { RouteDeps } from "./types.js";
 
@@ -125,9 +125,14 @@ export function registerAgentRoutes(app: FastifyInstance, deps: RouteDeps) {
     if (!agentId) return reply.code(400).send({ ok: false, error: "agentId required" });
     const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId) as any;
     if (!agent) return reply.code(404).send({ ok: false, error: "no such agent" });
+    // Kill the process BEFORE dropping the row. Deleting the row first left a
+    // live CLI running with nothing to attribute it to — no roster entry, no
+    // terminal panel, no way to stop it short of finding the PID by hand,
+    // while it kept spending real money.
+    const killed = killAgentSession(agentId);
     deleteAgent(db, agentId);
     broadcastView();
-    return { ok: true };
+    return { ok: true, sessionKilled: killed };
   };
 
   app.delete<{ Params: { id: string } }>("/api/agents/:id", async (req, reply) => {
@@ -339,8 +344,26 @@ export function registerAgentRoutes(app: FastifyInstance, deps: RouteDeps) {
       const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(id) as any;
       if (!agent) return reply.code(404).send({ ok: false, error: "no such agent" });
       db.prepare("UPDATE agents SET provider = ?, model = ? WHERE id = ?").run(provider, model ?? null, id);
+
+      // This used to update the row and return "Restarting — engine will
+      // change on next heartbeat", while nothing restarted: the live PTY kept
+      // running the OLD model indefinitely. There is no heartbeat that swaps a
+      // running process's model — the only way to change it is to kill the
+      // session so the next spawn reads the new provider/model from the row.
+      //
+      // A model swap is also the one case that genuinely REQUIRES re-sending
+      // the identity prompt, because the new model has none of the old
+      // context. Killing the session gets that for free: the next spawn takes
+      // the cold-start path and seeds the identity again.
+      const killed = killAgentSession(id);
       broadcastView();
-      return { ok: true, restarting: true, message: "Restarting — engine will change on next heartbeat." };
+      return {
+        ok: true,
+        restarted: killed,
+        message: killed
+          ? "Engine changed. The running session was stopped; the next task starts on the new model."
+          : "Engine changed. No session was running, so the next task starts on the new model.",
+      };
     }
   );
 

@@ -288,9 +288,37 @@ export function registerGateway(
           const agent = db
             .prepare("SELECT * FROM agents WHERE project_id = ? AND name = ?")
             .get(msg.data.roomId, mention.agentName) as any;
-          // Silently ignore a typo'd name or an agent already waiting on
-          // something — no orphaned second proposal stacked on the first.
-          if (agent && agent.status === "idle") {
+          // Who can be mentioned, and why the guard is not just `=== "idle"`:
+          //
+          //  - "starting" is a READY-SOON state, not a busy one. An agent
+          //    boots for 10-20s (CONTRACT 1.27), and the old guard dropped
+          //    every mention in that window with no feedback at all — you
+          //    created an agent, spoke to it, and nothing happened.
+          //    A starting agent accepts work; deliverTaskLocally queues it
+          //    behind the boot, which is exactly what the queue is for.
+          //  - paused/retired are FLAGS, not statuses. Pausing an agent never
+          //    changed `status`, so a paused agent still passed `=== "idle"`
+          //    and took the work its owner had just stopped it from taking.
+          //  - Anything else (working, blocked, needs_input, reviewing) is
+          //    genuinely busy: stacking a second instruction would orphan the
+          //    first proposal.
+          //
+          // And every rejection now SAYS so in the room. Silence was
+          // indistinguishable from a typo'd name, a paused agent, and a bug.
+          const mentionable = agent
+            && !agent.paused && !agent.retired
+            && (agent.status === "idle" || agent.status === "starting");
+
+          if (agent && !mentionable) {
+            const why = agent.retired ? `${agent.name} is retired.`
+              : agent.paused ? `${agent.name} is paused — resume it to send work.`
+              : `${agent.name} is ${String(agent.status).replace(/_/g, " ")} right now.`;
+            const note = agentReplyChat(msg.data.roomId, agent.id, agent.name, why);
+            appendEvent(db, msg.data.roomId, null, "chat", note);
+            broadcastChat(note);
+          }
+
+          if (mentionable) {
             // Telling a colleague to do something is not a proposal awaiting
             // your consent. This used to answer "@commander can you make a
             // website" with `Proposed: "can you make a website". Approve to

@@ -57,7 +57,16 @@ describe("HANDOFF-SERVER-4 Phase 7 — Monitor (dispatch and capacity console)",
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.ok).toBe(true);
-    expect(body.restarting).toBe(true);
+
+    // This used to assert `body.restarting === true`, which pinned a claim
+    // that was never true: the endpoint updated the row and returned
+    // "Restarting — engine will change on next heartbeat" while nothing
+    // restarted and no such heartbeat exists. The live PTY kept running the
+    // OLD model indefinitely. The response now reports what actually
+    // happened — whether a session was found and killed — so the next spawn
+    // picks up the new provider/model.
+    expect(body).toHaveProperty("restarted");
+    expect(body.message).not.toMatch(/heartbeat/i);
 
     const agent = server.db.prepare("SELECT provider, model FROM agents WHERE id = ?").get("agt_1") as any;
     expect(agent.provider).toBe("claude");
