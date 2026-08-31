@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { getAgentOutput, appendEvent } from "./db.js";
 import { buildCommanderHivePrompt, buildEmployeeHivePrompt } from "./hivePrompt.js";
+import { loadRole } from "./roles/loader.js";
 
 interface PtySession {
   id: string;
@@ -270,6 +271,14 @@ export function spawnOrGetPtySession(
           agentName: agent.name || "Agent",
           folder: cwd,
           role: agent.role,
+          // Resolved from the agent's own project folder, so a role file
+          // dropped into <project>/hive/roles/ overrides the built-in of
+          // the same name for this project only. Null (no role_id, or a
+          // definition that has since been deleted) falls through to the
+          // built-in brief — the prompt is then byte-identical to before
+          // role files existed, which is what keeps every existing agent's
+          // identity fingerprint stable.
+          roleDef: loadRole(agent.role_id, cwd),
         });
       }
       // Only the commander writes the shared project-root AGENTS.md — many
@@ -641,6 +650,12 @@ export function registerPtyGateway(app: FastifyInstance, db: Db, hive?: HiveMana
             agentName: agent?.name || "Agent",
             folder: cwd,
             role: agent?.role,
+            // Editing a role file changes the body, which changes the
+            // prompt, which changes fingerprint() — so needsIdentity() below
+            // sees the session as stale and re-seeds it. That is the whole
+            // mechanism for "I edited the role, the live agent picked it up";
+            // there is nothing else to invalidate.
+            roleDef: loadRole(agent?.role_id, cwd),
           });
         }
         // Only re-seed identity when it is genuinely absent or stale.

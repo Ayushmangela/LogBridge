@@ -124,6 +124,21 @@ export const AgentView = z.object({
   machineId: z.string(),
   machineName: z.string(),
   role: AgentRole,
+  /**
+   * ★ 1.28 — the role DEFINITION this agent is briefed from, e.g.
+   * "security-auditor". Arbitrary: it is the `name` of a file under
+   * `hive/roles/`, not a member of the AgentRole enum.
+   *
+   * The two coexist on purpose. `role` above is the office CATEGORY — it
+   * decides the sprite's room-group and nothing else, and it must stay a
+   * closed enum for the renderer. `roleId` is what the agent is actually
+   * told it is. A role file with no declared category is mapped onto one of
+   * the six by `normalizeRole()`, so an arbitrary role always has a desk.
+   *
+   * Null for every agent created before role files existed; those fall back
+   * to the built-in brief for their category, exactly as before.
+   */
+  roleId: z.string().nullable(),
   status: AgentStatus,
   zone: ZoneId,
   slot: z.number().int().nonnegative(),

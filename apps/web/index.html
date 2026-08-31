@@ -724,14 +724,12 @@
             </div>
             <div class="field">
               <label for="aa-role">Role</label>
-              <select id="aa-role">
-                <option value="developer" selected>Developer</option>
-                <option value="research">Research</option>
-                <option value="qa">QA</option>
-                <option value="review">Review</option>
-                <option value="docs">Docs</option>
-                <option value="planner">Planner</option>
-              </select>
+              <!-- Populated from GET /api/roles (fillRolePickers). The options
+                   used to be hardcoded here, which meant a role file dropped
+                   into hive/roles/ could be loaded by the server and never
+                   chosen by anyone. -->
+              <select id="aa-role"></select>
+              <div class="provider-note" id="aa-role-hint"></div>
             </div>
             <div class="field wide">
               <label>Character</label>
@@ -848,14 +846,8 @@
       </div>
       <div class="field">
         <label for="ea-role">Role</label>
-        <select id="ea-role">
-          <option value="developer">Developer</option>
-          <option value="research">Research</option>
-          <option value="qa">QA</option>
-          <option value="review">Review</option>
-          <option value="docs">Docs</option>
-          <option value="planner">Planner</option>
-        </select>
+        <select id="ea-role"></select>
+        <div class="provider-note" id="ea-role-hint"></div>
       </div>
       <div class="field wide">
         <label>Character</label>

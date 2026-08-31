@@ -6664,12 +6664,78 @@
       aaShowStep('identity');   // always reopen at step 1
       aaPopulateProviders();
       aaImportNote('');         // a fresh dialog carries no previous import's notes
+      // Roles come from the server and depend on the project (a project can
+      // add its own under hive/roles/), so this refetches per open rather
+      // than caching once at startup. It fills in behind the dialog.
+      //
+      // Keyed off the PROJECT SELECT, not the active room: those can differ
+      // (the dialog remembers a project, the office is showing another), and
+      // offering one project's roles while creating in another is how you get
+      // an agent whose roleId resolves to nothing on the machine that runs it.
+      const refreshRoles = () => {
+        const want = document.getElementById('aa-role').value || 'developer';
+        return loadRoles(pSel.value).then(() => fillRoleSelect('aa-role', 'aa-role-hint', want));
+      };
+      pSel.onchange = refreshRoles;
+      refreshRoles();
       aaModal.classList.add('open');
       setTimeout(() => document.getElementById('aa-name').focus(), 50);
     }
 
     function splitList(s) {
       return s.split(',').map((x) => x.trim()).filter(Boolean);
+    }
+
+    // ---- role pickers -------------------------------------------------
+    //
+    // Roles are files on the server (apps/server/src/roles/, ~/.logbridge/roles/,
+    // <project>/hive/roles/), so this list cannot be written in HTML — a role
+    // added to a project would never appear. Both pickers are filled from
+    // /api/roles.
+    //
+    // The <option> value is the definition's NAME, which is arbitrary
+    // ("security-auditor"). `category` is what the office understands, so both
+    // travel: roleId names the brief, role names the room.
+    let ROLES = [];
+
+    async function loadRoles(projectId) {
+      try {
+        const q = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
+        const r = await fetch(`/api/roles${q}`);
+        const j = await r.json();
+        if (Array.isArray(j?.roles) && j.roles.length) ROLES = j.roles;
+      } catch {
+        // A picker with nothing in it is worse than a stale one — keep
+        // whatever we last had rather than emptying it.
+      }
+      return ROLES;
+    }
+
+    function roleCategory(name) {
+      return ROLES.find((r) => r.name === name)?.category ?? 'developer';
+    }
+
+    function fillRoleSelect(selectId, hintId, want) {
+      const sel = document.getElementById(selectId);
+      if (!sel) return;
+      sel.innerHTML = ROLES.map((r) =>
+        `<option value="${esc(r.name)}">${esc(r.noun || r.name)}</option>`
+      ).join('');
+      // `want` may be a definition name (new agents) or a bare category from
+      // an agent created before role files existed. Try both before giving up.
+      const match = ROLES.find((r) => r.name === want)
+        ?? ROLES.find((r) => r.category === want);
+      if (match) sel.value = match.name;
+
+      const hint = document.getElementById(hintId);
+      const show = () => {
+        if (!hint) return;
+        const r = ROLES.find((x) => x.name === sel.value);
+        hint.textContent = r?.description ?? '';
+        hint.classList.toggle('info', Boolean(r?.description));
+      };
+      sel.onchange = show;
+      show();
     }
 
     async function aaSubmit() {
@@ -6680,7 +6746,9 @@
         machineId: document.getElementById('aa-machine').value,
         projectId: document.getElementById('aa-project').value,
         name: document.getElementById('aa-name').value.trim(),
-        role: document.getElementById('aa-role').value,
+        // Both, deliberately: roleId picks the brief, role picks the room.
+        roleId: document.getElementById('aa-role').value,
+        role: roleCategory(document.getElementById('aa-role').value),
         provider: document.getElementById('aa-provider').value || null,
         model: document.getElementById('aa-model').value || null,
         capabilities: splitList(document.getElementById('aa-caps').value),
@@ -6767,8 +6835,14 @@
         problems.push(`"${k}" should be a list of strings, but it is ${Array.isArray(obj[k]) ? 'a list containing non-strings' : typeof obj[k]}.`);
       }
       if (obj.role !== undefined && obj.role !== null) {
-        if (['developer', 'research', 'qa', 'review', 'docs', 'planner'].includes(obj.role)) values.role = obj.role;
-        else problems.push(`"role" is "${obj.role}" — expected one of developer, research, qa, review, docs, planner.`);
+        // Roles are no longer a closed set — a project can add its own file
+        // under hive/roles/. Accept any role the server currently offers, and
+        // still accept the six office categories, which are what a manifest
+        // written before role files existed will say.
+        const CATEGORIES = ['developer', 'research', 'qa', 'review', 'docs', 'planner'];
+        const known = new Set([...CATEGORIES, ...ROLES.map((r) => r.name)]);
+        if (known.has(obj.role)) values.role = obj.role;
+        else problems.push(`"role" is "${obj.role}" — expected one of ${[...known].join(', ')}.`);
       }
       if (obj.isolation !== undefined && obj.isolation !== null) {
         if (['shared', 'worktree', 'copy'].includes(obj.isolation)) values.isolation = obj.isolation;
@@ -6828,7 +6902,12 @@
 
         // Identity
         if (values.name !== undefined) document.getElementById('aa-name').value = values.name;
-        if (values.role !== undefined) document.getElementById('aa-role').value = values.role;
+        // Through fillRoleSelect, not `.value =`: a manifest may name either a
+        // role definition or a bare category, and only one of those is an
+        // option value. Setting .value to a non-option silently selects
+        // nothing, which is how an imported manifest used to create an agent
+        // with whatever role happened to be first in the list.
+        if (values.role !== undefined) fillRoleSelect('aa-role', 'aa-role-hint', values.role);
         if (values.character !== undefined) {
           if (CHAR_NAMES.includes(values.character)) { aaCharacter = values.character; }
           else { notes.push(`character "${esc(values.character)}" is not one this office can draw — pick a sprite`); }
@@ -6957,7 +7036,11 @@
       const a = ccAgent();
       if (!a) return;
       document.getElementById('ea-name').value = a.name ?? '';
-      document.getElementById('ea-role').value = a.role ?? 'developer';
+      // roleId first: an agent created from a definition should reopen showing
+      // that definition, not the category it was filed under. Agents predating
+      // role files have no roleId and fall back to matching on category.
+      loadRoles(a.projectId ?? activeRoom()?.id).then(() =>
+        fillRoleSelect('ea-role', 'ea-role-hint', a.roleId ?? a.role ?? 'developer'));
       document.getElementById('ea-description').value = a.description ?? '';
       document.getElementById('ea-goal').value = a.goal ?? '';
       document.getElementById('ea-caps').value = (a.capabilities ?? []).join(', ');
@@ -7005,7 +7088,8 @@
       const caps = document.getElementById('ea-caps').value.split(',').map((s) => s.trim()).filter(Boolean);
       const body = {
         name: document.getElementById('ea-name').value.trim(),
-        role: document.getElementById('ea-role').value,
+        roleId: document.getElementById('ea-role').value,
+        role: roleCategory(document.getElementById('ea-role').value),
         character: eaCharacter,
         color: eaColor,
         description: document.getElementById('ea-description').value.trim() || null,

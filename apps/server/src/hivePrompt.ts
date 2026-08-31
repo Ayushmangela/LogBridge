@@ -19,6 +19,7 @@
 //    strict sequence" applied to every directive, so a one-line question
 //    triggered PRD authoring.
 import { HIVE_TASK_COLUMNS } from "@logbridge/protocol";
+import type { RoleDefinition } from "./roles/loader.js";
 
 const COLUMNS = HIVE_TASK_COLUMNS.join(" | ");
 
@@ -86,9 +87,24 @@ export function buildEmployeeHivePrompt(opts: {
   agentName: string;
   folder: string;
   role?: string;
+  /** Resolved role definition (roles/loader.ts). When present it replaces the
+   *  hardcoded maps below entirely — the file's body IS the role's brief. */
+  roleDef?: RoleDefinition | null;
 }): string {
   const name = opts.agentName || "Agent";
   const role = opts.role || "specialist";
+
+  // A role definition wins over everything below. The maps stay as the
+  // fallback so an agent whose role resolves to no file behaves exactly as it
+  // did before this existed.
+  if (opts.roleDef) {
+    return (
+      `You are "${name}", the ${opts.roleDef.noun} on this agent floor.\n\n` +
+      `WHAT YOUR ROLE MEANS HERE\n${opts.roleDef.body}\n\n` +
+      commonProtocol() +
+      floorSection()
+    );
+  }
 
   // A one-word role told an agent nothing about what it produces or what
   // "done" looks like for it. These are the roles the registry actually uses.
@@ -115,6 +131,14 @@ export function buildEmployeeHivePrompt(opts: {
     `You are "${name}", the ${roleNoun} on this agent floor.\n\n` +
     `WHAT YOUR ROLE MEANS HERE\n${brief}\n\n` +
     commonProtocol() +
+    floorSection()
+  );
+}
+
+/** Shared by both the role-definition path and the fallback, so the two can
+ *  never drift into telling agents different things about the floor. */
+function floorSection(): string {
+  return (
     `\nWORKING WITH THE FLOOR\n` +
     `Start by reading $AGENT_DIR/memory.md and every file in $AGENT_DIR/inbox/. Handle them, then move each into $AGENT_DIR/inbox/.done/.\n\n` +
     `If something is ambiguous, cross-cutting, or needs sign-off, send a message to "god" rather than guessing. Asking costs one message; guessing wrong costs the task.\n\n` +

@@ -59,12 +59,13 @@ export async function requestAgentCreate(
   const insertLocalAgentRow = (agentId: string) => {
     const owner = db.prepare("SELECT owner_id FROM machines WHERE id = ?").get(opts.machineId) as any;
     db.prepare(
-      `INSERT OR IGNORE INTO agents (id, machine_id, owner_id, project_id, name, role, capabilities, concurrency, status, current_task,
+      `INSERT OR IGNORE INTO agents (id, machine_id, owner_id, project_id, name, role, role_id, capabilities, concurrency, status, current_task,
                            character, color, folder, isolation, description, goal, provider, model, is_god)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'idle', NULL, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'idle', NULL, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
     ).run(
       agentId, opts.machineId, owner?.owner_id ?? "usr_dev", opts.projectId,
-      opts.name, opts.role ?? "developer", JSON.stringify(opts.capabilities ?? []),
+      opts.name, opts.role ?? "developer", opts.roleId ?? null,
+      JSON.stringify(opts.capabilities ?? []),
       opts.character ?? "alex", opts.color ?? "#5b5ef0", opts.folder ?? "~/workspace",
       opts.isolation ?? "worktree", opts.description ?? null, opts.goal ?? null,
       opts.provider ?? null, opts.model ?? null

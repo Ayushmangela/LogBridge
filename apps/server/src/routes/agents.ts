@@ -10,6 +10,7 @@ import {
 import { requestAgentGit, requestAgentCreate } from "../nodeGateway.js";
 import { spawnOrGetPtySession, killAgentSession } from "../ptyGateway.js";
 import { registerAgentInProjectHive } from "../hive.js";
+import { listRoles, loadRole } from "../roles/loader.js";
 import type { RouteDeps } from "./types.js";
 
 export function registerAgentRoutes(app: FastifyInstance, deps: RouteDeps) {
@@ -44,6 +45,17 @@ export function registerAgentRoutes(app: FastifyInstance, deps: RouteDeps) {
     if (body.role !== undefined) {
       updates.push("role = ?");
       vals.push(body.role ?? "developer");
+    }
+    // Changing the role changes the prompt, and the prompt is fingerprinted —
+    // so the next reseed re-briefs the live session by itself. Nothing here
+    // needs to poke the PTY.
+    if (body.roleId !== undefined) {
+      const def = loadRole(body.roleId, agent.folder ?? null);
+      updates.push("role_id = ?");
+      vals.push(def?.name ?? null);
+      // A definition that resolves is also the honest office category, and it
+      // may disagree with whatever the same request sent as `role`.
+      if (def) { updates.push("role = ?"); vals.push(def.category); }
     }
     if (body.note !== undefined) {
       updates.push("note = ?");
@@ -374,9 +386,47 @@ export function registerAgentRoutes(app: FastifyInstance, deps: RouteDeps) {
     return { ok: true, profile };
   });
 
+  /**
+   * The roles this project can create an agent from.
+   *
+   * Without this the feature is unreachable: the role picker was two
+   * hardcoded `<select>` lists in index.html, so a role file dropped into
+   * `hive/roles/` could be loaded but never chosen. `projectId` is optional —
+   * omit it and you get the built-in and machine-global layers only.
+   *
+   * The body is deliberately NOT returned. It is the agent's brief, it is
+   * long, and no part of the UI shows it; `description` is what the picker
+   * needs.
+   */
+  app.get<{ Querystring: { projectId?: string } }>("/api/roles", async (req) => {
+    const projectId = req.query?.projectId;
+    let folder: string | null = null;
+    if (projectId) {
+      const row = (
+        db.prepare("SELECT folder FROM agents WHERE project_id = ? AND is_god = 1 LIMIT 1").get(projectId) ??
+        db.prepare("SELECT folder FROM agents WHERE project_id = ? AND folder IS NOT NULL LIMIT 1").get(projectId)
+      ) as any;
+      folder = row?.folder ?? null;
+    }
+    return {
+      ok: true,
+      roles: listRoles(folder).map((r) => ({
+        name: r.name,
+        description: r.description,
+        noun: r.noun,
+        category: r.category,
+        capabilities: r.capabilities,
+        tools: r.tools,
+        disallowedTools: r.disallowedTools,
+        source: r.source,
+      })),
+    };
+  });
+
   app.post<{
     Body: {
       machineId: string; projectId: string; name: string; role?: string;
+      roleId?: string | null;
       provider?: string | null; model?: string | null; capabilities?: string[];
       cwd?: string | null; allowTools?: string[]; denyPaths?: string[];
       character?: string | null; color?: string | null; folder?: string | null;
@@ -408,14 +458,25 @@ export function registerAgentRoutes(app: FastifyInstance, deps: RouteDeps) {
     }
     const validFolder = targetFolder && existsSync(targetFolder) ? targetFolder : null;
 
+    // The role file supplies DEFAULTS, never overrides. Anything the caller
+    // sent explicitly wins — a role that quietly replaced a tool list the
+    // human had just filled in would be a worse bug than having no defaults.
+    const roleDef = loadRole(b.roleId, validFolder);
+    const pick = (given: unknown, fromRole: string[]) =>
+      Array.isArray(given) && given.length ? (given as string[]) : fromRole;
+
     const result = await requestAgentCreate(db, nodeSockets, {
       machineId: b.machineId,
       projectId: b.projectId,
       name: String(b.name).slice(0, 64),
-      role: b.role ?? "developer",
+      // `role` stays the office category. When a definition resolved, its
+      // category is the honest answer — a "security-auditor" agent belongs in
+      // the research room whatever the wizard's dropdown last said.
+      role: roleDef?.category ?? b.role ?? "developer",
+      roleId: roleDef?.name ?? null,
       provider: b.provider ?? null,
       model: b.model ?? null,
-      capabilities: Array.isArray(b.capabilities) ? b.capabilities : [],
+      capabilities: pick(b.capabilities, roleDef?.capabilities ?? []),
       cwd: b.cwd || validFolder || null,
       character: b.character ?? null,
       color: b.color ?? null,
@@ -424,8 +485,8 @@ export function registerAgentRoutes(app: FastifyInstance, deps: RouteDeps) {
       bypassPermissions: Boolean(b.bypassPermissions),
       description: b.description ? String(b.description).trim().slice(0, 120) : null,
       goal: b.goal ? String(b.goal).trim().slice(0, 2000) : null,
-      allowTools: Array.isArray(b.allowTools) ? b.allowTools : [],
-      denyPaths: Array.isArray(b.denyPaths) ? b.denyPaths : [],
+      allowTools: pick(b.allowTools, roleDef?.tools ?? []),
+      denyPaths: pick(b.denyPaths, roleDef?.disallowedTools ?? []),
     });
     broadcastView();
     if (result.ok && result.agentId) {
@@ -434,7 +495,8 @@ export function registerAgentRoutes(app: FastifyInstance, deps: RouteDeps) {
           registerAgentInProjectHive(targetFolder, {
             id: result.agentId,
             name: String(b.name).slice(0, 64),
-            role: b.role ?? "developer",
+            role: roleDef?.category ?? b.role ?? "developer",
+            roleId: roleDef?.name ?? null,
             provider: b.provider ?? "cli",
             model: b.model ?? "default",
           });
@@ -445,7 +507,8 @@ export function registerAgentRoutes(app: FastifyInstance, deps: RouteDeps) {
         hive.registerAgent({
           id: result.agentId,
           name: String(b.name).slice(0, 64),
-          role: b.role ?? "developer",
+          role: roleDef?.category ?? b.role ?? "developer",
+          roleId: roleDef?.name ?? null,
           provider: b.provider ?? "cli",
           model: b.model ?? "default",
           folder: targetFolder,

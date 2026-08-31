@@ -19,6 +19,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
+import { loadRole } from "./roles/loader.js";
 
 export type MessageAct = "request" | "inform" | "propose" | "query" | "agree" | "refuse" | "done";
 
@@ -59,6 +60,9 @@ export interface HiveAgentMeta {
   capabilities?: string[];
   folder?: string;
   isGod?: boolean;
+  /** Role definition name (roles/loader.ts). When it resolves, identity.md is
+   *  written from the definition instead of the one-line stub below. */
+  roleId?: string | null;
 }
 
 export interface HiveRegistry {
@@ -192,6 +196,38 @@ Read it to understand the global plan and update it when specs change.
 ## Tasks Ledger — \`tasks.json\`
 The live Kanban tasks live in \`tasks.json\`. Update your assigned tasks as you make progress.
 `;
+
+/**
+ * The `identity.md` an agent finds in its own workspace.
+ *
+ * ONE renderer, because there were two — HiveManager.registerAgent wrote one
+ * text and registerAgentInProjectHive wrote a different one to a different
+ * root, and they described the same agent. Whichever ran last was the version
+ * anybody actually read.
+ *
+ * When a role definition resolves, the brief here is the SAME body the PTY
+ * prompt is built from (hivePrompt.ts). That is the point: this file and the
+ * prompt were previously unrelated texts about one agent, so they drifted the
+ * moment either was edited.
+ */
+export function renderIdentityMd(meta: HiveAgentMeta): string {
+  const roleDef = loadRole(meta.roleId, meta.folder);
+  const brief = meta.isGod
+    ? "Floor Orchestrator (God Agent). You run the floor, coordinate tasks, clarify requirements, and direct agents."
+    : roleDef
+    ? `You are the ${roleDef.noun} on this floor.\n\n${roleDef.body}`
+    : `Specialized Agent: ${meta.name} (${meta.role || "Developer"}).`;
+
+  return (
+    `# Agent Identity: ${meta.name}\n\n` +
+    `- **ID**: \`${meta.id}\`\n` +
+    `- **Role**: ${meta.roleId || meta.role || "Developer"}\n` +
+    `- **Provider**: ${meta.provider || "cli"}\n` +
+    `- **Model**: ${meta.model || "default"}\n\n` +
+    `${brief}\n\n` +
+    `Read \`PROTOCOL.md\` in the hive root to communicate with other agents via \`inbox/\` and \`outbox/\`.\n`
+  );
+}
 
 function shortRand(): string {
   return randomBytes(3).toString("hex");
@@ -422,17 +458,7 @@ export class HiveManager {
     mkdirSync(join(dir, "inbox", ".done"), { recursive: true });
     mkdirSync(join(dir, "outbox"), { recursive: true });
 
-    // identity.md
-    const identityPath = join(dir, "identity.md");
-    const roleDesc = meta.isGod
-      ? "Floor Orchestrator (God Agent). You run the floor, coordinate tasks, clarify requirements, and direct agents."
-      : `Specialized Agent: ${meta.name} (${meta.role || "Developer"}).`;
-
-    writeFileSync(
-      identityPath,
-      `# Agent Identity: ${meta.name}\n\n- **ID**: \`${meta.id}\`\n- **Role**: ${meta.role || "Developer"}\n- **Provider**: ${meta.provider || "cli"}\n- **Model**: ${meta.model || "default"}\n\n${roleDesc}\n\nRead \`PROTOCOL.md\` in the hive root to communicate with other agents via \`inbox/\` and \`outbox/\`.\n`,
-      "utf8"
-    );
+    writeFileSync(join(dir, "identity.md"), renderIdentityMd(meta), "utf8");
 
     // memory.md
     const memoryPath = join(dir, "memory.md");
@@ -996,18 +1022,14 @@ export function ensureProjectHive(
 
 export function registerAgentInProjectHive(
   projectFolder: string,
-  agent: { id: string; name: string; role?: string; provider?: string; model?: string }
+  agent: { id: string; name: string; role?: string; roleId?: string | null; provider?: string; model?: string }
 ): void {
   const hiveDir = join(projectFolder, "hive");
   const aDir = join(hiveDir, "agents", agent.id);
   mkdirSync(join(aDir, "inbox", ".done"), { recursive: true });
   mkdirSync(join(aDir, "outbox"), { recursive: true });
 
-  writeFileSync(
-    join(aDir, "identity.md"),
-    `# Agent Identity: ${agent.name}\n\n- **ID**: \`${agent.id}\`\n- **Role**: ${agent.role || "Developer"}\n- **Provider**: ${agent.provider || "cli"}\n- **Model**: ${agent.model || "default"}\n\nRead \`PROTOCOL.md\` in the hive root to communicate with other agents via \`inbox/\` and \`outbox/\`.\n`,
-    "utf8"
-  );
+  writeFileSync(join(aDir, "identity.md"), renderIdentityMd({ ...agent, folder: projectFolder }), "utf8");
 
   const memPath = join(aDir, "memory.md");
   if (!existsSync(memPath)) {
@@ -1030,6 +1052,7 @@ export function registerAgentInProjectHive(
       id: agent.id,
       name: agent.name,
       role: agent.role || "developer",
+      roleId: agent.roleId ?? null,
       provider: agent.provider,
       model: agent.model,
       folder: projectFolder,

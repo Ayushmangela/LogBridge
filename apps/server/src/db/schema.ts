@@ -575,6 +575,13 @@ export function openDb(dbPath?: string): Db {
     // overwrote the other's — the commander's own CLI would introduce
     // itself with the subordinate's name on its next start.
     "ALTER TABLE agents ADD COLUMN is_god INTEGER",
+    // Which role DEFINITION this agent was created from (roles/loader.ts) —
+    // an arbitrary file name, deliberately not the `role` column. `role`
+    // stays the six-value office category that decides which room-group the
+    // sprite stands in; `role_id` is what the agent is actually briefed as.
+    // NULL means "no definition", which is every agent created before this
+    // and is why they still get the old hardcoded brief.
+    "ALTER TABLE agents ADD COLUMN role_id TEXT",
   ]) {
     try {
       db.exec(alter);

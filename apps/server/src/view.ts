@@ -103,14 +103,29 @@ function recentPulls(db: Db, projectId: string, limit: number): PullViewT[] {
   }));
 }
 
-function normalizeRole(role: string | null | undefined): "developer" | "research" | "qa" | "review" | "docs" | "planner" {
+/** The six room-groups the office can actually place an agent in. */
+export type OfficeCategory = "developer" | "research" | "qa" | "review" | "docs" | "planner";
+
+/**
+ * Map an arbitrary role name onto an office category.
+ *
+ * Exported because roles are now files with arbitrary names (roles/loader.ts),
+ * and a role like "security-auditor" still has to stand somewhere on a map that
+ * only has six room-groups. This substring coercion was a lossy accident while
+ * roles were a fixed enum; it is the deliberate fallback now.
+ */
+export function normalizeRole(role: string | null | undefined): OfficeCategory {
   if (!role) return "developer";
   const r = role.toLowerCase();
   if (r.includes("plan") || r.includes("command") || r.includes("orchestrat") || r.includes("lead")) return "planner";
   if (r.includes("research") || r.includes("specialist") || r.includes("brand") || r.includes("menu")) return "research";
   if (r.includes("qa") || r.includes("test")) return "qa";
-  if (r.includes("review")) return "review";
-  if (r.includes("doc")) return "docs";
+  // "audit" and "inspect" join "review" now that roles are arbitrary names: a
+  // security-auditor read as "developer" through every rule above and got a
+  // desk in the implementation room, which is the one room its own role file
+  // forbids it to do anything in (no Write, no Edit).
+  if (r.includes("review") || r.includes("audit") || r.includes("inspect")) return "review";
+  if (r.includes("doc") || r.includes("writer")) return "docs";
   return "developer";
 }
 
@@ -248,6 +263,7 @@ export function buildView(db: Db, positions: Positions, meId: string, hive?: Hiv
         cwd: a.folder ?? null,
         model: a.model ?? null,
         role: normalizeRole(a.role),
+        roleId: a.role_id ?? null,
         status: a.status,
         zone: "idle",
         slot: 0,

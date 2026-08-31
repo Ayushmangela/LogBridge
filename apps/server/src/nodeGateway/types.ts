@@ -19,6 +19,10 @@ export interface AgentCreateRequest {
   projectId: string;
   name: string;
   role: string;
+  /** Role DEFINITION name (roles/loader.ts), e.g. "security-auditor". Stored
+   *  on the agent row only — deliberately NOT sent to the runner, because the
+   *  prompt is built server-side and the runner has no use for it. */
+  roleId?: string | null;
   provider?: string | null;
   model?: string | null;
   capabilities?: string[];
