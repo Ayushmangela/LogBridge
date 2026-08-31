@@ -6,6 +6,23 @@ export const AgentRole = z.enum([
   "developer", "research", "qa", "review", "docs", "planner",
 ]);
 
+/**
+ * The columns of the hive's shared `tasks.json` board.
+ *
+ * ONE definition, because there were three and they disagreed:
+ *   commander prompt : todo · in_progress · done
+ *   employee prompt  : todo · doing · blocked · done
+ *   board UI         : todo · in_progress · in_review · done
+ *
+ * An employee told to write `doing` produced a card that rendered in NO
+ * column, and `blocked` existed only in the employee's vocabulary. Both
+ * prompts are generated from this list, and `hiveBoardColumns.test.ts`
+ * asserts the browser's own column keys still match it — apps/web has no
+ * build step and cannot import this, so drift is caught by test instead.
+ */
+export const HIVE_TASK_COLUMNS = ["todo", "in_progress", "in_review", "done"] as const;
+export type HiveTaskColumn = (typeof HIVE_TASK_COLUMNS)[number];
+
 export const AgentStatus = z.enum([
   // ★ 1.27 "starting" — the agent exists and its CLI is booting, but it
   // cannot take work yet. Before this, a booting agent reported "idle",

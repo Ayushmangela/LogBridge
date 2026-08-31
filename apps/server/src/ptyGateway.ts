@@ -26,9 +26,78 @@ interface PtySession {
   clients: Set<WebSocket>;
   cols: number;
   rows: number;
+
+  // ---- readiness (see whenReady) ----
+  /** True once the CLI has printed its own input prompt. */
+  ready: boolean;
+  /** Resolvers waiting for that moment. Drained exactly once. */
+  readyWaiters: Array<() => void>;
+
+  // ---- identity freshness (see needsIdentity) ----
+  /** When the identity prompt was last put in front of this process. */
+  identitySentAt: string | null;
+  /** Fingerprint of the identity text, so editing the prompt re-seeds. */
+  identityVersion: string;
+  /** provider:model the process was STARTED with. A change means the running
+   *  process cannot be the new engine, whatever the database row now says. */
+  engine: string;
+
+  // ---- write serialisation (see queueWrite) ----
+  /** Tail of the write chain. Everything reaching proc.write joins it. */
+  writeChain: Promise<void>;
 }
 
 const sessions = new Map<string, PtySession>();
+
+/** Cheap stable fingerprint of the identity text. Not security — just "is
+ *  this the same prompt I already sent?", so editing hivePrompt.ts re-seeds
+ *  live sessions instead of leaving them on the old instructions. */
+function fingerprint(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36) + ":" + s.length;
+}
+
+/**
+ * Resolve when the CLI is actually able to accept input.
+ *
+ * Replaces `setTimeout(..., 6000)` in the wake path. Six seconds was a guess
+ * in both directions: on a slow cold start the message was typed into a still-
+ * booting CLI and lost; on a fast one, five of those seconds were wasted.
+ * `looksReady()` already watches for the CLI's own prompt banner — this just
+ * lets callers await it.
+ *
+ * The ceiling matches the one used for the `starting` status: a CLI that never
+ * says anything recognisable must fail visibly rather than hang forever.
+ */
+function whenReady(session: PtySession, timeoutMs = 45_000): Promise<boolean> {
+  if (session.ready) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(ok);
+    };
+    session.readyWaiters.push(() => done(true));
+    setTimeout(() => done(false), timeoutMs);
+  });
+}
+
+/**
+ * Serialise everything written to a PTY.
+ *
+ * The human's keystrokes (`msg.type === "data"`), the router's wake notices
+ * and task submissions all wrote straight to the same `proc.write`. A wake
+ * arriving mid-sentence interleaved with what the person was typing and
+ * produced one garbled line. Chaining them means a late write waits its turn
+ * instead of cutting in.
+ */
+function queueWrite(session: PtySession, write: () => void): void {
+  session.writeChain = session.writeChain
+    .then(() => { try { write(); } catch { /* process may be gone */ } })
+    .catch(() => {});
+}
 
 // "The input prompt is showing right now." Used to answer two different
 // questions about the same signal: is a freshly booted CLI ready for its
@@ -247,8 +316,15 @@ export function spawnOrGetPtySession(
       LC_ALL: process.env.LC_ALL ?? "en_US.UTF-8",
       AGENT_ID: agentId,
       AGENT_NAME: agent?.name || "",
-      HIVE_ROOT: hive ? hive.root() : "",
-      AGENT_DIR: (hive && agentId) ? hive.agentDir(agentId) : "",
+      // These used to fall back to "" when no HiveManager was passed. The
+      // prompts now instruct the agent in terms of $AGENT_DIR / $HIVE_ROOT,
+      // so an empty value would expand to "/memory.md" — the filesystem root.
+      // Derive the same layout the prompt builder assumes instead, so the
+      // variables are always a real path.
+      HIVE_ROOT: hive ? hive.root() : join(cwd, "hive"),
+      AGENT_DIR: (hive && agentId)
+        ? hive.agentDir(agentId)
+        : join(cwd, "hive", "agents", agentId || "agent"),
     } as Record<string, string>,
   });
 
@@ -260,6 +336,15 @@ export function spawnOrGetPtySession(
     clients: new Set(),
     cols,
     rows,
+    ready: false,
+    readyWaiters: [],
+    // The identity is written below as this process's first prompt, so record
+    // it as sent — otherwise every wake would re-seed a session that already
+    // has it.
+    identitySentAt: initialPrompt ? new Date().toISOString() : null,
+    identityVersion: initialPrompt ? fingerprint(initialPrompt) : "",
+    engine: `${agent?.provider ?? ""}:${agent?.model ?? ""}`,
+    writeChain: Promise.resolve(),
   };
   sessions.set(ptyId, session);
 
@@ -343,6 +428,14 @@ export function spawnOrGetPtySession(
     if (markedStarting && looksReady(data)) {
       clearTimeout(readyFallbackTimer);
       clearStarting();
+    }
+    // One readiness signal, three consumers: the `starting` status above, the
+    // prompt seeder below, and anything awaiting whenReady() — which is how
+    // the wake path stopped guessing at six seconds.
+    if (!currentSession.ready && looksReady(data)) {
+      currentSession.ready = true;
+      const waiters = currentSession.readyWaiters.splice(0);
+      for (const w of waiters) { try { w(); } catch {} }
     }
     // Detect when OpenCode / Claude Code is ready for user input
     if (!promptSeeded && initialPrompt) {
@@ -510,13 +603,13 @@ export function registerPtyGateway(app: FastifyInstance, db: Db, hive?: HiveMana
       if (msg.type === "submitPrompt" && activeSession) {
         const text = String(msg.text || "").trim();
         if (text) {
-          try {
+          queueWrite(activeSession, () => {
             const payload = text.includes("\n") ? `\x1b[200~${text}\x1b[201~` : text;
             activeSession.proc.write(payload);
             setTimeout(() => {
               try { activeSession.proc.write("\r"); } catch {}
             }, 180);
-          } catch {}
+          });
         }
         return;
       }
@@ -550,22 +643,36 @@ export function registerPtyGateway(app: FastifyInstance, db: Db, hive?: HiveMana
             role: agent?.role,
           });
         }
-        if (prompt) {
-          try {
+        // Only re-seed identity when it is genuinely absent or stale.
+        //
+        // This used to fire unconditionally, pushing the whole ~900-token
+        // identity into a session that already had it. Because the duplicate
+        // landed AFTER real work, the most recent instruction the model saw
+        // became "you are an agent, read your inbox" — which is why a
+        // restarted agent so reliably abandoned what it was doing.
+        //
+        // `force` is honoured so an operator who explicitly wants a full
+        // re-introduction can still have one.
+        const engine = `${agent?.provider ?? ""}:${agent?.model ?? ""}`;
+        const force = Boolean((msg as any).force);
+        if (prompt && needsIdentity(agentId || "", prompt, engine, { force })) {
+          queueWrite(activeSession, () => {
             const payload = `\x1b[200~${prompt}\x1b[201~`;
             activeSession.proc.write(payload);
             setTimeout(() => {
               try { activeSession.proc.write("\r"); } catch {}
             }, 250);
-          } catch {}
+          });
+          markIdentitySent(activeSession, prompt, engine);
         }
         return;
       }
 
       if (msg.type === "data" && activeSession) {
-        try {
-          activeSession.proc.write(msg.data);
-        } catch {}
+        // Through the same queue as router wakes and task submissions: these
+        // three all reach one pipe, and a wake landing mid-keystroke used to
+        // interleave into a single garbled line.
+        queueWrite(activeSession, () => activeSession.proc.write(msg.data));
         return;
       }
 
@@ -642,21 +749,59 @@ export function killAgentSession(agentId: string): boolean {
   return killed;
 }
 
+function sessionFor(agentId: string): PtySession | null {
+  for (const session of sessions.values()) {
+    if (session.agentId === agentId || session.id.endsWith(agentId.slice(-8))) return session;
+  }
+  return null;
+}
+
 export function submitPromptToAgent(agentId: string, text: string): boolean {
   if (!text) return false;
-  for (const session of sessions.values()) {
-    if (session.agentId === agentId || session.id.endsWith(agentId.slice(-8))) {
-      try {
-        const payload = text.includes("\n") ? `\x1b[200~${text}\x1b[201~` : text;
-        session.proc.write(payload);
-        setTimeout(() => {
-          try { session.proc.write("\r"); } catch {}
-        }, 250);
-        return true;
-      } catch {}
-    }
-  }
+  const session = sessionFor(agentId);
+  if (!session) return false;
+  // Queued, not written directly: this used to race the human's own keystrokes
+  // on the same pipe and produce one interleaved line.
+  queueWrite(session, () => {
+    const payload = text.includes("\n") ? `\x1b[200~${text}\x1b[201~` : text;
+    session.proc.write(payload);
+    setTimeout(() => {
+      try { session.proc.write("\r"); } catch {}
+    }, 250);
+  });
+  return true;
+}
+
+/**
+ * Whether this session still needs the identity prompt.
+ *
+ * A restart used to re-send the whole ~900-token identity into a live session
+ * that already had it — and because the duplicate landed AFTER real work, the
+ * most recent instruction the model saw became "you are an agent, read your
+ * inbox", which is why restarted agents abandoned what they were doing.
+ *
+ * Identity is re-sent only when it is genuinely absent or stale.
+ */
+export function needsIdentity(
+  agentId: string,
+  identityText: string,
+  engine: string,
+  opts: { force?: boolean } = {}
+): boolean {
+  const session = sessionFor(agentId);
+  if (!session) return true;                                  // cold start
+  if (opts.force) return true;                                // operator asked
+  if (!session.identitySentAt) return true;                   // never sent
+  if (session.engine !== engine) return true;                 // different model
+  if (session.identityVersion !== fingerprint(identityText)) return true; // prompt edited
   return false;
+}
+
+/** Record that identity is now in front of this process. */
+function markIdentitySent(session: PtySession, identityText: string, engine: string): void {
+  session.identitySentAt = new Date().toISOString();
+  session.identityVersion = fingerprint(identityText);
+  session.engine = engine;
 }
 
 /** The one place a ptyId gets built from an agent id, so every caller ends
@@ -706,9 +851,23 @@ export function spawnAndSubmit(
     if (ok) onSubmitted?.();
     return ok;
   }
-  setTimeout(() => {
+
+  // Was `setTimeout(..., 6000)` — a guess that failed in both directions: on a
+  // slow cold start the prompt was typed into a still-booting CLI and lost, on
+  // a fast one five seconds were wasted. Wait for the CLI's own prompt banner
+  // instead, with the same 45s ceiling the `starting` status uses so a silent
+  // CLI fails visibly rather than hanging.
+  const session = sessionFor(agentId);
+  if (!session) return false;
+  void whenReady(session).then((ready) => {
+    if (!ready) {
+      // Never type into a CLI that never came up — that is how a message is
+      // silently swallowed. Leave it undelivered so retry/dead-letter sees it.
+      try { console.warn(`agent ${agentName} never became ready; prompt not submitted`); } catch {}
+      return;
+    }
     if (submitPromptToAgent(agentId, prompt)) onSubmitted?.();
-  }, 6000);
+  });
   return true;
 }
 
