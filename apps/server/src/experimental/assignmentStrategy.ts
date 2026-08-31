@@ -1,7 +1,16 @@
-// Assignment Strategy Layer.
-// Deterministically chooses between Direct Assignment and Contract-Net Bidding.
+// Assignment Strategy Layer — EXPERIMENTAL. Nothing calls this.
+//
+// It chooses between Direct Assignment and Contract-Net Bidding, and returning
+// "CONTRACT_NET" from here has no effect: no caller consumes the result. That
+// is precisely why this moved out of communication/ — a seam that looks
+// load-bearing and is not is worse than no seam, because the next person to
+// read `assignPendingTasks()` goes looking for the branch that honours it.
+//
+// The live path is orchestrator.ts -> evaluateAgentCandidates(), which is
+// deterministic, explainable and free. See ./README.md for why an auction
+// would decide worse here, and what would reopen the question.
 
-import type { AssignmentStrategy } from "./types.js";
+import type { AssignmentStrategy } from "../communication/types.js";
 
 export interface StrategySelectionInput {
   task: {

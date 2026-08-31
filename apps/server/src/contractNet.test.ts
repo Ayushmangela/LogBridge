@@ -7,8 +7,8 @@ import {
   addTaskDependency,
   type Db,
 } from "./db.js";
-import { selectAssignmentStrategy } from "./communication/assignmentStrategy.js";
-import { issueCfp, submitProposal, resolveContractNet } from "./communication/contractNet.js";
+import { selectAssignmentStrategy } from "./experimental/assignmentStrategy.js";
+import { issueCfp, submitProposal, resolveContractNet } from "./experimental/contractNet.js";
 import { delegateHandoff } from "./communication/handoff.js";
 import { processReviewResult } from "./communication/review.js";
 import { getProjectSequenceFlow, getTaskSequenceFlow } from "./communication/sequenceEvents.js";

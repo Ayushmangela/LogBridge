@@ -17,13 +17,13 @@ import {
   activeTaskCountsByAgent,
   appendEvent,
 } from "../db.js";
-import { emitSequenceEvent } from "./sequenceEvents.js";
+import { emitSequenceEvent } from "../communication/sequenceEvents.js";
 import type {
   CallForProposal,
   AgentProposal,
   ProposalScoreBreakdown,
   ProposalScoringWeights,
-} from "./types.js";
+} from "../communication/types.js";
 
 export function issueCfp(
   db: Db,
