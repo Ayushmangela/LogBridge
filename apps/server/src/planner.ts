@@ -3,6 +3,7 @@
 // and materializes approved plans into executable workflows, tasks, and dependency DAGs.
 
 import type { Db } from "./db.js";
+import { listRoles } from "./roles/loader.js";
 import {
   getGoal,
   getPlanRevision,
@@ -15,16 +16,63 @@ import {
   appendEvent,
 } from "./db.js";
 
-export type AgentRole =
-  | "planner"
-  | "architect"
-  | "backend"
-  | "frontend"
-  | "reviewer"
-  | "qa"
-  | "devops"
-  | "researcher"
-  | "generalist";
+/**
+ * A role a step can be given to — the `name` of a role definition file
+ * (roles/loader.ts), so it is an arbitrary string rather than an enum.
+ *
+ * This was the project's FOURTH role vocabulary, and the one that did real
+ * damage. It listed `architect · backend · frontend · devops · generalist`,
+ * none of which any agent can ever be, and each step's first
+ * `requiredCapabilities` entry becomes the task's `required_capability`
+ * (below). Routing matches that against the agent's own capabilities
+ * (`orchestrator.ts:82`), so a planned "backend" task matched nobody and
+ * `supervisor.ts:151` blocked it with "No online agent has required
+ * capability". Four of every five planned tasks were unassignable.
+ *
+ * Now steps declare an INTENT and the role registry answers it, so the two
+ * vocabularies cannot drift apart again: a project that adds `frontend.md`
+ * gets a real frontend agent, and one that does not falls back to a role that
+ * actually exists.
+ */
+export type AgentRole = string;
+
+/**
+ * What a step needs, in preference order. The first role that exists wins.
+ *
+ * The last entry of each list must be a built-in, so resolution always lands
+ * somewhere real — that is the property that makes an unroutable task
+ * impossible rather than merely unlikely.
+ */
+const ROLE_PREFERENCE: Record<string, string[]> = {
+  analyze:   ["architect", "researcher"],
+  implement: ["backend", "developer"],
+  ui:        ["frontend", "ui-engineer", "developer"],
+  test:      ["qa"],
+  review:    ["security-auditor", "reviewer"],
+};
+
+/**
+ * Resolve a step intent to a real role plus the capabilities that role
+ * declares. `projectFolder` lets a project's own roles win, same as everywhere
+ * else roles are resolved.
+ */
+function roleFor(
+  intent: keyof typeof ROLE_PREFERENCE | string,
+  projectFolder?: string | null
+): { role: AgentRole; capabilities: string[] } {
+  const available = listRoles(projectFolder);
+  const byName = new Map(available.map((r) => [r.name.toLowerCase(), r]));
+  for (const want of ROLE_PREFERENCE[intent] ?? []) {
+    const hit = byName.get(want);
+    // A role with no declared capabilities cannot carry a routing constraint,
+    // so it is a valid assignee but contributes no required_capability.
+    if (hit) return { role: hit.name, capabilities: hit.capabilities };
+  }
+  // Nothing resolved (an operator deleted the built-ins). Name no capability
+  // rather than one nobody has: an unconstrained task is offered to everyone,
+  // which is a far better failure than a task offered to no one.
+  return { role: available[0]?.name ?? "developer", capabilities: [] };
+}
 
 export interface PlanStep {
   id: string; // e.g. "stp_1"
@@ -131,9 +179,19 @@ export function deriveExecutionWaves(steps: PlanStep[]): WaveDerivationResult {
 export function generatePlanDraft(
   goalTitle: string,
   goalDescription?: string | null,
-  projectContext?: string
+  projectContext?: string,
+  /** Where to resolve roles from, so a project's own roles win. */
+  projectFolder?: string | null
 ): { summary: string; steps: PlanStep[] } {
   const titleLower = (goalTitle + " " + (goalDescription ?? "")).toLowerCase();
+
+  // Resolved once: every step below names a role that exists and a capability
+  // some agent can actually hold. See roleFor().
+  const analyze = roleFor("analyze", projectFolder);
+  const implement = roleFor("implement", projectFolder);
+  const ui = roleFor("ui", projectFolder);
+  const test = roleFor("test", projectFolder);
+  const review = roleFor("review", projectFolder);
 
   // Intelligent decomposition based on goal intent
   const steps: PlanStep[] = [];
@@ -144,8 +202,8 @@ export function generatePlanDraft(
     stepNumber: 1,
     title: `Analyze codebase & design architecture for ${goalTitle}`,
     description: `Inspect existing codebase, audit integration points, and formulate implementation specification for: ${goalTitle}. ${goalDescription ? `\n\nContext: ${goalDescription}` : ""}`,
-    requiredCapabilities: ["research", "code_review"],
-    suggestedRole: "architect",
+    requiredCapabilities: analyze.capabilities,
+    suggestedRole: analyze.role,
     dependencies: [],
     expectedOutputs: ["architecture_doc", "plan"],
     riskLevel: "low",
@@ -159,8 +217,8 @@ export function generatePlanDraft(
       stepNumber: 2,
       title: `Implement backend core & database schema for ${goalTitle}`,
       description: `Create data schemas, API routes, authentication logic, and service handlers required for ${goalTitle}.`,
-      requiredCapabilities: ["backend", "database", "api"],
-      suggestedRole: "backend",
+      requiredCapabilities: implement.capabilities,
+      suggestedRole: implement.role,
       dependencies: ["stp_1"],
       expectedOutputs: ["diff", "migration"],
       riskLevel: "medium",
@@ -172,8 +230,8 @@ export function generatePlanDraft(
       stepNumber: 2,
       title: `Implement core logic for ${goalTitle}`,
       description: `Implement core business logic, helpers, and integration points for ${goalTitle}.`,
-      requiredCapabilities: ["backend", "generalist"],
-      suggestedRole: "backend",
+      requiredCapabilities: implement.capabilities,
+      suggestedRole: implement.role,
       dependencies: ["stp_1"],
       expectedOutputs: ["diff"],
       riskLevel: "medium",
@@ -188,8 +246,8 @@ export function generatePlanDraft(
       stepNumber: 3,
       title: `Build frontend components & client integration for ${goalTitle}`,
       description: `Create responsive UI views, state hooks, and client API bindings for ${goalTitle}.`,
-      requiredCapabilities: ["frontend", "ui", "css"],
-      suggestedRole: "frontend",
+      requiredCapabilities: ui.capabilities,
+      suggestedRole: ui.role,
       dependencies: ["stp_2"],
       expectedOutputs: ["diff"],
       riskLevel: "low",
@@ -204,8 +262,8 @@ export function generatePlanDraft(
     stepNumber: steps.length + 1,
     title: `Implement automated test suite & verify ${goalTitle}`,
     description: `Write unit and integration tests verifying all success paths, error states, and regression boundaries for ${goalTitle}.`,
-    requiredCapabilities: ["test", "qa"],
-    suggestedRole: "qa",
+    requiredCapabilities: test.capabilities,
+    suggestedRole: test.role,
     dependencies: testDeps,
     expectedOutputs: ["test_report"],
     riskLevel: "low",
@@ -218,8 +276,8 @@ export function generatePlanDraft(
     stepNumber: steps.length + 1,
     title: `Perform code review & security verification for ${goalTitle}`,
     description: `Review all modified files, verify project isolation, security boundaries, and verify test coverage.`,
-    requiredCapabilities: ["code_review", "security"],
-    suggestedRole: "reviewer",
+    requiredCapabilities: review.capabilities,
+    suggestedRole: review.role,
     dependencies: [`stp_${steps.length}`],
     expectedOutputs: ["review_verdict"],
     riskLevel: "low",

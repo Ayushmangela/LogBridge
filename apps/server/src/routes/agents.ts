@@ -7,7 +7,7 @@ import {
   setAgentSteer, getAgentHistory, moveAgent, cloneAgent,
   getAgentTraces, getAgentOutput, appendEvent, getAgentMetrics
 } from "../db.js";
-import { requestAgentGit, requestAgentCreate } from "../nodeGateway.js";
+import { requestAgentGit, requestAgentCreate, notifyAgentPatched } from "../nodeGateway.js";
 import { spawnOrGetPtySession, killAgentSession } from "../ptyGateway.js";
 import { registerAgentInProjectHive } from "../hive.js";
 import { listRoles, loadRole } from "../roles/loader.js";
@@ -65,9 +65,29 @@ export function registerAgentRoutes(app: FastifyInstance, deps: RouteDeps) {
       updates.push("capabilities = ?");
       vals.push(JSON.stringify(Array.isArray(body.capabilities) ? body.capabilities : []));
     }
+    // Tool policy. Undefined means "not mentioned, leave it"; an empty array is
+    // a real instruction and is stored as such — see the null/[] note in
+    // view.ts. The runner still enforces; this is the copy that survives it.
+    for (const [field, column] of [["allowTools", "allow_tools"], ["denyPaths", "deny_paths"]] as const) {
+      if (body[field] === undefined) continue;
+      updates.push(`${column} = ?`);
+      vals.push(Array.isArray(body[field]) ? JSON.stringify(body[field].map(String)) : null);
+    }
+
     if (updates.length === 0) return reply.code(400).send({ ok: false, error: "no fields to update" });
     vals.push(agentId);
     db.prepare(`UPDATE agents SET ${updates.join(", ")} WHERE id = ?`).run(...vals);
+
+    // Tell the machine that actually enforces the policy. Without this the
+    // server's copy and the runner's created-agents.json disagree the moment
+    // anyone edits, and the runner is the one that decides what the agent may
+    // do — so the browser would show a policy that is not in force.
+    if (body.allowTools !== undefined || body.denyPaths !== undefined) {
+      notifyAgentPatched(db, nodeSockets, agentId, {
+        allowTools: body.allowTools,
+        denyPaths: body.denyPaths,
+      });
+    }
     broadcastView();
     return { ok: true };
   };

@@ -72,7 +72,13 @@ export function registerGoalRoutes(app: FastifyInstance, deps: RouteDeps) {
     if (!goal) return reply.code(404).send({ ok: false, error: "goal not found" });
 
     setGoalState(db, goalId, "planning");
-    const { summary, steps } = generatePlanDraft(goal.title, goal.description);
+    // The project's folder, so a role it defines under hive/roles/ can be
+    // planned against — a plan that names roles the project does not have is
+    // a plan nobody can be assigned.
+    const folder = (db.prepare(
+      "SELECT folder FROM agents WHERE project_id = ? AND folder IS NOT NULL LIMIT 1"
+    ).get(goal.projectId) as any)?.folder ?? null;
+    const { summary, steps } = generatePlanDraft(goal.title, goal.description, undefined, folder);
 
     const revisionId = createPlanRevision(db, {
       goalId,

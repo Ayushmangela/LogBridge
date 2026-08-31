@@ -169,6 +169,20 @@ export const AgentView = z.object({
   description: z.string().nullable(),
   /** Its standing objective, from the briefing step. */
   goal: z.string().nullable(),
+  /**
+   * ★ 1.29 the tools this agent may use, and the paths it may not touch.
+   *
+   * These existed only in the runner's `created-agents.json` — on the machine
+   * that runs the agent, which on a shared floor is somebody else's laptop.
+   * The server had no copy, so nothing could show you what your friend's agent
+   * was allowed to do, the edit dialog could not change it, and losing that
+   * file silently reverted the agent to the runner's defaults.
+   *
+   * Null means "never set" and the runner applies its defaults; an empty array
+   * means the policy is deliberately empty.
+   */
+  allowTools: z.array(z.string()).nullable(),
+  denyPaths: z.array(z.string()).nullable(),
   /** Which agent CLI this runs (PROVIDERS.md). Null = the machine's default
    *  harness. Optional for the same reason ProviderInfo.command is: agents
    *  registered before this existed have no value, and a required field here

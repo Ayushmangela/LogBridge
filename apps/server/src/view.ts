@@ -103,6 +103,24 @@ function recentPulls(db: Db, projectId: string, limit: number): PullViewT[] {
   }));
 }
 
+/**
+ * A JSON-array column, or null when it was never set.
+ *
+ * The null/[] distinction is load-bearing: null means "no policy recorded,
+ * the runner applies its defaults", [] means "deliberately empty". Coercing a
+ * missing column to [] would tell the browser an agent has no permitted tools
+ * when the truth is that nobody has said yet.
+ */
+function parseJsonList(raw: unknown): string[] | null {
+  if (typeof raw !== "string" || raw === "") return null;
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The six room-groups the office can actually place an agent in. */
 export type OfficeCategory = "developer" | "research" | "qa" | "review" | "docs" | "planner";
 
@@ -235,6 +253,8 @@ export function buildView(db: Db, positions: Positions, meId: string, hive?: Hiv
         note: a.note ?? null,
         description: a.description ?? null,
         goal: a.goal ?? null,
+        allowTools: parseJsonList(a.allow_tools),
+        denyPaths: parseJsonList(a.deny_paths),
         provider: a.provider ?? null,
         summonedBy: a.summoned_by ?? null,
         summonedAt: a.summoned_at ?? null,

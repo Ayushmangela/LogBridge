@@ -209,6 +209,12 @@ export const BodySchemas = {
     character: z.string().nullish(),
     color: z.string().nullish(),
     capabilities: z.array(z.string()).nullish(),
+    // ★ 1.29 tool policy. Nullish, not defaulted: an omitted field means
+    // "leave it alone", and an empty array is a real instruction ("no
+    // restriction"). Collapsing those two would let a patch that never
+    // mentioned tools silently clear the policy.
+    allowTools: z.array(z.string()).nullish(),
+    denyPaths: z.array(z.string()).nullish(),
   }),
   "agent.git": z.object({
     requestId: z.string(),

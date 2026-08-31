@@ -506,6 +506,44 @@ CREATE INDEX IF NOT EXISTS idx_hive_del_state ON hive_deliveries (state, last_at
 CREATE INDEX IF NOT EXISTS idx_hive_del_agent ON hive_deliveries (to_agent_id, state);
 `;
 
+/**
+ * Clear `agents.goal` where it holds a generated commander prompt.
+ *
+ * `goal` is the human's standing objective — a sentence or two, edited in a
+ * textarea, capped at 2000 chars. Project creation used to store the whole
+ * ~3,600-character commander prompt there instead, so:
+ *
+ *   * that textarea showed a wall of machine text, and
+ *   * saving the dialog for ANY reason (a rename, a colour) truncated it to
+ *     2000 and silently destroyed the rest.
+ *
+ * Nothing reads the stored copy — ptyGateway rebuilds the prompt on every
+ * spawn — so clearing it loses nothing and hands the field back to the human.
+ *
+ * Matched on the prompt's own opening line rather than on length, so a human
+ * who genuinely wrote a long objective keeps it. Idempotent: after the first
+ * run nothing matches.
+ *
+ * TWO generations are matched, which is itself the argument for not storing
+ * this. Every row in the wild holds the PRE-rewrite prompt ("Chief Executive
+ * Operations Commander of this autonomous AI Hive") — a format that no longer
+ * exists anywhere in the code. A stored prompt goes stale the moment
+ * hivePrompt.ts is edited, and nothing was updating these.
+ */
+export function clearGeneratedCommanderGoals(db: Db): void {
+  try {
+    db.prepare(
+      `UPDATE agents SET goal = NULL
+        WHERE goal IS NOT NULL
+          AND goal LIKE 'You are "%'
+          AND (goal LIKE '%commander of this agent floor%'
+            OR goal LIKE '%Commander of this autonomous AI Hive%')`
+    ).run();
+  } catch {
+    // A database predating the agents table must not stop the server booting.
+  }
+}
+
 export function openDb(dbPath?: string): Db {
   const path = dbPath ?? process.env.DB_PATH ?? join(process.cwd(), "data.db");
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
@@ -582,6 +620,12 @@ export function openDb(dbPath?: string): Db {
     // NULL means "no definition", which is every agent created before this
     // and is why they still get the old hardcoded brief.
     "ALTER TABLE agents ADD COLUMN role_id TEXT",
+    // Tool policy, JSON arrays. The runner has always been the enforcer, but
+    // it was also the only holder — its created-agents.json was the single
+    // copy, on the agent owner's machine. Nothing server-side could display
+    // or change what an agent was permitted to do.
+    "ALTER TABLE agents ADD COLUMN allow_tools TEXT",
+    "ALTER TABLE agents ADD COLUMN deny_paths TEXT",
   ]) {
     try {
       db.exec(alter);
@@ -598,6 +642,7 @@ export function openDb(dbPath?: string): Db {
   // memory.ts). A backfill cannot live in this ALTER list, which only knows
   // how to add columns.
   migrateMemoryDedupe(db);
+  clearGeneratedCommanderGoals(db);
 
   try {
     db.exec(`

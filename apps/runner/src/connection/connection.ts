@@ -21,6 +21,7 @@ import {
   type RunnerOptions,
 } from "./types.js";
 import { handleAgentCreate, handleAgentGit } from "./agent-creation-handler.js";
+import { handleAgentPatch } from "./agent-patch-handler.js";
 import {
   handleDelegateRequest,
   handleReviewRequest,
@@ -343,6 +344,15 @@ export class RunnerConnection {
         agentById: (id) => this.agentById(id),
         publishCard: (a) => this.publishCard(a),
         sendEnvelope: (e) => this.sendEnvelope(e),
+      });
+      return;
+    }
+
+    if (env.type === "agent.patch") {
+      handleAgentPatch(this.opts, this.createdAgents, env, body, {
+        log: (m) => this.log(m),
+        agentById: (id) => this.agentById(id),
+        publishCard: (a) => this.publishCard(a),
       });
       return;
     }

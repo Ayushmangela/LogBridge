@@ -150,6 +150,20 @@ export function registerProjectRoutes(app: FastifyInstance, deps: RouteDeps) {
                    || "node_primary";
     const ownerId = (db.prepare("SELECT id FROM users LIMIT 1").get() as any)?.id || "usr_ayush";
 
+    // NOT stored on the agent row. `goal` is the human's standing objective —
+    // the textarea in the Edit dialog — and this is a ~3,600-character
+    // generated prompt. Putting it there overloaded one column with two
+    // incompatible things, and cost data both ways:
+    //
+    //   * the Edit dialog showed a wall of machine text where the human's own
+    //     objective belongs, and
+    //   * saving that dialog ran it through `slice(0, 2000)`, silently
+    //     deleting ~45% of it — so renaming a commander corrupted its brief.
+    //
+    // Nothing ever read the stored copy: ptyGateway rebuilds the prompt from
+    // buildCommanderHivePrompt() on every spawn, which is also what keeps it
+    // from going stale when hivePrompt.ts changes. Storing it was redundant
+    // before it was harmful.
     const commanderPrompt = buildCommanderHivePrompt({
       commanderName,
       folder,
@@ -169,7 +183,9 @@ export function registerProjectRoutes(app: FastifyInstance, deps: RouteDeps) {
       model,
       folder,
       `Central Operations Commander for ${name}`,
-      commanderPrompt
+      // goal: the human's objective, left empty for them to fill in — NOT
+      // commanderPrompt. See the note above the builder call.
+      null
     );
 
     try {

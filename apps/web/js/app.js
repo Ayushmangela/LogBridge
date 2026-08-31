@@ -6686,6 +6686,12 @@
       return s.split(',').map((x) => x.trim()).filter(Boolean);
     }
 
+    /** [] -> null, so "field left blank" reads as "no policy set" rather than
+     *  "policy is: nothing allowed". See the note at the save site. */
+    function emptyToNull(list) {
+      return list.length ? list : null;
+    }
+
     // ---- role pickers -------------------------------------------------
     //
     // Roles are files on the server (apps/server/src/roles/, ~/.logbridge/roles/,
@@ -7044,6 +7050,11 @@
       document.getElementById('ea-description').value = a.description ?? '';
       document.getElementById('ea-goal').value = a.goal ?? '';
       document.getElementById('ea-caps').value = (a.capabilities ?? []).join(', ');
+      // null (never set) and [] (deliberately empty) both render as an empty
+      // box; the hint under the field explains what empty means, and the save
+      // below maps empty back to null so "never set" survives a no-op edit.
+      document.getElementById('ea-allow').value = (a.allowTools ?? []).join(', ');
+      document.getElementById('ea-deny').value = (a.denyPaths ?? []).join(', ');
       eaCharacter = a.character ?? CHAR_NAMES[0];
       eaColor = a.color ?? AGENT_COLORS[0];
       eaBuildPickers();
@@ -7095,6 +7106,13 @@
         description: document.getElementById('ea-description').value.trim() || null,
         goal: document.getElementById('ea-goal').value.trim() || null,
         capabilities: caps,
+        // null, not [], when the field is empty — an empty array would tell
+        // the runner "this agent may use no tools at all", which is a very
+        // different instruction from "no policy set, use your defaults".
+        // splitList returns [] for an empty box, and [] is truthy — so the
+        // length check is what actually distinguishes the two.
+        allowTools: emptyToNull(splitList(document.getElementById('ea-allow').value)),
+        denyPaths: emptyToNull(splitList(document.getElementById('ea-deny').value)),
       };
       if (!body.name) { errEl.textContent = 'Name is required.'; errEl.style.display = 'block'; return; }
       const res = await postAgent(`/api/agents/${a.id}/edit`, { agentId: a.id, ...body }, errEl);

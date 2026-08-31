@@ -60,15 +60,21 @@ export async function requestAgentCreate(
     const owner = db.prepare("SELECT owner_id FROM machines WHERE id = ?").get(opts.machineId) as any;
     db.prepare(
       `INSERT OR IGNORE INTO agents (id, machine_id, owner_id, project_id, name, role, role_id, capabilities, concurrency, status, current_task,
-                           character, color, folder, isolation, description, goal, provider, model, is_god)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'idle', NULL, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+                           character, color, folder, isolation, description, goal, provider, model, is_god,
+                           allow_tools, deny_paths)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'idle', NULL, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
     ).run(
       agentId, opts.machineId, owner?.owner_id ?? "usr_dev", opts.projectId,
       opts.name, opts.role ?? "developer", opts.roleId ?? null,
       JSON.stringify(opts.capabilities ?? []),
       opts.character ?? "alex", opts.color ?? "#5b5ef0", opts.folder ?? "~/workspace",
       opts.isolation ?? "worktree", opts.description ?? null, opts.goal ?? null,
-      opts.provider ?? null, opts.model ?? null
+      opts.provider ?? null, opts.model ?? null,
+      // The runner enforces these, but it is no longer the only place they
+      // exist — see the columns' note in schema.ts. NULL, not "[]", when
+      // nothing was asked for, so the runner's defaults still apply.
+      opts.allowTools?.length ? JSON.stringify(opts.allowTools) : null,
+      opts.denyPaths?.length ? JSON.stringify(opts.denyPaths) : null
     );
   };
 

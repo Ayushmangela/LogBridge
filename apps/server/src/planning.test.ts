@@ -12,6 +12,7 @@ import {
   type Db,
 } from "./db.js";
 import { generatePlanDraft, deriveExecutionWaves, materializePlan, type PlanStep } from "./planner.js";
+import { listRoles } from "./roles/loader.js";
 import { analyzePlanImpact, applyPlanRevision } from "./replanning.js";
 import { buildAgentContext } from "./contextBuilder.js";
 import { buildServer } from "./index.js";
@@ -76,11 +77,34 @@ describe("Autonomous Planning Engine & Execution Waves", () => {
     expect(summary).toContain("execution plan");
     expect(steps.length).toBeGreaterThanOrEqual(4);
 
+    // This used to assert the literal strings "architect" and "backend".
+    // Those were the bug: no agent can ever hold either role, and the step's
+    // first capability becomes the task's `required_capability`, so routing
+    // (orchestrator.ts) matched nobody and supervisor.ts blocked the task with
+    // "No online agent has required capability". Four of five steps were
+    // unassignable while this test passed.
+    //
+    // What matters is not which names appear but that every step can actually
+    // be given to someone, so that is what is asserted now.
+    const known = listRoles(null);
+    const roleNames = new Set(known.map((r) => r.name));
+    const allCapabilities = new Set(known.flatMap((r) => r.capabilities));
+
+    for (const s of steps) {
+      expect(roleNames, `step ${s.stepNumber} names a role nobody can be`).toContain(s.suggestedRole);
+      // materializePlan sends exactly this one through as required_capability.
+      const required = s.requiredCapabilities[0];
+      if (required !== undefined) {
+        expect(allCapabilities, `step ${s.stepNumber} requires "${required}", which no role grants`)
+          .toContain(required);
+      }
+    }
+
+    // The plan still covers the whole arc: analysis, build, test, review.
     const roles = steps.map((s) => s.suggestedRole);
-    expect(roles).toContain("architect");
-    expect(roles).toContain("backend");
     expect(roles).toContain("qa");
     expect(roles).toContain("reviewer");
+    expect(roles.some((r) => r === "researcher" || r === "architect")).toBe(true);
 
     // Check execution wave derivation
     const waves = deriveExecutionWaves(steps);

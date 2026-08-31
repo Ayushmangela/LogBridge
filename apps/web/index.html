@@ -869,6 +869,18 @@
         <label for="ea-caps">Capabilities (comma-separated)</label>
         <input id="ea-caps" placeholder="implement_feature, fix_test">
       </div>
+      <!-- Tool policy. Enforced by the runner on the agent's own machine;
+           shown here because until now the server kept no copy at all, so
+           nobody could see what a teammate's agent was permitted to do. -->
+      <div class="field wide">
+        <label for="ea-allow">Allowed tools (comma-separated)</label>
+        <input id="ea-allow" placeholder="Read, Write, Edit, Bash">
+        <div class="provider-note info">Empty means the machine's own defaults apply.</div>
+      </div>
+      <div class="field wide">
+        <label for="ea-deny">Denied paths (comma-separated)</label>
+        <input id="ea-deny" placeholder="**/.env, **/secrets/**">
+      </div>
     </div>
     <div id="edit-agent-error" style="display:none;margin-top:12px;padding:10px 12px;border-radius:8px;background:rgba(221,85,75,0.10);border:1px solid rgba(221,85,75,0.30);color:var(--red);font-size:12.5px"></div>
     <div class="dialog-actions">
