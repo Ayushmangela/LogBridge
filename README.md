@@ -153,6 +153,7 @@ That last one is the real test. If they can't, the office is decoration and some
 
 | Doc | What |
 |---|---|
+| **[PROJECT.md](PROJECT.md)** | **Start here.** The whole project in one document — what it is, what's built, architecture, what's broken, the roadmap, deployment, and how to test it with a friend |
 | **[AGENT-SYSTEM.md](AGENT-SYSTEM.md)** | **How agents are run, reached and coordinated** — the constraint that shapes everything, the two live channels, the wake rule, assignment, and what's remaining |
 | **[AGENT-PROMPTING.md](AGENT-PROMPTING.md)** | The six paths that put text in front of an agent, what breaks on each, and the design that holds under all of them |
 | **[CONTRACT.md](CONTRACT.md)** | The data the office and the system exchange. **Source of truth — never edit alone, bump the version, add a changelog line** |
