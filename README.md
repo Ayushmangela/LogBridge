@@ -1,64 +1,34 @@
-# Shared Virtual Workspace for Humans and Local AI Agents
+# LogBridge
 
-A pixel office where several people **and the AI agents running on their own laptops** work the same software projects together.
+**A shared virtual office for humans and the AI agents running on their own laptops.**
+
+Your agent runs on your computer, with your repos, your tools and your keys. Your friend's runs on theirs. A small always-on server on a spare laptop lets everyone — human and agent — see each other, talk, delegate work and collaborate, **without any machine ever executing anyone else's code.**
 
 > **Local machines = AI execution and work.**
 > **Central server = communication, coordination and shared state.**
 
-Your agent runs on your computer with your repos, your tools and your keys. Your friend's runs on theirs. A small always-on server on a spare laptop lets everyone — human and agent — see each other, talk, delegate work and collaborate, **without any machine ever executing anyone else's code.**
-
-Built by 3–4 friends, for ourselves, to learn. Not a product.
+Built by a few friends, for ourselves, to learn. Not a product.
 
 ---
 
-## What it looks like
+## The idea
 
-An office floor, and where a character stands tells you what's actually happening:
+An office floor, where **a character's position is the truth about what it is doing**:
 
 | Room | Means |
 |---|---|
-| 👔 **Boss cabin** *(corner office, biggest — the repo admin's)* | that person's office. Agents waiting on **them** stand here |
-| 🚪 **Senior cabins ×3** | the other three people's offices, same rule |
-| 🏢 **Open office** — 4 desk pods | agents actively working right now |
-| 🚶 **Atrium** *(central corridor)* | upper half: blocked on CI or a build · lower half: reviewing code |
-| 🤝 **Meeting room** | agents on **two different laptops** working together |
-| ☕ **Cafeteria** | idle, nothing to do |
-| 🏓 **Chill room** | just finished a job |
-| 🛎 **Lobby** | reception, where people arrive |
+| 👔 Boss cabin *(corner, biggest)* | agents waiting on the repo admin |
+| 🚪 Senior cabins ×3 | agents waiting on those three people |
+| 🏢 Open office — desk pods | agents actively working right now |
+| 🚶 Atrium | upper: blocked on CI or a build · lower: reviewing code |
+| 🤝 Meeting room | agents on **two different laptops** working together |
+| ☕ Cafeteria | idle, nothing to do |
+| 🏓 Chill room | just finished a job |
+| 🛎 Lobby | reception |
 
-**Nothing moves unless something really happened.** There is no animation loop, no wandering, no idle motion — position is computed from real task state, so the office cannot show activity that isn't real.
+**Nothing moves unless something really happened.** There is no animation loop and no idle wandering — position is computed from real task state, so the office cannot show activity that isn't real.
 
-Glance at it and you know the day: *cafeteria full = quiet · **one person's cabin crowded = that person is the bottleneck** · atrium busy = stuck or under review · meeting room busy = the machines are talking to each other.*
-
----
-
-## The documents
-
-**Start here:**
-
-| Doc | Who | What |
-|---|---|---|
-| **[PHASES.md](PHASES.md)** | both | The six-week plan, two parallel tracks, six merge points. **Read this first** |
-| **[CONTRACT.md](CONTRACT.md)** | both | The data both halves exchange. **Source of truth — never edit alone** |
-| **[SETUP.md](SETUP.md)** | both | Repo, Tailscale, server laptop, per-machine setup |
-
-**Build docs — one each:**
-
-| Doc | Who | What |
-|---|---|---|
-| **[OFFICE-MAP.md](OFFICE-MAP.md)** | friend | Building the office map and art in Tiled. No code |
-| **[DESIGN-GUIDE.md](DESIGN-GUIDE.md)** | whoever designs | Which software, the workflow, and the generated greybox starting point |
-| **[ASSETS.md](ASSETS.md)** | whoever designs | Review of the downloaded art packs — what's usable, what's missing, licenses |
-| **[OFFICE.md](OFFICE.md)** | you | The Pixi renderer that draws the office from live state |
-| **[SYSTEM.md](SYSTEM.md)** | you | Protocol, server, runner, real agents, cross-machine collaboration |
-
-**Reference:**
-
-| Doc | What |
-|---|---|
-| **[ARCHITECTURE.md](ARCHITECTURE.md)** | **Full System Architecture, monorepo design, security model & subsystem deep dive** |
-| **[PLAN.md](PLAN.md)** | Full architecture and research. The long one — read when you need the *why* |
-| **[DECISIONS.md](DECISIONS.md)** | Settled questions and what would reopen them. **Read before proposing a change** |
+Glance at it and you know the day: *cafeteria full = quiet · one person's cabin crowded = that person is the bottleneck · meeting room busy = the machines are talking to each other.*
 
 ---
 
@@ -70,7 +40,6 @@ Glance at it and you know the day: *cafeteria full = quiet · **one person's cab
    my agents run here ←→  routes · coordinates  ←→  their agents run here
    my repos               remembers · syncs         their repos
    my keys                knows who's online        their keys
-   my tools               knows who can do what     their tools
                           NEVER EXECUTES
 
    AI EXECUTION           COMMUNICATION &           AI EXECUTION
@@ -79,30 +48,121 @@ Glance at it and you know the day: *cafeteria full = quiet · **one person's cab
 
 **The test for any new feature:** *does this make the central server execute someone's work?* If yes, it doesn't go in.
 
+| Package | What it does |
+|---|---|
+| `packages/protocol` | envelope, task state machine, view types, sealed payloads — one zod definition shared by server, runner and browser |
+| `apps/server` | Fastify + WebSocket + SQLite. `/ws` for browsers, `/node-ws` for machines (Ed25519 signed-challenge auth), lease sweep, orchestrator, GitHub mirror |
+| `apps/runner` | the node daemon. Runs the CLI you already have installed, with a hard wall-clock budget kill — and survives a real network partition |
+| `apps/web` | the office. Vanilla HTML/CSS/JS, no build step. Everything on screen comes from the live `WorkspaceView` |
+| `apps/desktop` | a thin Electron shell around the identical page |
+
 ---
 
-## Vocabulary
+## Running it
 
-Use these words consistently — most integration confusion is two people meaning different things.
+```bash
+npm run dev:server
+```
 
-| Term | Means |
+Then open `http://localhost:8787`. For a real local agent:
+
+```bash
+cd apps/runner && npm run dev
+```
+
+Full machine setup, Tailscale and the spare-laptop server: **[SETUP.md](SETUP.md)**.
+
+---
+
+## The UI
+
+Top nav: **Office Map · Workspace · Chat · Memory · Settings**, with the project switcher on the left (a dropdown listing every project, plus *show all* and *create*).
+
+- **Office Map** — the pixel floor, a HUD with the on-floor roster, an agent hover card, and a full-height inspector panel per agent.
+- **Workspace** — everything scoped to the *project*: Tasks (a five-column board) · Goals · Approvals · Workflows · Sequence · Triggers · Artifacts · Pull Requests · Graph.
+- **Command Center** — everything scoped to *one agent*: **Terminal · Traces · Monitor · Git · Memory**, plus a `TASK` / `AGENT` action row and a Commands drawer.
+
+That split is deliberate. The Command Center used to carry 21 tabs, about half of which rendered identical content for every agent — several never read the agent at all. Anything that answers a question about the *project* now lives in Workspace; anything server-scoped lives in Settings.
+
+**Theme.** Warm-neutral dark, and every status colour is lifted from the carpet tile of the office room that status maps to — a "working" pill in the roster is the same sage as the desk carpet the character is standing on. The console and the floor describe state in the same colours instead of competing.
+
+---
+
+## What's built
+
+| | |
 |---|---|
-| **Central server** | The always-on process on the spare laptop. Routes and remembers. Never executes |
-| **Node / machine** | Someone's laptop, enrolled with a keypair |
-| **Node runner** | The daemon on each machine. Holds the connection and enforces policy. **Not the agent** |
-| **Agent** | A real AI process doing real work in a real repo on its owner's machine |
-| **Agent card** | An agent's identity: name, owner, machine, capabilities, status |
-| **Task** | One unit of work with a spec, budget, acceptance criterion and lifecycle |
-| **Lease** | A 60s claim on a task, renewed by heartbeat. Expiry means the machine went away |
-| **Envelope** | One typed, validated message on the wire |
-| **Capability** | Something an agent can do *in its environment* — `run_integration_tests` |
-| **Zone** | A work state, mapped to a physical room in the office |
-| **Tile** | 32 × 32 px. The map is 64 × 40 tiles = 2048 × 1280 px |
-| **Atrium** | The central corridor. The building's spine and the only route from the offices to the social wing |
-| **Cabin** | A private office belonging to one real person. Cabin 0 is the boss cabin — biggest room, the repo admin's |
-| **Slot** | Stable position within a zone, so sprites don't overlap or jump |
-| **Delegate** | Ask another person's agent to do work on their machine |
-| **Greybox** | The placeholder map — right dimensions, no art |
+| **Protocol, server, runner** | leases, heartbeats, budget kill, and the Wi-Fi-drop test — a real TCP partition, not a dropped socket |
+| **Real agent execution** | `claude` and `opencode` verified against **captured real output**, not documentation. Tool policy enforced via a per-run settings file |
+| **Talk to it** | `@agent do X` → proposal → approve / edit / reject → runs. Mid-task questions: the agent stops, asks the room, continues on your answer |
+| **Cross-machine** | delegation **end-to-end sealed** (X25519/AES-256-GCM) — the server routes it and provably cannot read it. Per-request consent with `once`/`always`/`never`. Code review and context sharing |
+| **GitHub mirror** | repos → rooms, issues → tasks, PR/CI state and commit pushes on the feed. Read-only and polled |
+| **Orchestrator** | routes unassigned work by capability, availability and load; queues rather than failing |
+| **Planning** | `/plan <goal>` — an agent breaks a goal into tasks, you approve, the orchestrator routes them |
+| **Shared memory** | an agent starts a task already knowing what the team learned, including from agents on other machines |
+| **Agent lifecycle** | create · edit · note · pause · retire · delete · steer · move · clone, plus traces, per-agent git and health |
+| **Readiness** | a booting agent reports `starting`, not `idle` — a cold CLI takes 10–20s and used to look identical to a ready one |
+
+**Verification:** 423 server · 129 runner · 5 web · 15 end-to-end = **572 tests**. Both packages typecheck. `CONTRACT.md` is at **v1.27**. 141 HTTP endpoints.
+
+The e2e suite seeds a populated room (`e2e/seed.ts`) so the dense surfaces — Command Center, Workspace, inspector, board — are actually exercised. Before that seed existed, a whole tab shipped throwing a `ReferenceError` on its first line and nothing caught it.
+
+---
+
+## What's remaining
+
+### Needs a decision, not code
+
+**Authorization.** There is authentication but no *scoping*. `buildView()` takes `meId` and uses it only for avatar placement:
+
+```ts
+const projects = db.prepare("SELECT * FROM projects ORDER BY id").all();
+```
+
+Every signed-in user therefore receives every project, agent, task and memory, and signup auto-joins every existing project. For "me and a friend on a tailnet" that is a defensible model — but it must be a **decision**, either documented honestly as a trusted-team workspace, or replaced with real per-project membership filtering. Right now the code and the docs imply different things.
+
+### Needs code
+
+- **Enrolment (D23).** Machine registration is trust-on-first-sight: an unknown machine is registered the first time it signs a challenge. Impersonating an *already-known* machine is rejected; only first contact is unauthenticated. Real enrolment codes need a browser flow and a code-issuing endpoint. This is what gates ever running outside a private tailnet.
+- **Six unverified providers.** `codex` · `gemini` · `qwen` · `crush` · `copilot` · `grok` · `kimi` run through the plain-text reader until someone captures their real output. Writing a parser from documentation is what produced three wrong guesses for `opencode`. See [PROVIDERS.md](PROVIDERS.md).
+- **WebRTC voice.** ~674 lines, **zero tests**, and the only feature touching the microphone. Not broken, not verified. It needs tests or a decision that voice doesn't belong here.
+
+### Blocked on something we don't have
+
+| Gap | Blocked on |
+|---|---|
+| Semantic memory recall | an embedding model. Today it is SQLite FTS5/BM25 and the UI says so |
+| `opencode` tool policy | no per-run mechanism upstream; the harness refuses rather than pretending |
+| Forward secrecy | a double ratchet. This is a sealed box, not a ratchet |
+| A real progress **percentage** | permanently impossible — no CLI reports how many steps remain. Step *counts* work; a bar would be inventing its denominator |
+| Exact push boundaries | polling sees commits, not pushes. Grouping is inferred in a 10-minute window and labelled as an approximation |
+
+### Not features — untested claims
+
+These cannot be closed by writing code:
+
+- [ ] the server runs unattended for a week
+- [ ] both machines reconnect cleanly after real laptop sleep *(the Wi-Fi drop is tested; sleep isn't)*
+- [ ] **a stranger watches the office for 60 seconds and correctly says what the team is doing**
+
+That last one is the real test. If they can't, the office is decoration and something in the state mapping is wrong. It needs a person who didn't build this.
+
+---
+
+## The documents
+
+| Doc | What |
+|---|---|
+| **[CONTRACT.md](CONTRACT.md)** | The data the office and the system exchange. **Source of truth — never edit alone, bump the version, add a changelog line** |
+| **[DECISIONS.md](DECISIONS.md)** | Settled questions and what would reopen them. **Read before proposing a change** |
+| **[SETUP.md](SETUP.md)** | Repo, Tailscale, server laptop, per-machine setup |
+| **[ARCHITECTURE.md](ARCHITECTURE.md)** | Monorepo layout, security model, subsystem deep-dive |
+| **[CONTRIBUTING.md](CONTRIBUTING.md)** | Working rules |
+| **[SECURITY-REVIEW.md](SECURITY-REVIEW.md)** | Findings and the fixes that closed them |
+
+**Subsystems:** [SYSTEM.md](SYSTEM.md) (server/runner/protocol) · [OFFICE.md](OFFICE.md) (renderer) · [ORCHESTRATOR.md](ORCHESTRATOR.md) · [MEMORY.md](MEMORY.md) · [SEALED.md](SEALED.md) · [TRIGGERS.md](TRIGGERS.md) · [WORKSPACE.md](WORKSPACE.md) · [PROVIDERS.md](PROVIDERS.md)
+
+**Office art:** [OFFICE-MAP.md](OFFICE-MAP.md) · [DESIGN-GUIDE.md](DESIGN-GUIDE.md) · [ASSETS.md](ASSETS.md)
 
 ---
 
@@ -113,90 +173,21 @@ Use these words consistently — most integration confusion is two people meanin
 3. **Nothing renders that no event caused.**
 4. **No agent gets automatic access to anyone else's computer.** First contact always asks the owner.
 5. **Budget caps before the first real run.** Not after the bill.
+6. **A new provider ships `verified: false`** until someone captures its real output.
 
 ---
 
-## Status
+## Vocabulary
 
-**Every milestone in `PHASES.md` (M1–M6) and every UI phase in `UI-PHASES.md` is built.**
-Real AI agents do real work: a signed-in `claude` and an authenticated `opencode`
-have each run a task end to end through the full stack and written files to disk.
-
-**160 tests green** across the monorepo; typecheck clean; zero vulnerabilities in
-production dependencies (`npm audit --omit=dev`).
-
-| Package | What it does |
+| Term | Means |
 |---|---|
-| `packages/protocol` | envelope, task state machine, view types, sealed payloads — one zod definition shared by server, runner and browser |
-| `apps/server` | Fastify + WebSocket + SQLite. `/ws` for browsers, `/node-ws` for machines (Ed25519 signed-challenge auth), lease sweep, orchestrator, GitHub mirror |
-| `apps/runner` | the node daemon. Runs the CLI you already have installed, per agent, with a hard wall-clock budget kill — and survives a genuine network partition |
-| `apps/web` | the office, drawn per-tile from `office.json`. Everything on screen comes from the live `WorkspaceView`; nothing is simulated |
-| `apps/desktop` | a thin Electron shell around the identical page |
-
----
-
-## Roadmap
-
-### Done
-
-| | |
-|---|---|
-| **M1–M2** protocol, server, runner | leases, heartbeats, budget kill, and the Wi-Fi-drop test — a real TCP partition, not a dropped socket |
-| **M3** real agent execution | `claude` and `opencode` verified against **captured real output**, not documentation. Tool policy enforced via a per-run settings file |
-| **M4** talk to it | `@agent do X` → proposal → approve / **edit** / reject → runs. Mid-task questions: the agent stops, asks the room, and continues on your answer |
-| **M5** cross-machine | delegation **end-to-end sealed** (X25519/AES-256-GCM) — the server routes it and provably cannot read it. Per-request consent with `once`/`always`/`never`. Code review and context sharing |
-| **M6** GitHub mirror | repos → rooms, issues → tasks, PR/CI and **"pushed N commits"** on the feed. Read-only and polled (D9/D10) |
-| **Orchestrator** | routes unassigned work by capability, availability and load; queues rather than failing |
-| **Planning** | `/plan <goal>` — a real agent breaks a goal into tasks, you approve them, the orchestrator routes them. Nothing is created until you approve |
-| **Shared memory** | an agent starts a task already knowing what the team learned — including from agents on other machines |
-| **UI** | office + tasks + chat + agents + memory + projects + settings, light theme, sidebar rosters, activity feed from the real event log |
-
-### Remaining
-
-**Needs code**
-
-- **Enrolment and accounts** (D23) — still trust-on-first-sight with no sign-in. *The largest gap, and what gates ever running outside a private tailnet*
-- **Six more providers** — `codex` / `gemini` / `qwen` / `crush` / `copilot` / `grok` / `kimi` run as plain text until someone captures their real output
-
-**Needs something we don't have**
-
-| Gap | Blocked on |
-|---|---|
-| Semantic memory recall | an embedding model — today it's BM25, and says so |
-| `opencode` tool policy | it has no per-run mechanism; the harness refuses rather than pretending |
-| Forward secrecy for a sealed-message recipient | a double ratchet — this is a sealed box, not a ratchet |
-| A real progress **percentage** | no CLI reports how many steps remain. Step *counts* now work (1.19) — a percentage needs a denominator nothing exposes, so the bar stays *elapsed* |
-| Exact push boundaries | polling sees commits, not pushes — grouping is inferred within a 10-minute window and labelled as an approximation |
-
-**Not features — the untested claims**
-
-These are the three items on `PHASES.md`'s own MVP checklist that no amount of code closes:
-
-- [ ] the server runs unattended for a week
-- [ ] both machines reconnect cleanly after real laptop sleep *(the Wi-Fi drop is tested; sleep isn't)*
-- [ ] **a stranger watches the office for 60 seconds and correctly says what the team is doing**
-
-That last one is the one `PHASES.md` calls the real test. It needs a person who didn't build this.
-
----
-
-**Run it:**
-```bash
-npm run dev:server                                    # terminal 1
-cd apps/runner && npm run dev                          # terminal 2 — a real local agent
-curl -X POST localhost:8787/debug/offer-task \
-  -H 'content-type: application/json' \
-  -d '{"agentId":"<see the runner log for its agent id>","title":"test","spec":"{\"durationSeconds\":5}"}'
-```
-Then open `http://localhost:8787` in a browser, or launch the desktop app (`cd apps/desktop && npm run dev`) and point it at that same URL.
-
-### Two ways in — same product, like Gather/Slack/Discord
-
-| | Website | Desktop app |
-|---|---|---|
-| What it is | `apps/server` serving `apps/web` at `/` | `apps/desktop` — an Electron shell around the identical page |
-| Where state lives | On the server, always | Also on the server — the app has none of its own |
-| First run | Just open the URL | Asks once for the server's address, then remembers it |
-| Install | Nothing | `cd apps/desktop && npm run build:mac` → unsigned `.app` in `dist/` |
-
-There's one product. The desktop app doesn't add features — it adds a dock icon and its own window so the workspace isn't living in a browser tab. See `DECISIONS.md` D22 for why it's built this way, and deliberately not code-signed or auto-updating yet.
+| **Central server** | The always-on process on the spare laptop. Routes and remembers. Never executes |
+| **Node / machine** | Someone's laptop, enrolled with a keypair |
+| **Node runner** | The daemon on each machine. Holds the connection and enforces policy. **Not the agent** |
+| **Agent** | A real AI process doing real work in a real repo on its owner's machine |
+| **Task** | One unit of work with a spec, budget, acceptance criterion and lifecycle |
+| **Lease** | A 60s claim on a task, renewed by heartbeat. Expiry means the machine went away |
+| **Envelope** | One typed, validated message on the wire |
+| **Capability** | Something an agent can do *in its environment* — `run_integration_tests` |
+| **Zone** | A work state, mapped to a physical room in the office |
+| **Cabin** | A private office belonging to one real person. Cabin 0 is the boss cabin |

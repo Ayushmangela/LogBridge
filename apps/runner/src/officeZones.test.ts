@@ -1,5 +1,5 @@
-// Automates PHASES.md's M3 acceptance test, which until now only existed as
-// a manual demo step: "the character walks into the open office → finishes
+// Automates the "office comes alive" acceptance test, which until now only
+// existed as a manual demo step: "the character walks into the open office → finishes
 // → moves to the table tennis room. Nothing else in the room moves." That's
 // a claim about buildView()'s zone output tracking a real task's lifecycle
 // through the real server+runner wire, not just zoneFor() in isolation

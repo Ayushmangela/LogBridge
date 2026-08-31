@@ -207,7 +207,7 @@ describe("sealed cross-machine delegation", () => {
     });
 
     // waiting_on carries an "@", which is exactly what zoneFor() turns into
-    // the `collaborating` zone — PHASES.md M5's meeting-room visual.
+    // the `collaborating` zone — the cross-machine meeting-room visual.
     await waitFor(() => agentRow(a.agentId)?.waiting_on?.includes("@"), 6000, "requester blocked on a remote agent");
     expect(agentRow(a.agentId).status).toBe("blocked");
     expect(agentRow(a.agentId).waiting_on).toContain("dev-b3");

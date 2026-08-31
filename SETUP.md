@@ -209,7 +209,7 @@ workspace node enroll <code>      # code from the web UI
 
 This generates an Ed25519 keypair at `~/.workspace/key` (mode 0600). **The private key never leaves the machine.**
 
-Then write `~/.workspace/config.yaml` — see `PLAN.md` §7 for the full shape. Minimum:
+Then write `~/.workspace/config.yaml`. Minimum:
 
 ```yaml
 node: ayush-mbp

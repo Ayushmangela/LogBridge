@@ -3,7 +3,7 @@
 // Until now the runner hardcoded `agents[0]`: task.offer carried no agentId,
 // so a second agent on the same machine could never receive work, and every
 // agent shared one harness. This is the foundation the Add Agent dialog needs
-// (UI-PHASES.md phase 6) — creating an agent from the browser is pointless if
+// — creating an agent from the browser is pointless if
 // the runner can only ever drive the first one.
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";

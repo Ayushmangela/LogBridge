@@ -13,3 +13,7 @@ dist/
 /test-results/
 /playwright-report/
 /blob-report/
+
+# Generated per-agent briefing, written by ptyGateway.ts into an agent's cwd.
+# Not documentation — it is runtime output and must never be committed.
+AGENTS.md

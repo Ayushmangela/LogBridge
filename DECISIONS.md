@@ -185,7 +185,7 @@ Agent-to-agent payloads are sealed with X25519/HKDF-SHA256/AES-256-GCM (HPKE bas
 **Cost, stated plainly:** the server still sees the full communication graph. This buys confidentiality of content, not metadata privacy.
 **Would change it:** wanting metadata privacy too, which would mean giving up the event log the office is rendered from — i.e. reopening D4 and D11, not just this decision.
 
-**Consent is per-machine, not per-request.** `acceptDelegations` defaults to off; a machine refuses delegated work until its owner opts in. That is the buildable-without-UI version of PHASES.md M5's "he approves once". The per-request `delegate.decision` flow (approve/deny/always/never) is speced in the protocol and **not built** — it's the remaining half of M5's consent story.
+**Consent is per-machine, not per-request.** `acceptDelegations` defaults to off; a machine refuses delegated work until its owner opts in. That is the buildable-without-UI version of "he approves once" from the cross-machine milestone. The per-request `delegate.decision` flow (approve/deny/always/never) is speced in the protocol and **not built** — it's the remaining half of that consent story.
 **Why default off:** silently executing a payload because it arrived would defeat D1 and D3 entirely. Refusing is the safe default; opting in is a deliberate act.
 
 **Not forward secret for the recipient.** The ephemeral sender key protects past messages against later compromise of the *sender's* key. Compromising the *recipient's* long-term key decrypts everything ever sealed to it. Real forward secrecy needs a double ratchet with shared session state — a much larger feature. This is a sealed box and must not be described as a ratchet.
