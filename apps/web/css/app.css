@@ -1646,3 +1646,34 @@
     .hive-mem-pane { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
     .hive-mem-head { padding: 9px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; font-weight: 700; color: var(--text); }
     .hive-mem-editor { flex: 1; padding: 12px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 1.5; background: var(--bg); color: var(--text); border: none; outline: none; resize: none; }
+
+    /* ---- "System design" button on the sign-in screen ----
+       Sits above the tray, outside it: the document is public to anyone who
+       reaches the login page, and does not need an account to read. */
+    .auth-doc-btn {
+      position: absolute;
+      top: 28px; left: 50%; transform: translateX(-50%);
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 9px 16px 9px 13px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 999px;
+      color: var(--text-dim);
+      font: inherit; font-size: 12.5px; font-weight: 550;
+      text-decoration: none; cursor: pointer;
+      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      transition: all .16s var(--ease-spring);
+      white-space: nowrap;
+    }
+    .auth-doc-btn:hover, .auth-doc-btn:focus-visible {
+      color: var(--text);
+      border-color: rgba(93,179,192,0.45);
+      background: rgba(93,179,192,0.10);
+      transform: translateX(-50%) translateY(-1px);
+    }
+    .auth-doc-btn .dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent); flex: none;
+      box-shadow: 0 0 0 3px rgba(93,179,192,0.18);
+    }
+    .auth-doc-btn .arrow { color: var(--accent); font-size: 12px; }

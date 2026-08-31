@@ -18,7 +18,16 @@
 <div id="view-auth" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:9999;align-items:center;justify-content:center;font-family:inherit;">
   <!-- Ambient Dot Grid -->
   <div style="position:absolute;inset:0;background-image:radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px);background-size:24px 24px;opacity:0.6;pointer-events:none;"></div>
-  
+
+  <!-- The sign-in screen was the one place someone looks at LogBridge and
+       learns nothing about it. Opens in a new tab so a half-typed sign-in
+       is never thrown away. -->
+  <a class="auth-doc-btn" href="/system-design.html" target="_blank" rel="noopener">
+    <span class="dot"></span>
+    System design — how a task crosses the floor
+    <span class="arrow">↗</span>
+  </a>
+
   <!-- Outer Double-Bezel Hardware Tray -->
   <div style="position:relative;width:400px;max-width:92vw;padding:4px;background:rgba(255, 255, 255, 0.03);border:1px solid rgba(255, 255, 255, 0.1);border-radius:18px;box-shadow:0 30px 80px -10px rgba(0,0,0,0.9), 0 0 1px 1px rgba(255,255,255,0.06);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);">
     
@@ -73,6 +82,7 @@
 
     </div>
   </div>
+
 </div>
 
 <div class="app">

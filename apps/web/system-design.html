@@ -1,0 +1,1450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LogBridge Floor Protocol</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600;700&display=swap">
+
+<style>
+/* ─────────────────────────────────────────────────────────────
+   Palette is lifted from the product's own tokens (apps/web/css/app.css)
+   so the document reads as part of the thing it describes:
+   --bg #141110 · --accent #5DB3C0 · --st-working #74AF7D
+   Light theme is the warm paper the dark ground was mixed from.
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --ground:      #F7F3EE;
+  --surface:     #FFFDFA;
+  --surface-2:   #EFE8E0;
+  --rule:        #DDD3C8;
+  --rule-strong: #C3B6A8;
+
+  --text:        #221C18;
+  --text-2:      #5C5148;
+  --text-3:      #8A7D71;
+
+  --accent:      #2C7A87;
+  --accent-soft: #DCEEF0;
+  --work:        #487F52;
+  --work-soft:   #DFEDE1;
+  --halt:        #A83F36;
+  --halt-soft:   #F4E0DD;
+  --wait:        #8A6A12;
+  --wait-soft:   #F3E9D0;
+
+  /* Diagrams are blueprints: one paper ground in both themes, so the
+     natively-rendered mermaid never lands on a colour it did not expect. */
+  --blueprint:   #FFFDFA;
+  --blueprint-rule: #DDD3C8;
+
+  --shadow: 0 1px 2px rgba(34,28,24,.05), 0 8px 24px -12px rgba(34,28,24,.18);
+
+  --measure: 68ch;
+  --step--1: 0.815rem;
+  --step-0:  1rem;
+  --step-1:  1.22rem;
+  --step-2:  1.55rem;
+  --step-3:  2.05rem;
+  --step-4:  2.9rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:      #141110;
+    --surface:     #1C1817;
+    --surface-2:   #242020;
+    --rule:        #322C2A;
+    --rule-strong: #4A423F;
+
+    --text:        #EFE7E0;
+    --text-2:      #B0A49B;
+    --text-3:      #7E736B;
+
+    --accent:      #5DB3C0;
+    --accent-soft: #16302F;
+    --work:        #74AF7D;
+    --work-soft:   #182A1C;
+    --halt:        #D5766B;
+    --halt-soft:   #2E1B18;
+    --wait:        #C8A65A;
+    --wait-soft:   #2B2313;
+
+    --blueprint:   #191514;
+    --blueprint-rule: #322C2A;
+
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px -14px rgba(0,0,0,.7);
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground:      #141110;
+  --surface:     #1C1817;
+  --surface-2:   #242020;
+  --rule:        #322C2A;
+  --rule-strong: #4A423F;
+
+  --text:        #EFE7E0;
+  --text-2:      #B0A49B;
+  --text-3:      #7E736B;
+
+  --accent:      #5DB3C0;
+  --accent-soft: #16302F;
+  --work:        #74AF7D;
+  --work-soft:   #182A1C;
+  --halt:        #D5766B;
+  --halt-soft:   #2E1B18;
+  --wait:        #C8A65A;
+  --wait-soft:   #2B2313;
+
+  --blueprint:   #FFFDFA;
+  --blueprint-rule: #DDD3C8;
+
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px -14px rgba(0,0,0,.7);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--text);
+  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  font-size: var(--step-0);
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── shell ───────────────────────────────────────────────── */
+.wrap {
+  /* Wide for the DIAGRAMS, not the prose — every text block is still capped
+     at --measure (68ch), so the reading column does not change. */
+  max-width: 1560px;
+  margin: 0 auto;
+  padding: 0 clamp(1.1rem, 4vw, 3rem);
+}
+
+/* ── masthead ────────────────────────────────────────────── */
+.masthead {
+  padding: clamp(3rem, 8vw, 6rem) 0 clamp(2rem, 5vw, 3.5rem);
+  border-bottom: 2px solid var(--text);
+}
+.eyebrow {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: var(--step--1);
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 1.1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1.1rem;
+  align-items: baseline;
+}
+.eyebrow .sep { color: var(--text-3); }
+h1 {
+  font-family: "IBM Plex Serif", Georgia, serif;
+  font-weight: 700;
+  font-size: var(--step-4);
+  line-height: 1.05;
+  letter-spacing: -.022em;
+  margin: 0 0 1.1rem;
+  text-wrap: balance;
+  max-width: 22ch;
+}
+.standfirst {
+  font-size: var(--step-1);
+  line-height: 1.5;
+  color: var(--text-2);
+  max-width: 60ch;
+  margin: 0;
+}
+.standfirst strong { color: var(--text); font-weight: 600; }
+
+/* ── the two-verb card in the masthead ───────────────────── */
+.verbs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  margin-top: 2.4rem;
+  overflow: hidden;
+}
+.verb { background: var(--surface); padding: 1.4rem 1.5rem; }
+.verb h3 {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: var(--step-0);
+  font-weight: 600;
+  margin: 0 0 .5rem;
+  color: var(--accent);
+  letter-spacing: .01em;
+}
+.verb p { margin: 0; font-size: var(--step--1); color: var(--text-2); line-height: 1.6; }
+.verb p + p { margin-top: .6rem; }
+
+/* ── layout: sticky phase rail + column ──────────────────── */
+.body-grid {
+  display: grid;
+  grid-template-columns: 13rem minmax(0, 1fr);
+  gap: clamp(1.5rem, 4vw, 3.5rem);
+  align-items: start;
+  padding: 3rem 0 6rem;
+}
+@media (max-width: 900px) {
+  .body-grid { grid-template-columns: minmax(0, 1fr); }
+  .rail { display: none; }
+}
+.rail {
+  position: sticky;
+  top: 2rem;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: var(--step--1);
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+}
+.rail a {
+  color: var(--text-3);
+  text-decoration: none;
+  padding: .34rem 0 .34rem .75rem;
+  border-left: 2px solid var(--rule);
+  transition: color .15s, border-color .15s;
+  display: block;
+}
+.rail a:hover, .rail a:focus-visible { color: var(--accent); border-left-color: var(--accent); }
+.rail .rail-head {
+  color: var(--text);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  font-size: .68rem;
+  padding: 0 0 .55rem;
+  border: 0;
+}
+.rail .num { color: var(--rule-strong); margin-right: .5rem; }
+
+.col { min-width: 0; display: flex; flex-direction: column; gap: 3.2rem; }
+
+/* ── sections ────────────────────────────────────────────── */
+section { scroll-margin-top: 1.5rem; }
+.sec-head { display: flex; gap: 1rem; align-items: baseline; margin: 0 0 1.1rem; }
+.sec-num {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: var(--step--1);
+  color: var(--accent);
+  letter-spacing: .08em;
+  padding-top: .35rem;
+  white-space: nowrap;
+}
+h2 {
+  font-family: "IBM Plex Serif", Georgia, serif;
+  font-weight: 600;
+  font-size: var(--step-3);
+  line-height: 1.14;
+  letter-spacing: -.017em;
+  margin: 0;
+  text-wrap: balance;
+}
+h3 {
+  font-family: "IBM Plex Sans", sans-serif;
+  font-weight: 600;
+  font-size: var(--step-1);
+  line-height: 1.3;
+  margin: 2.2rem 0 .7rem;
+  letter-spacing: -.006em;
+  text-wrap: balance;
+}
+h4 {
+  font-family: "IBM Plex Mono", monospace;
+  font-weight: 600;
+  font-size: var(--step--1);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin: 1.8rem 0 .6rem;
+}
+p { margin: 0 0 1rem; max-width: var(--measure); }
+p:last-child { margin-bottom: 0; }
+a { color: var(--accent); text-underline-offset: 2px; }
+strong { font-weight: 600; }
+code, kbd, .mono {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .88em;
+}
+p code, li code, td code, th code {
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: .07em .34em;
+  white-space: nowrap;
+}
+ul, ol { max-width: var(--measure); padding-left: 1.15rem; margin: 0 0 1rem; }
+li { margin-bottom: .42rem; }
+li::marker { color: var(--text-3); }
+
+/* ── diagram: one paper ground in both themes ────────────── */
+figure { margin: 1.7rem 0; }
+.blueprint {
+  background: var(--blueprint);
+  border: 1px solid var(--blueprint-rule);
+  border-radius: 3px;
+  padding: 1.3rem 1rem;
+  overflow-x: auto;
+}
+.blueprint pre.mermaid {
+  margin: 0;
+  background: transparent;
+  min-width: min-content;
+}
+figcaption {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: var(--step--1);
+  color: var(--text-3);
+  margin-top: .65rem;
+  line-height: 1.55;
+  max-width: var(--measure);
+}
+figcaption b { color: var(--text-2); font-weight: 500; }
+
+/* ── code block ──────────────────────────────────────────── */
+pre.code {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  border-radius: 3px;
+  padding: 1rem 1.15rem;
+  overflow-x: auto;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: .84rem;
+  line-height: 1.62;
+  margin: 1.2rem 0;
+  color: var(--text);
+}
+pre.code .c { color: var(--text-3); }
+pre.code .k { color: var(--accent); }
+pre.code .s { color: var(--work); }
+
+/* ── tables ──────────────────────────────────────────────── */
+.tablewrap { overflow-x: auto; margin: 1.3rem 0; border: 1px solid var(--rule); border-radius: 3px; }
+table { border-collapse: collapse; width: 100%; font-size: var(--step--1); min-width: 32rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+thead th {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: .7rem;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  background: var(--surface-2);
+  white-space: nowrap;
+}
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:nth-child(even) { background: color-mix(in srgb, var(--surface-2) 45%, transparent); }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ── callouts ────────────────────────────────────────────── */
+.note {
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--rule-strong);
+  background: var(--surface);
+  border-radius: 3px;
+  padding: .95rem 1.15rem;
+  margin: 1.3rem 0;
+  font-size: var(--step--1);
+  line-height: 1.6;
+  max-width: var(--measure);
+}
+.note p { margin-bottom: .6rem; }
+.note p:last-child { margin-bottom: 0; }
+.note .tag {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: .68rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  display: block;
+  margin-bottom: .4rem;
+  color: var(--text-3);
+}
+.note.warn { border-left-color: var(--halt); background: var(--halt-soft); }
+.note.warn .tag { color: var(--halt); }
+.note.good { border-left-color: var(--work); background: var(--work-soft); }
+.note.good .tag { color: var(--work); }
+.note.key  { border-left-color: var(--accent); background: var(--accent-soft); }
+.note.key .tag { color: var(--accent); }
+
+/* ── the cast ────────────────────────────────────────────── */
+.cast {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15.5rem), 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  margin: 1.5rem 0;
+  overflow: hidden;
+}
+.who { background: var(--surface); padding: 1rem 1.1rem; }
+.who .nm {
+  font-family: "IBM Plex Serif", Georgia, serif;
+  font-weight: 600;
+  font-size: var(--step-1);
+  display: block;
+  line-height: 1.2;
+}
+.who .rl {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: .72rem;
+  letter-spacing: .05em;
+  color: var(--accent);
+  display: block;
+  margin: .25rem 0 .5rem;
+}
+.who .mc {
+  font-size: var(--step--1);
+  color: var(--text-2);
+  display: block;
+  line-height: 1.5;
+}
+.who .mc b { color: var(--text); font-weight: 500; }
+
+/* ── timing chips ────────────────────────────────────────── */
+.chip {
+  display: inline-block;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: .7rem;
+  letter-spacing: .04em;
+  padding: .12em .5em;
+  border-radius: 2px;
+  border: 1px solid var(--rule-strong);
+  color: var(--text-2);
+  background: var(--surface-2);
+  white-space: nowrap;
+}
+.chip.a { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.chip.g { color: var(--work);   border-color: var(--work);   background: var(--work-soft); }
+.chip.r { color: var(--halt);   border-color: var(--halt);   background: var(--halt-soft); }
+.chip.w { color: var(--wait);   border-color: var(--wait);   background: var(--wait-soft); }
+
+/* ── footer ──────────────────────────────────────────────── */
+footer {
+  border-top: 2px solid var(--text);
+  padding: 2rem 0 4rem;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: var(--step--1);
+  color: var(--text-3);
+  line-height: 1.7;
+}
+footer p { max-width: var(--measure); }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<style>
+  .doc-nav {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    padding: .7rem clamp(1.1rem, 4vw, 3rem);
+    background: color-mix(in srgb, var(--ground) 88%, transparent);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--rule);
+    font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: .8rem;
+  }
+  .doc-nav a { color: var(--text-2); text-decoration: none; display: inline-flex; align-items: center; gap: .5rem; }
+  .doc-nav a:hover { color: var(--accent); }
+  .doc-nav .brand { color: var(--text); font-weight: 600; letter-spacing: .02em; }
+  .doc-nav .brand b { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<nav class="doc-nav">
+  <a href="/">&larr; Back to the office</a>
+  <span class="brand"><b>LB</b> LogBridge</span>
+</nav>
+
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">
+    <span>Architecture reference</span><span class="sep">/</span>
+    <span>Agent communication</span><span class="sep">/</span>
+    <span>Contract v1.29</span>
+  </p>
+  <h1>How a task crosses the floor</h1>
+  <p class="standfirst">
+    LogBridge agents are <strong>one-shot CLI processes</strong>, not services. Nothing sits in a loop
+    checking a mailbox. Every mechanism in this document exists to answer one question: given that
+    an agent is not running, how does work reach it — and how do we know it arrived?
+  </p>
+
+  <div class="verbs">
+    <div class="verb">
+      <h3>inject</h3>
+      <p>A PTY session is already live. A short notice is typed into it. Cheap, and the agent keeps
+      the context it already has.</p>
+      <p><code>submitPromptToAgent()</code> · <span class="chip a">preferred</span></p>
+    </div>
+    <div class="verb">
+      <h3>spawn</h3>
+      <p>No session exists. The CLI is cold-started and the message body <em>becomes</em> its prompt —
+      a fresh process told only "read your inbox" would waste the turn.</p>
+      <p><code>spawnAndSubmit()</code> · <span class="chip">10–20 s cold start</span></p>
+    </div>
+  </div>
+</header>
+
+<div class="body-grid">
+
+  <nav class="rail" aria-label="Contents">
+    <span class="rail-head">The floor</span>
+    <a href="#map"><span class="num">·</span>System map</a>
+    <a href="#cast"><span class="num">·</span>The cast</a>
+    <span class="rail-head" style="margin-top:1rem">One task, end to end</span>
+    <a href="#p0"><span class="num">0</span>Standing up</a>
+    <a href="#p1"><span class="num">1</span>The ask</a>
+    <a href="#p2"><span class="num">2</span>Dispatch</a>
+    <a href="#p3"><span class="num">3</span>Waking</a>
+    <a href="#p4"><span class="num">4</span>Across machines</a>
+    <a href="#p5"><span class="num">5</span>Reporting back</a>
+    <a href="#p6"><span class="num">6</span>Guarantees</a>
+    <a href="#p7"><span class="num">7</span>Done</a>
+    <span class="rail-head" style="margin-top:1rem">Reference</span>
+    <a href="#clocks"><span class="num">·</span>Every clock</a>
+    <a href="#state"><span class="num">·</span>Where state lives</a>
+    <a href="#gaps"><span class="num">·</span>Honest gaps</a>
+  </nav>
+
+  <main class="col">
+
+  <!-- ═══════════════════════════ MAP ═══════════════════════════ -->
+  <section id="map">
+    <div class="sec-head"><span class="sec-num">MAP</span><h2>What the system is made of</h2></div>
+
+    <p>
+      Four processes and one shared folder. The <strong>server</strong> is the only thing that holds the
+      whole picture; a <strong>runner</strong> knows only its own machine's agents; the <strong>hive folder</strong>
+      is the agents' own shared medium and is the only thing they can see.
+    </p>
+
+    <figure>
+      <div class="blueprint">
+<pre class="mermaid">
+flowchart TB
+  subgraph BROWSER["Browser · the office"]
+    UI["Office map · roster · chat&lt;br/&gt;Kanban · terminal panels"]
+  end
+
+  subgraph SERVER["Server · Fastify + SQLite · the only global view"]
+    WS["WebSocket gateway&lt;br/&gt;WorkspaceView broadcast"]
+    ORCH["Orchestrator&lt;br/&gt;scores agents, assigns tasks"]
+    ROUTER["Hive router&lt;br/&gt;outbox to inbox, every 1.5s"]
+    WAKE["wakeRecipient&lt;br/&gt;inject or spawn"]
+    DELIV["Delivery ledger&lt;br/&gt;hive_deliveries table"]
+    PTY["PTY gateway&lt;br/&gt;local CLI sessions"]
+    DB[("SQLite&lt;br/&gt;agents · tasks · events")]
+  end
+
+  subgraph HIVE["hive/ · shared folder · what agents can see"]
+    BOARD["board.md · tasks.json&lt;br/&gt;registry.json · PROTOCOL.md"]
+    MAIL["agents/&amp;lt;id&amp;gt;/&lt;br/&gt;inbox · outbox · memory.md&lt;br/&gt;identity.md"]
+  end
+
+  subgraph LOCAL["ayush-mbp · this machine"]
+    CLI1["claude / opencode&lt;br/&gt;PTY processes"]
+  end
+
+  subgraph REMOTE["sam-air · a friend's laptop"]
+    RUN["Runner process&lt;br/&gt;enforces tool policy"]
+    CLI2["claude / opencode"]
+  end
+
+  UI <-->|"WebSocket"| WS
+  WS --- DB
+  ORCH --- DB
+  ROUTER -->|"reads + writes"| MAIL
+  ROUTER -->|"on delivery"| WAKE
+  WAKE --> DELIV
+  WAKE -->|"inject / spawn"| PTY
+  PTY --> CLI1
+  CLI1 -->|"writes JSON"| MAIL
+  CLI1 --> BOARD
+  ORCH -->|"task.offer envelope"| RUN
+  RUN -->|"task.accept · task.result"| ORCH
+  RUN --> CLI2
+  CLI2 --> MAIL
+  DELIV --- DB
+</pre>
+      </div>
+      <figcaption>
+        <b>The asymmetry that matters:</b> agents on this machine are driven directly through a PTY,
+        agents on a friend's machine are driven through envelopes to their runner. Both ends write
+        into the same <code>hive/</code> folder, which is how they talk to <em>each other</em>.
+      </figcaption>
+    </figure>
+
+    <div class="note key">
+      <span class="tag">The one rule agents follow</span>
+      <p>
+        An agent never writes into another agent's folder. It drops one JSON file into its own
+        <code>outbox/</code> and the router delivers it. That single constraint is what makes the
+        floor auditable — every message crosses one place, and that place can refuse it, log it,
+        dedupe it, and retry it.
+      </p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ CAST ═══════════════════════════ -->
+  <section id="cast">
+    <div class="sec-head"><span class="sec-num">CAST</span><h2>The floor we will follow</h2></div>
+
+    <p>
+      A project called <strong>Dashboard</strong> at <code>~/project_test/dashboard</code>, shared by two
+      people. Ayush's laptop also runs the server. Sam's laptop runs a runner with
+      <code>--allow-agent-creation</code> and delegation accepted.
+    </p>
+
+    <div class="cast">
+      <div class="who"><span class="nm">Michael</span><span class="rl">commander · is_god=1</span><span class="mc"><b>ayush-mbp</b> — plans and delegates. Sole writer of <code>board.md</code>.</span></div>
+      <div class="who"><span class="nm">Noor</span><span class="rl">researcher</span><span class="mc"><b>ayush-mbp</b> — investigates, never edits. Capability <code>investigate</code>.</span></div>
+      <div class="who"><span class="nm">Ada</span><span class="rl">developer</span><span class="mc"><b>ayush-mbp</b> — implements. Capability <code>implement_feature</code>.</span></div>
+      <div class="who"><span class="nm">Sol</span><span class="rl">security-auditor</span><span class="mc"><b>ayush-mbp</b> — a <em>project</em> role file, not a built-in. No Write, no Edit.</span></div>
+      <div class="who"><span class="nm">Kite</span><span class="rl">qa</span><span class="mc"><b>sam-air</b> — Sam's agent. Runs the suite. Capability <code>run_tests</code>.</span></div>
+      <div class="who"><span class="nm">Rhen</span><span class="rl">reviewer</span><span class="mc"><b>sam-air</b> — Sam's agent. Reads diffs, does not rewrite.</span></div>
+    </div>
+
+    <p>
+      The task: <strong>"Add OAuth login to the dashboard."</strong> It is deliberately big enough to
+      exercise every path — local and remote, built-in and project roles, a refusal, a cross-machine
+      consent prompt, and one message that fails to land.
+    </p>
+  </section>
+
+  <!-- ═══════════════════════════ PHASE 0 ═══════════════════════════ -->
+  <section id="p0">
+    <div class="sec-head"><span class="sec-num">PHASE 0</span><h2>Standing the floor up</h2></div>
+
+    <p>
+      Before any message exists, each agent has to become three things at once: a database row the
+      office can draw, a folder in the hive it can write to, and a prompt that tells a CLI who it is.
+      All three come from the same place — a role definition file.
+    </p>
+
+    <figure>
+      <div class="blueprint">
+<pre class="mermaid">
+flowchart TB
+  A["Human: Add agent → picks role 'security-auditor'"] --> B["POST /api/agents&lt;br/&gt;{ roleId, machineId, projectId, name }"]
+  B --> C{"loadRole(roleId, projectFolder)"}
+  C -->|"3 layers, project wins"| D["dashboard/hive/roles/security-auditor.md&lt;br/&gt;~/.logbridge/roles/*.md&lt;br/&gt;apps/server/src/roles/*.md"]
+  D --> E["RoleDefinition&lt;br/&gt;noun · category · capabilities · tools"]
+
+  E --> F["agents row&lt;br/&gt;role = review (office category)&lt;br/&gt;role_id = security-auditor&lt;br/&gt;capabilities, allow_tools, deny_paths"]
+  E --> G["hive/agents/&amp;lt;id&amp;gt;/identity.md&lt;br/&gt;rendered from the role body"]
+  E --> H["PTY prompt&lt;br/&gt;buildEmployeeHivePrompt(roleDef)"]
+
+  F --> I["Office draws a sprite&lt;br/&gt;in the review room"]
+  G --> J["mkdir inbox/ inbox/.done/ outbox/&lt;br/&gt;memory.md · cursor.json"]
+  H --> K["fingerprint(prompt)&lt;br/&gt;identity seeded once, on cold start"]
+
+  B -.->|"remote machine"| L["agent.create envelope → runner&lt;br/&gt;runner may refuse"]
+</pre>
+      </div>
+      <figcaption>
+        <b>Two role fields, on purpose.</b> <code>role</code> stays a closed six-value enum because the
+        renderer places sprites by it. <code>role_id</code> is arbitrary — it is a filename. A role with no
+        declared category is mapped onto one of the six by <code>normalizeRole()</code>, so an invented
+        role always has a desk to stand at.
+      </figcaption>
+    </figure>
+
+    <h3>What the agent is actually told</h3>
+    <p>
+      The prompt is assembled from three pieces, and the middle one is the role file's own markdown
+      body verbatim. Editing that file changes the prompt, which changes its fingerprint, which makes
+      every live session on that role re-seed by itself — there is no separate invalidation step.
+    </p>
+
+<pre class="code"><span class="c">You are "Sol", the security auditor on this agent floor.</span>
+
+<span class="k">WHAT YOUR ROLE MEANS HERE</span>
+<span class="c">## What you do</span>
+You audit code for security problems. You report them; you do not patch them.
+<span class="c">## Rules</span>
+- Every finding needs a file:line and a concrete exploit path.        <span class="c">← the role file's body</span>
+
+<span class="k">HOW YOU RUN</span>
+You are a one-shot process. You were started because there is work for you…    <span class="c">← commonProtocol()</span>
+
+<span class="k">YOUR FILES</span> (use the env vars, they are already set)
+  $AGENT_DIR/memory.md   what you know. Read at start, append at end.
+  $AGENT_DIR/inbox/      messages for you. Read every file.
+  $AGENT_DIR/outbox/     messages you send. One JSON file per message.
+  $HIVE_ROOT/board.md    the shared plan. The commander writes it; everyone reads it.
+  $HIVE_ROOT/tasks.json  the shared board. Columns: todo | in_progress | in_review | done
+
+<span class="k">SENDING A MESSAGE</span>
+Write ONE JSON file into $AGENT_DIR/outbox/. Never write into another agent's
+folder — the router delivers for you.                                  <span class="c">← floorSection()</span></pre>
+
+    <div class="note">
+      <span class="tag">Why paths are env vars</span>
+      <p>
+        An earlier version interpolated 65-character absolute paths eight to fifteen times per prompt
+        while exporting those exact variables and never referring to them. Using
+        <code>$AGENT_DIR</code> is shorter and survives the project folder moving.
+      </p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ PHASE 1 ═══════════════════════════ -->
+  <section id="p1">
+    <div class="sec-head"><span class="sec-num">PHASE 1</span><h2>The ask, and the plan</h2></div>
+
+    <p>
+      Ayush walks his avatar to Michael and types the goal into the room. Michael is a one-shot
+      process, so "typing at him" means exactly one thing: a write into his live PTY, or a cold start
+      if he has none.
+    </p>
+
+    <p>
+      Michael's own prompt draws a line the rest of the floor depends on — <em>small requests get
+      dispatched, not planned</em>. A one-line question does not trigger a PRD. This one is a real
+      project, so he takes the long path.
+    </p>
+
+    <figure>
+      <div class="blueprint">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant H as Ayush
+  participant S as Server
+  participant P as PTY · Michael
+  participant F as hive/ folder
+
+  H->>S: "Add OAuth login to the dashboard"
+  S->>P: submitPromptToAgent() — queued write
+  Note over P: queueWrite serialises this behind&lt;br/&gt;any keystrokes already in flight
+
+  P->>F: read board.md, registry.json, memory.md
+  Note over P: registry.json says who exists&lt;br/&gt;and what each one does
+
+  P->>F: write board.md — stack, file layout, contracts
+  P->>F: write tasks.json — 5 cards in "todo"
+  Note over F: columns come from HIVE_TASK_COLUMNS.&lt;br/&gt;Three hand-written vocabularies used to&lt;br/&gt;disagree. A card written as doing&lt;br/&gt;rendered in no column at all.
+
+  P->>F: 4 JSON files into outbox/
+  Note over P: one per subordinate.&lt;br/&gt;Michael does NOT implement —&lt;br/&gt;if he writes feature code he has&lt;br/&gt;taken a subordinate's job.
+</pre>
+      </div>
+      <figcaption>
+        <b>Michael writes files, not messages.</b> He has no network access to the other agents at all.
+        Everything he "sends" is a file in his own outbox, and the server is what turns that into
+        motion.
+      </figcaption>
+    </figure>
+
+    <h4>One dispatch file, as written</h4>
+<pre class="code"><span class="c">// hive/agents/agt_michael/outbox/2026-08-31T09-14-02-ada.json</span>
+{
+  <span class="k">"to"</span>: <span class="s">"agt_ada"</span>,
+  <span class="k">"act"</span>: <span class="s">"request"</span>,
+  <span class="k">"subject"</span>: <span class="s">"Implement the OAuth callback route"</span>,
+  <span class="k">"body"</span>: <span class="s">"OBJECTIVE: add GET /auth/callback exchanging code for a session\nOUTPUT: apps/server/src/routes/auth.ts, migration for sessions table\nSPECS: reuse existing session cookie shape; no new deps\nREFERENCES: read $HIVE_ROOT/board.md"</span>,
+  <span class="k">"say"</span>: <span class="s">"Ada — callback route is yours, specs are on the board."</span>,
+  <span class="k">"requires_reply"</span>: true
+}</pre>
+
+    <div class="note">
+      <span class="tag">Two audiences, one file</span>
+      <p>
+        <code>body</code> is what the recipient acts on. <code>say</code> is what humans read in the office
+        chat — the personality is part of the product. <code>say</code> is <em>never</em> authoritative, so a
+        loosely worded sentence can only ever produce a confusing line, never a wrong action. Same
+        split as a commit message and its diff. If an agent omits <code>say</code>, the server generates a
+        line rather than posting nothing; a silent office is the exact failure this design exists to
+        prevent.
+      </p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ PHASE 2 ═══════════════════════════ -->
+  <section id="p2">
+    <div class="sec-head"><span class="sec-num">PHASE 2</span><h2>Dispatch: what the router does to each file</h2></div>
+
+    <p>
+      Every <span class="chip a">1500 ms</span> the router scans every hive root it knows about, walks
+      <code>agents/*/outbox/*.json</code>, and puts each file through the same gauntlet. The file is
+      deleted whether it succeeded or failed — the durable record lives in the database, not the
+      folder.
+    </p>
+
+    <figure>
+      <div class="blueprint">
+<pre class="mermaid">
+flowchart TB
+  T(["router tick · every 1.5s"]) --> SCAN["scan every hive root&lt;br/&gt;agents/*/outbox/*.json"]
+  SCAN --> PARSE{"parses as JSON?"}
+  PARSE -->|no| DROP["warn + delete&lt;br/&gt;one bad file must not&lt;br/&gt;stall the whole floor"]
+  PARSE -->|yes| ID{"has an id?"}
+  ID -->|no| BACKFILL["backfill msg-&amp;lt;ts&amp;gt;-&amp;lt;rand&amp;gt;"]
+  BACKFILL --> SCRIBE
+  ID -->|yes| SCRIBE{"targets a&lt;br/&gt;god-owned file?"}
+
+  SCRIBE -->|"board.md · tasks.json&lt;br/&gt;registry.json · fleet.json&lt;br/&gt;AND sender is not god"| REFUSE["write a refuse message&lt;br/&gt;into the SENDER's inbox"]
+  SCRIBE -->|"no, or sender is god"| DELIVER["write into recipient inbox/"]
+
+  DELIVER --> MEET{"act is&lt;br/&gt;request/query/propose?"}
+  MEET -->|yes| MEETING["setMeeting(from, to, 45s)&lt;br/&gt;sprites walk together in the office"]
+  MEET -->|no| CB
+  MEETING --> CB["onMessageCallback"]
+
+  CB --> SEQ["emitSequenceEvent&lt;br/&gt;DELEGATE_HANDOFF / TASK_COMPLETED"]
+  CB --> WAKE["wakeRecipient — phase 3"]
+  REFUSE --> CB
+  DELIVER --> RM["delete the outbox file"]
+</pre>
+      </div>
+      <figcaption>
+        <b>The id backfill is not defensive padding.</b> Every commander's own prompt shows the outbox
+        shape <em>without</em> an <code>id</code> field — so every message written by an agent correctly
+        following its documented protocol arrived with none, and the wake path silently suppressed it
+        as unidentifiable. A real, correctly-delegated task produced zero visible effect.
+      </figcaption>
+    </figure>
+
+    <h3>Sole scribe: the refusal path</h3>
+    <p>
+      Sol, mid-audit, decides the finding belongs on the shared board and writes a message targeting
+      <code>board.md</code>. Only the commander may write those four files. The router does not
+      silently drop it — it manufactures a reply and puts it in <em>Sol's</em> inbox, which is the only
+      way a one-shot process will ever learn it was refused.
+    </p>
+
+<pre class="code"><span class="c">// delivered to hive/agents/agt_sol/inbox/refusal-….json</span>
+{
+  <span class="k">"from"</span>: <span class="s">"agt_michael"</span>,  <span class="k">"to"</span>: <span class="s">"agt_sol"</span>,  <span class="k">"act"</span>: <span class="s">"refuse"</span>,
+  <span class="k">"in_reply_to"</span>: <span class="s">"msg-1756…"</span>,
+  <span class="k">"subject"</span>: <span class="s">"Write to board.md refused"</span>,
+  <span class="k">"body"</span>: <span class="s">"Sole scribe violation: \"agt_sol\" cannot write \"board.md\" directly.
+            Only god (agt_michael) is authorized. Message god with your
+            proposed change so god can update it."</span>
+}</pre>
+
+    <p>
+      The refusal tells Sol what to do instead, so the next turn is productive rather than a repeat.
+      It also fires the same <code>onMessageCallback</code> as any other delivery — meaning Sol gets
+      woken to read it.
+    </p>
+  </section>
+
+  <!-- ═══════════════════════════ PHASE 3 ═══════════════════════════ -->
+  <section id="p3">
+    <div class="sec-head"><span class="sec-num">PHASE 3</span><h2>Waking: turning a file into a running process</h2></div>
+
+    <p>
+      This is the heart of the system. A message is not something an agent <em>receives</em> — a message
+      is a <strong>reason to run an agent</strong>. The order of the checks below is not arbitrary.
+    </p>
+
+    <figure>
+      <div class="blueprint">
+<pre class="mermaid">
+flowchart TB
+  IN(["wakeRecipient(msg, toId)"]) --> HASID{"msg.id?"}
+  HASID -->|no| SUP1["suppressed"]
+  HASID -->|yes| MEM{"in the in-memory&lt;br/&gt;wokenFor Set?"}
+  MEM -->|yes| DUP["duplicate — the router&lt;br/&gt;will call again in 1.5s anyway"]
+  MEM -->|no| TBL{"row in hive_deliveries?"}
+  TBL -->|yes| DUP2["duplicate&lt;br/&gt;warm the cache"]
+  TBL -->|no| EXISTS{"agent row exists?"}
+  EXISTS -->|no| SUP2["suppressed&lt;br/&gt;no such agent"]
+  EXISTS -->|yes| ONLINE{"owner's machine online?"}
+
+  ONLINE -->|"no · D28"| UND["undeliverable&lt;br/&gt;recorded, not queued —&lt;br/&gt;we do not promise what&lt;br/&gt;the system cannot keep"]
+  ONLINE -->|yes| LIVE{"live PTY session?"}
+
+  LIVE -->|yes| INJ["INJECT — one-line notice&lt;br/&gt;New hive message from Michael:&lt;br/&gt;Implement the OAuth callback route.&lt;br/&gt;Read your inbox now and act on it."]
+  LIVE -->|no| SPW["SPAWN&lt;br/&gt;subject + body become the prompt"]
+
+  INJ --> REC["recordDelivery → state 'delivered'"]
+  SPW --> REC
+  UND --> REC2["recordDelivery → last_attempt backdated&lt;br/&gt;so the next sweep retries immediately"]
+  REC --> CHAT["post the room line&lt;br/&gt;→ Ada: Ada — callback route is yours"]
+</pre>
+      </div>
+      <figcaption>
+        <b>Inject before spawn, always.</b> A cold start costs 10–20 seconds and throws away everything
+        the agent already had in context. <b>Offline before either:</b> an agent on a sleeping laptop is
+        unreachable, and recording that is more honest than spawning into nothing.
+      </figcaption>
+    </figure>
+
+    <h3>What the two verbs physically do</h3>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Step</th><th>inject</th><th>spawn</th></tr></thead>
+        <tbody>
+          <tr><td>Precondition</td><td>session in the <code>sessions</code> map</td><td>none</td></tr>
+          <tr><td>Text sent</td><td>one-line notice</td><td>full <code>subject + "\n\n" + body</code></td></tr>
+          <tr><td>Write path</td><td colspan="2"><code>queueWrite()</code> — chained, so a wake never interleaves with a human's keystrokes on the same pipe</td></tr>
+          <tr><td>Encoding</td><td colspan="2">bracketed paste <code>ESC[200~ … ESC[201~</code>, then <code>\r</code> after 250 ms</td></tr>
+          <tr><td>Readiness</td><td>immediate</td><td><code>whenReady()</code> — waits for the CLI's own prompt banner, 45 s ceiling</td></tr>
+          <tr><td>Status shown</td><td><code>working</code></td><td><code>starting</code> → <code>idle</code> → <code>working</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note good">
+      <span class="tag">Why "starting" is its own status</span>
+      <p>
+        A booting CLI used to report <code>idle</code> — the same value a ready agent reports. For the
+        whole 10–20 second cold start a booting agent was indistinguishable from one ignoring you, and
+        nothing on screen said "wait".
+      </p>
+    </div>
+
+    <h3>Four agents wake at once</h3>
+    <p>
+      Michael's four dispatch files are all picked up on the same tick. Noor and Ada are local and
+      idle with no live terminal, so both are spawned. Sol has a terminal open because Ayush was
+      reading it, so Sol is injected. Kite is on Sam's laptop.
+    </p>
+
+    <figure>
+      <div class="blueprint">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant R as Router
+  participant W as wakeRecipient
+  participant N as Noor · cold
+  participant A as Ada · cold
+  participant So as Sol · live PTY
+  participant K as Kite · sam-air
+
+  R->>W: 4 deliveries, one tick
+  W->>N: spawn — prompt is the message
+  Note over N: status starting → 14s → idle → working
+  W->>A: spawn
+  W->>So: inject — one-line notice
+  Note over So: keeps its existing context
+  W->>K: machine online? yes → spawn via Sam's runner
+  Note over K: Sam sees Kite's terminal open&lt;br/&gt;on HIS laptop, doing OUR work
+  W-->>R: 4 × recordDelivery — state delivered
+</pre>
+      </div>
+      <figcaption>
+        <b>The office is the observability surface.</b> Each of those four produces a chat line and moves
+        a sprite. Sam watches Kite walk to a desk on his own screen.
+      </figcaption>
+    </figure>
+  </section>
+
+  <!-- ═══════════════════════════ PHASE 4 ═══════════════════════════ -->
+  <section id="p4">
+    <div class="sec-head"><span class="sec-num">PHASE 4</span><h2>Across machines: offers, consent, and sealing</h2></div>
+
+    <p>
+      Kite and Rhen live on Sam's laptop. Nothing on Ayush's machine can start a process there — it
+      can only ask. Two different mechanisms carry that ask, and they exist for different reasons.
+    </p>
+
+    <h3>A. Task offers — the server assigns work</h3>
+    <p>
+      When a task exists in the database with no agent, the orchestrator scores every candidate and
+      picks one. Capability match is worth 40 points and is also a hard gate: an agent missing the
+      task's <code>required_capability</code> is disqualified outright, not merely ranked lower.
+    </p>
+
+    <figure>
+      <div class="blueprint">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant O as Orchestrator
+  participant DB as SQLite
+  participant RN as Runner · sam-air
+  participant KC as Kite's CLI
+
+  O->>DB: pending tasks with dependencies satisfied
+  O->>O: score candidates&lt;br/&gt;capability 40 · availability · reliability&lt;br/&gt;− load penalty − previous-failure penalty
+  Note over O: an agent that already failed this&lt;br/&gt;task is penalised, so a retry&lt;br/&gt;prefers someone else
+  O->>DB: assignTaskToAgent + task.routing_evaluated event
+  O->>RN: task.offer { taskId, agentId, spec, budget }
+  RN-->>O: task.accept (immediately, before any work)
+  RN->>RN: resolveWorkspace — shared / worktree / copy
+  RN->>RN: recall memories for this title
+  RN->>KC: spawn with allowTools + denyPaths applied
+  loop while running
+    RN-->>O: task.status heartbeat — renews the lease
+    RN-->>O: task.event — step boundaries, output lines
+  end
+  RN-->>O: task.result { state, costUsd }
+</pre>
+      </div>
+      <figcaption>
+        <b>The runner is the enforcer.</b> It writes <code>allowTools</code> and <code>denyPaths</code> into a
+        scoped settings file before every spawn. The server now keeps a copy so the office can
+        <em>show</em> the policy — but the machine's owner still decides what actually runs there.
+      </figcaption>
+    </figure>
+
+    <div class="note warn">
+      <span class="tag">If Sam closes his laptop</span>
+      <p>
+        Heartbeats stop, the lease expires, and the sweep fails the task with
+        <em>"machine went offline — lease expired"</em>. The failure is classified, and if the retry policy
+        allows it a new task is created — preferring <strong>a different agent</strong>, so the work moves
+        to Ayush's machine rather than waiting for Sam to wake up.
+      </p>
+      <p>
+        Agents whose CLI runs as an in-process PTY on the server's own machine cannot send heartbeats
+        at all, so they are given a deliberately long lease. Otherwise the sweep would fail a task out
+        from under a terminal that was still visibly working on it.
+      </p>
+    </div>
+
+    <h3>B. Sealed delegation — an agent asks to borrow a machine</h3>
+    <p>
+      Different situation: Ada wants Rhen to review her diff, and the request carries content that
+      should not sit in cleartext on the server in between. This is the path with real cryptography
+      and a human gate.
+    </p>
+
+    <figure>
+      <div class="blueprint">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant AR as Runner · ayush-mbp
+  participant S as Server
+  participant SAM as Sam · human
+  participant SR as Runner · sam-air
+
+  AR->>AR: seal(payload, sam's x25519 public key)
+  Note over AR: ephemeral X25519 → HKDF-SHA256&lt;br/&gt;→ AES-256-GCM. HPKE base mode.
+  AR->>S: delegate.request { sealed, capability, summary }
+  Note over S: the server routes the envelope&lt;br/&gt;but cannot read the payload
+  S->>S: no standing grant → holdForConsent
+  S->>SAM: office chat: "Ada asks to run code_review here — allow?"
+  Note over SAM: 10-minute timer.&lt;br/&gt;No answer = automatic denial,&lt;br/&gt;never an automatic yes.
+  alt Sam approves
+    SAM->>S: approve (optionally "always")
+    S->>SR: forward the sealed envelope
+    SR->>SR: open() with its private key
+    SR->>SR: run Rhen with allowTools ["Read"]
+    SR-->>S: delegate.result { sealed result }
+  else Sam rejects or times out
+    S-->>AR: delegate.result { state: failed, note }
+  end
+</pre>
+      </div>
+      <figcaption>
+        <b>Consent is per-capability and can be made standing.</b> "Always allow" writes a grant row, so
+        the next request from the same agent for the same capability skips the prompt. The message
+        graph is projected strictly from envelope metadata — it never opens a sealed payload.
+      </figcaption>
+    </figure>
+  </section>
+
+  <!-- ═══════════════════════════ PHASE 5 ═══════════════════════════ -->
+  <section id="p5">
+    <div class="sec-head"><span class="sec-num">PHASE 5</span><h2>Reporting back, and the board</h2></div>
+
+    <p>
+      Every agent finishes the same way its prompt tells it to: append what it learned to
+      <code>memory.md</code>, move the handled message into <code>inbox/.done/</code>, and write a reply
+      into its own outbox. That reply travels back through the identical router path — there is no
+      separate "reply" channel.
+    </p>
+
+    <figure>
+      <div class="blueprint">
+<pre class="mermaid">
+flowchart LR
+  A["Ada finishes"] --> A1["append memory.md"]
+  A1 --> A2["mv inbox/msg-x.json&lt;br/&gt;inbox/.done/"]
+  A2 --> A3["outbox/…-michael.json&lt;br/&gt;act: done"]
+  A3 --> R["router · 1.5s"]
+  R --> M["Michael's inbox"]
+  R --> W["wakeRecipient(Michael)"]
+  W --> MI["Michael injected or spawned"]
+  MI --> V{"do the claimed files&lt;br/&gt;actually exist?"}
+  V -->|no| REV["dispatch a revision&lt;br/&gt;back to Ada"]
+  V -->|yes| UP["tasks.json → done&lt;br/&gt;note it on board.md"]
+  UP --> DONE["move Ada's message&lt;br/&gt;to inbox/.done/"]
+  A2 -.->|"separately, every 30s"| ACK["checkForAcks scans .done/&lt;br/&gt;delivery state → 'handled'"]
+</pre>
+      </div>
+      <figcaption>
+        <b><code>inbox/.done/</code> does double duty.</b> To the agent it is housekeeping. To the server it is
+        the acknowledgement — the filename is the message id, and finding it there is what closes the
+        delivery record. The agent never has to know that.
+      </figcaption>
+    </figure>
+
+    <div class="note key">
+      <span class="tag">Verification is the commander's job</span>
+      <p>
+        Michael's prompt tells him to check the files a subordinate <em>claims</em> to have written against
+        what he asked for. "Done" on its own is not a report — every employee prompt says so
+        explicitly, and asks for file paths, commands, and real output instead.
+      </p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ PHASE 6 ═══════════════════════════ -->
+  <section id="p6">
+    <div class="sec-head"><span class="sec-num">PHASE 6</span><h2>When a message does not land</h2></div>
+
+    <p>
+      Kite's laptop went to sleep between the router delivering the message and the wake attempt. The
+      message file is already in Kite's inbox — the folder is shared — but nothing is running to read
+      it, and nothing will be until Sam opens the lid. This is what the delivery ledger is for.
+    </p>
+
+    <figure>
+      <div class="blueprint">
+<pre class="mermaid">
+stateDiagram-v2
+  [*] --> delivered: wakeRecipient injected or spawned
+  [*] --> undeliverable: machine offline (D28)
+  undeliverable --> delivered: retried on the next sweep
+
+  delivered --> handled: file appears in inbox/.done/&lt;br/&gt;(checkForAcks, every 30s)
+  delivered --> delivered: sweep at +10min → attempt 2
+  delivered --> delivered: sweep at +20min → attempt 3
+  delivered --> dead: 3 attempts exhausted
+
+  handled --> [*]
+  dead --> [*]: moved to dead-letter/&lt;br/&gt;posted in the office chat&lt;br/&gt;for a human to see
+</pre>
+      </div>
+      <figcaption>
+        <b>Ten minutes, not ten seconds.</b> The failure being guarded against is "the agent died", not
+        "the agent is slow" — real work legitimately takes many minutes, and a short timeout would
+        redeliver on top of an agent that was doing exactly what it was asked.
+      </figcaption>
+    </figure>
+
+    <div class="note warn">
+      <span class="tag">A bug this design has already survived</span>
+      <p>
+        The duplicate check originally ran unconditionally, and <code>isAlreadyDelivered</code> returns
+        true the moment <em>any</em> row exists — which <code>recordDelivery</code> inserts on the very first
+        attempt regardless of outcome. So every retry hit "duplicate" and did nothing. Attempts still
+        climbed, the sweep still "tried" three times, and every message whose first wake failed was
+        <em>guaranteed</em> to dead-letter, with the middle two attempts pure theatre. The retry path now
+        passes <code>skipDedup</code>; the router path still does not.
+      </p>
+    </div>
+
+    <h4>Timeline of the one that failed</h4>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Clock</th><th>Event</th><th>Delivery state</th></tr></thead>
+        <tbody>
+          <tr><td class="num">T+0.0s</td><td>Michael writes the outbox file</td><td>—</td></tr>
+          <tr><td class="num">T+1.2s</td><td>Router delivers to Kite's inbox</td><td>—</td></tr>
+          <tr><td class="num">T+1.2s</td><td>Wake: <code>machines.online = 0</code></td><td><span class="chip w">undeliverable</span></td></tr>
+          <tr><td class="num">T+1.2s</td><td><code>last_attempt_at</code> backdated 10 min</td><td>eligible now</td></tr>
+          <tr><td class="num">T+60s</td><td>Sweep tick — still offline</td><td><span class="chip w">attempt 2</span></td></tr>
+          <tr><td class="num">T+4m</td><td>Sam opens his laptop, runner reconnects</td><td>—</td></tr>
+          <tr><td class="num">T+5m</td><td>Sweep tick — machine online, spawn</td><td><span class="chip a">delivered</span></td></tr>
+          <tr><td class="num">T+9m</td><td>Kite moves the file to <code>.done/</code></td><td>—</td></tr>
+          <tr><td class="num">T+9m30s</td><td><code>checkForAcks</code> finds it</td><td><span class="chip g">handled</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      Had Sam stayed offline, the third sweep would have dead-lettered it: the file moves to
+      <code>dead-letter/</code>, a row records why, and a line appears in the office chat so a human sees
+      that a promise was broken rather than discovering it later from an empty board.
+    </p>
+  </section>
+
+  <!-- ═══════════════════════════ PHASE 7 ═══════════════════════════ -->
+  <section id="p7">
+    <div class="sec-head"><span class="sec-num">PHASE 7</span><h2>The whole task, in one picture</h2></div>
+
+    <p>
+      Every path above, on the one task, with both machines. Read it top to bottom as elapsed time.
+    </p>
+
+    <figure>
+      <div class="blueprint">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor H as Ayush
+  participant M as Michael&lt;br/&gt;commander
+  participant RT as Router + Wake
+  participant N as Noor&lt;br/&gt;researcher
+  participant A as Ada&lt;br/&gt;developer
+  participant So as Sol&lt;br/&gt;security-auditor
+  actor SAM as Sam
+  participant K as Kite&lt;br/&gt;qa · sam-air
+  participant Rh as Rhen&lt;br/&gt;reviewer · sam-air
+
+  H->>M: "Add OAuth login to the dashboard"
+  M->>M: board.md + tasks.json (5 cards)
+  M->>RT: 4 outbox files
+
+  par wave 1
+    RT->>N: spawn · "audit integration points"
+  and
+    RT->>So: inject · "threat-model the flow"
+  end
+
+  N->>RT: done · findings + file:line evidence
+  RT->>M: inject
+  So->>RT: request → board.md
+  RT-->>So: REFUSED · sole scribe
+  So->>RT: request → Michael instead
+  RT->>M: inject
+  M->>M: fold both onto board.md
+
+  M->>RT: request → Ada · implement callback
+  RT->>A: spawn
+  A->>A: writes auth.ts + migration
+  A->>RT: request → Rhen · review this diff
+
+  RT->>SAM: "Ada asks to run code_review here — allow?"
+  SAM-->>RT: approve (always)
+  RT->>Rh: sealed delegate.request
+  Rh->>RT: verdict — 1 blocking issue, file:line
+  RT->>A: inject
+  A->>A: fixes it
+  A->>RT: done → Michael
+
+  M->>RT: request → Kite · run the suite
+  Note over K: laptop asleep — undeliverable
+  RT-->>RT: sweep retries at +60s, +5m
+  SAM->>K: opens laptop
+  RT->>K: spawn
+  K->>RT: done · 12 passed, real output pasted
+
+  RT->>M: inject
+  M->>M: verify claimed files exist
+  M->>M: tasks.json → done · board.md updated
+  M->>H: "OAuth login is in. auth.ts, migration,&lt;br/&gt;12 tests green. Rhen blocked once on&lt;br/&gt;token expiry, then it was fixed."
+</pre>
+      </div>
+      <figcaption>
+        <b>Twenty-nine steps, four wake events, one refusal, one consent prompt, one failed delivery
+        that recovered.</b> No agent ever spoke to another agent directly. Every arrow crossing the
+        middle went through one router tick and one delivery record.
+      </figcaption>
+    </figure>
+  </section>
+
+  <!-- ═══════════════════════════ CLOCKS ═══════════════════════════ -->
+  <section id="clocks">
+    <div class="sec-head"><span class="sec-num">REF</span><h2>Every clock in the system</h2></div>
+
+    <p>
+      Nothing here is event-driven end to end; several loops poll. These are the intervals that decide
+      how quickly the floor reacts.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Loop</th><th>Interval</th><th>What it does</th><th>Where</th></tr></thead>
+        <tbody>
+          <tr><td>Hive router</td><td class="num">1.5 s</td><td>outbox → inbox, then wake</td><td><code>hive.ts</code></td></tr>
+          <tr><td>Ack scan</td><td class="num">30 s</td><td><code>inbox/.done/</code> → <code>handled</code></td><td><code>hiveDelivery.ts</code></td></tr>
+          <tr><td>Delivery sweep</td><td class="num">60 s</td><td>redeliver stale, dead-letter after 3</td><td><code>hiveDelivery.ts</code></td></tr>
+          <tr><td>Delivery timeout</td><td class="num">10 min</td><td>when a delivery counts as stale</td><td><code>DEFAULT_TIMEOUT_MS</code></td></tr>
+          <tr><td>Lease sweep</td><td class="num">on tick</td><td>fail + retry tasks on dead machines</td><td><code>nodeGateway/gateway.ts</code></td></tr>
+          <tr><td>Consent hold</td><td class="num">10 min</td><td>unanswered delegation is denied</td><td><code>nodeGateway/delegation.ts</code></td></tr>
+          <tr><td>CLI readiness</td><td class="num">45 s cap</td><td><code>whenReady()</code> before writing</td><td><code>ptyGateway.ts</code></td></tr>
+          <tr><td>Meeting</td><td class="num">45 s</td><td>two sprites stand together in the office</td><td><code>hive.ts</code></td></tr>
+          <tr><td>Paste settle</td><td class="num">250 ms</td><td>delay before the <code>\r</code> that submits</td><td><code>ptyGateway.ts</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ STATE ═══════════════════════════ -->
+  <section id="state">
+    <div class="sec-head"><span class="sec-num">REF</span><h2>Where state actually lives</h2></div>
+
+    <p>
+      Three stores, and knowing which one owns what explains most of the system's behaviour under
+      failure.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Store</th><th>Owns</th><th>Survives</th><th>Visible to agents</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>SQLite</b><br/><span class="mono">data.db</span></td>
+            <td>agents, tasks, events, deliveries, grants, sessions, memories</td>
+            <td>everything except a deleted file</td>
+            <td>no — only through their prompt</td>
+          </tr>
+          <tr>
+            <td><b>hive/</b><br/><span class="mono">project folder</span></td>
+            <td>board.md, tasks.json, registry.json, inboxes, outboxes, memory.md, identity.md</td>
+            <td>server restarts; it is just files</td>
+            <td><b>yes — this is their entire world</b></td>
+          </tr>
+          <tr>
+            <td><b>PTY sessions</b><br/><span class="mono">in memory</span></td>
+            <td>live terminals, scrollback, readiness, identity fingerprint</td>
+            <td>nothing — dies with the process</td>
+            <td>no</td>
+          </tr>
+          <tr>
+            <td><b>created-agents.json</b><br/><span class="mono">on each runner</span></td>
+            <td>agents that machine agreed to create, and their enforced tool policy</td>
+            <td>runner restarts</td>
+            <td>no</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <span class="tag">Why the split is not accidental</span>
+      <p>
+        Agents can only be given a filesystem. They are CLIs — no database driver, no API token, no
+        socket. So everything they must read or write is a file, and everything the office must
+        <em>guarantee</em> (delivery, dedup, retries, leases) is in SQLite where a crash cannot lose it.
+        The router is the translation layer between those two facts.
+      </p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ GAPS ═══════════════════════════ -->
+  <section id="gaps">
+    <div class="sec-head"><span class="sec-num">REF</span><h2>What the prompt promises that the code does not</h2></div>
+
+    <p>
+      Two things every agent is told about have no enforcement behind them today. They are listed here
+      because a diagram that hides them would be a nicer picture and a worse map.
+    </p>
+
+    <div class="note warn">
+      <span class="tag">The circuit breaker is prompt-only</span>
+      <p>
+        Every employee prompt ends with: <em>"A circuit breaker watches the floor. If you receive
+        'Circuit breaker: steer/constrain' you are looping or overspending…"</em> Nothing in the server or
+        the runner ever sends that string. Per-task budgets (<code>maxSeconds</code>, <code>maxUsd</code>)
+        <em>are</em> enforced by the runner's harness, and a human can steer an agent by hand — but there
+        is no watcher detecting a loop and intervening.
+      </p>
+    </div>
+
+    <div class="note warn">
+      <span class="tag">The supervisor is manual</span>
+      <p>
+        <code>evaluateWorkflowHealth()</code> and <code>executeSupervisorAction()</code> can pause, resume,
+        cancel, and reassign — but they are only reachable through HTTP routes a human calls. No loop
+        invokes them. Automatic recovery today is exactly one thing: the lease sweep retrying work
+        whose machine went offline.
+      </p>
+    </div>
+
+    <p>
+      Both are the same shape of gap — the mechanism exists, the trigger does not. Closing either is a
+      loop and a threshold, not a redesign.
+    </p>
+  </section>
+
+  </main>
+</div>
+
+<footer>
+  <p>
+    LogBridge · agent communication architecture · traced against the implementation at contract
+    v1.29. Primary sources: <span class="mono">hive.ts</span> · <span class="mono">hiveWake.ts</span> ·
+    <span class="mono">hiveDelivery.ts</span> · <span class="mono">ptyGateway.ts</span> ·
+    <span class="mono">orchestrator.ts</span> · <span class="mono">nodeGateway/</span> ·
+    <span class="mono">roles/loader.ts</span> · <span class="mono">hivePrompt.ts</span>.
+  </p>
+</footer>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<script>
+  // Theme mermaid from the page's OWN resolved tokens rather than hardcoding a
+  // palette. Without this the diagrams render in mermaid's default theme —
+  // which is how they ended up dark-node-on-light-panel and unreadable.
+  function mermaidVars() {
+    const v = getComputedStyle(document.documentElement);
+    const t = (n) => v.getPropertyValue(n).trim();
+    return {
+      background:        t('--blueprint'),
+      primaryColor:      t('--surface-2'),
+      primaryTextColor:  t('--text'),
+      primaryBorderColor:t('--rule-strong'),
+      secondaryColor:    t('--accent-soft'),
+      tertiaryColor:     t('--blueprint'),
+      lineColor:         t('--text-3'),
+      textColor:         t('--text'),
+      mainBkg:           t('--surface-2'),
+      nodeBorder:        t('--rule-strong'),
+      clusterBkg:        t('--blueprint'),
+      clusterBorder:     t('--rule'),
+      titleColor:        t('--text'),
+      edgeLabelBackground: t('--blueprint'),
+      actorBkg:          t('--surface-2'),
+      actorBorder:       t('--rule-strong'),
+      actorTextColor:    t('--text'),
+      actorLineColor:    t('--text-3'),
+      signalColor:       t('--text-2'),
+      signalTextColor:   t('--text'),
+      labelBoxBkgColor:  t('--surface-2'),
+      labelBoxBorderColor: t('--rule-strong'),
+      labelTextColor:    t('--text'),
+      loopTextColor:     t('--text'),
+      noteBkgColor:      t('--accent-soft'),
+      noteBorderColor:   t('--accent'),
+      noteTextColor:     t('--text'),
+      fontFamily: "'IBM Plex Mono', ui-monospace, monospace",
+      fontSize: '13px'
+    };
+  }
+
+  function renderDiagrams() {
+    document.querySelectorAll('pre.mermaid').forEach((el) => {
+      // textContent both ways, never innerHTML. dataset.src holds the
+      // DECODED source, so re-inserting it as HTML decodes a second time and
+      // "agents/<id>/" is parsed as a tag and swallowed — which silently
+      // corrupted every diagram containing angle brackets.
+      if (!el.dataset.src) el.dataset.src = el.textContent;
+      el.removeAttribute('data-processed');
+      el.textContent = el.dataset.src;
+    });
+    mermaid.initialize({
+      startOnLoad: false, securityLevel: 'loose',
+      theme: 'base', themeVariables: mermaidVars(),
+      // Natural size, NOT useMaxWidth. Scaling a 2800px diagram into an
+      // 800px column renders its text at ~3px — legible shape, unreadable
+      // labels. The figure breaks out wider (see .blueprint) and scrolls.
+      // htmlLabels renders each label into a foreignObject, which is what
+      // makes <br/> a real line break rather than a dropped tag.
+      htmlLabels: true,
+      flowchart: { curve: 'basis', useMaxWidth: false, htmlLabels: true, nodeSpacing: 40, rankSpacing: 48 },
+      // wrap wraps long notes instead of letting one sentence set the width;
+      // it takes the biggest sequence diagram from 2760px to 1988px.
+      sequence:  { useMaxWidth: false, wrap: true, width: 165, boxMargin: 8, noteAlign: 'left' }
+    });
+    mermaid.run({ querySelector: 'pre.mermaid' });
+  }
+
+  renderDiagrams();
+  // The tokens change when the OS theme flips, so the diagrams have to be
+  // redrawn — mermaid bakes colours into the SVG at render time.
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderDiagrams);
+</script>
+</body>
+</html>
