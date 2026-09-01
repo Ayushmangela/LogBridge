@@ -514,7 +514,7 @@ footer p { max-width: var(--measure); }
     <span class="rail-head" style="margin-top:1rem">Reference</span>
     <a href="#clocks"><span class="num">·</span>Every clock</a>
     <a href="#state"><span class="num">·</span>Where state lives</a>
-    <a href="#gaps"><span class="num">·</span>Honest gaps</a>
+    <a href="#gaps"><span class="num">·</span>The two loops</a>
   </nav>
 
   <main class="col">
@@ -1324,37 +1324,97 @@ sequenceDiagram
 
   <!-- ═══════════════════════════ GAPS ═══════════════════════════ -->
   <section id="gaps">
-    <div class="sec-head"><span class="sec-num">REF</span><h2>What the prompt promises that the code does not</h2></div>
+    <div class="sec-head"><span class="sec-num">REF</span><h2>The two loops that were missing</h2></div>
 
     <p>
-      Two things every agent is told about have no enforcement behind them today. They are listed here
-      because a diagram that hides them would be a nicer picture and a worse map.
+      Until recently this section listed two things every agent was told about that nothing
+      enforced. Both were the same shape — the mechanism existed, the trigger did not. Both now
+      have one, and what each is <em>allowed</em> to do is the part worth reading.
     </p>
 
-    <div class="note warn">
-      <span class="tag">The circuit breaker is prompt-only</span>
-      <p>
-        Every employee prompt ends with: <em>"A circuit breaker watches the floor. If you receive
-        'Circuit breaker: steer/constrain' you are looping or overspending…"</em> Nothing in the server or
-        the runner ever sends that string. Per-task budgets (<code>maxSeconds</code>, <code>maxUsd</code>)
-        <em>are</em> enforced by the runner's harness, and a human can steer an agent by hand — but there
-        is no watcher detecting a loop and intervening.
-      </p>
-    </div>
-
-    <div class="note warn">
-      <span class="tag">The supervisor is manual</span>
-      <p>
-        <code>evaluateWorkflowHealth()</code> and <code>executeSupervisorAction()</code> can pause, resume,
-        cancel, and reassign — but they are only reachable through HTTP routes a human calls. No loop
-        invokes them. Automatic recovery today is exactly one thing: the lease sweep retrying work
-        whose machine went offline.
-      </p>
-    </div>
-
+    <h3>The circuit breaker, every 20 seconds</h3>
     <p>
-      Both are the same shape of gap — the mechanism exists, the trigger does not. Closing either is a
-      loop and a threshold, not a redesign.
+      Every employee prompt ends with <em>"a circuit breaker watches the floor… you are looping or
+      overspending"</em>. Nothing sent that string, which is worse than having no breaker: an agent
+      promised an external stop has less reason to impose its own. It now fires on two signals,
+      into the live PTY, in the exact words the prompt trained the agent to recognise.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Signal</th><th>Trips at</th><th>What the agent is told</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>Overspending</b></td>
+            <td class="num">80% of budget</td>
+            <td><code>Circuit breaker: constrain.</code> Stop opening new lines of investigation;
+                write your state to <code>memory.md</code>, report what is left, end the turn.</td>
+          </tr>
+          <tr>
+            <td><b>Looping</b></td>
+            <td class="num">4 identical steps</td>
+            <td><code>Circuit breaker: steer.</code> Do not retry. Summarise what failed, then take
+                a different approach or ask <code>god</code>.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note key">
+      <span class="tag">Three deliberate limits</span>
+      <p>
+        It trips at <b>80%, not 100%</b> — at the point the budget is gone there is nothing left to
+        steer with, and the runner's own hard stop is about to fire anyway. It fires <b>once per
+        task per kind</b>, because re-sending "stop looping" every tick is itself a loop and each
+        copy pushes the real work further back in the agent's context. And it <b>injects, never
+        spawns</b>: starting a CLI to deliver the warning would spend money to say "stop spending
+        money". An agent with no live terminal is recorded and reported to a human instead.
+      </p>
+    </div>
+
+    <h3>The supervisor, every 45 seconds</h3>
+    <p>
+      <code>evaluateWorkflowHealth()</code> and <code>executeSupervisorAction()</code> could always
+      pause, cancel, reassign and retry — but the only caller was an HTTP route a person clicked.
+      A workflow could sit <code>BLOCKED</code>, with a task nobody on the floor could take,
+      indefinitely, while the code that knew it was blocked stayed silent.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Recommendation</th><th>Automatic?</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td><code>REASSIGN</code> · <code>RETRY</code></td><td><span class="chip g">yes</span></td>
+              <td>Additive and recoverable — work going nowhere moves to someone who can do it</td></tr>
+          <tr><td><code>PAUSE</code></td><td><span class="chip r">never</span></td>
+              <td>Destroys work in flight</td></tr>
+          <tr><td><code>CANCEL</code></td><td><span class="chip r">never</span></td>
+              <td>Destroys work in flight, and is not undoable</td></tr>
+          <tr><td><code>ESCALATE_HUMAN</code></td><td><span class="chip w">surfaced</span></td>
+              <td>Already a request for a person</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note warn">
+      <span class="tag">The line this draws</span>
+      <p>
+        An autonomous supervisor that can cancel your work while you are asleep is a worse failure
+        mode than a workflow that stays stalled until morning with a message explaining why. So the
+        loop notices everything and only acts where the action is additive. Everything it will not
+        do itself is posted to the office chat with the reason, never swallowed.
+      </p>
+      <p>
+        It reports <b>once per health state</b>, and records recovery so a workflow that breaks,
+        recovers and breaks the same way again does speak up the second time.
+      </p>
+    </div>
+
+    <h3>Still true</h3>
+    <p>
+      Automatic recovery remains narrow by design: the lease sweep retrying work whose machine went
+      offline, the delivery sweep redelivering a message whose wake failed, and the two loops above.
+      Nothing else on this floor acts without either an agent deciding to or a human asking.
     </p>
   </section>
 

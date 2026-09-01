@@ -13,6 +13,8 @@ import { Positions } from "./view.js";
 import { registerCommandRoutes } from "./commands.js";
 import { registerAuthGate } from "./sessions.js";
 import { wakeRecipient, defaultInject, roomLineFor } from "./hiveWake.js";
+import { tripBreakers } from "./circuitBreaker.js";
+import { superviseOnce } from "./supervisorLoop.js";
 import { recordDelivery, checkForAcks, sweepDeliveries } from "./hiveDelivery.js";
 import type { ChatMessageT } from "@logbridge/protocol";
 import { registerGateway } from "./gateway.js";
@@ -155,6 +157,56 @@ export async function buildServer(
     setInterval(() => {
       try { checkForAcks(db, getActiveHiveRoots()); } catch {}
     }, 30_000);
+
+    // The circuit breaker the employee prompt has always described. Injects
+    // only — it never spawns, because starting a CLI to tell it to stop
+    // spending would spend money to say "stop spending money".
+    setInterval(() => {
+      try {
+        tripBreakers({
+          db,
+          inject: defaultInject,
+          log: (m) => app.log.info(m),
+          postChat: (projectId, text) => {
+            const line: ChatMessageT = {
+              id: crypto.randomUUID(),
+              roomId: projectId,
+              from: { kind: "system" as any, id: "breaker", name: "Circuit breaker" },
+              text,
+              ts: new Date().toISOString(),
+              ask: null,
+            };
+            appendEvent(db, projectId, null, "chat", line);
+            broadcastChatRef?.(line);
+          },
+        });
+      } catch {}
+    }, 20_000);
+
+    // The supervisor, on a clock at last. It only ever applies the additive
+    // recoveries (reassign, retry); pausing and cancelling stay a person's
+    // call — see supervisorLoop.ts.
+    setInterval(() => {
+      try {
+        superviseOnce({
+          db,
+          log: (m) => app.log.info(m),
+          broadcastView: () => { try { broadcastViewRef?.(); } catch {} },
+          postChat: (projectId, text) => {
+            const line: ChatMessageT = {
+              id: crypto.randomUUID(),
+              roomId: projectId,
+              from: { kind: "system" as any, id: "supervisor", name: "Supervisor" },
+              text,
+              ts: new Date().toISOString(),
+              ask: null,
+            };
+            appendEvent(db, projectId, null, "chat", line);
+            broadcastChatRef?.(line);
+          },
+        });
+      } catch {}
+    }, 45_000);
     setInterval(() => {
       try {
         sweepDeliveries({
