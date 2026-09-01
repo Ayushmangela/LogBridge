@@ -5,6 +5,8 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { randomBytes } from "node:crypto";
 import { ensureProjectHive } from "../hive.js";
+import { setProjectMember } from "../db.js";
+import { tokenFromRequest, userForToken } from "../sessions.js";
 import { buildCommanderHivePrompt } from "../hivePrompt.js";
 import { spawnOrGetPtySession } from "../ptyGateway.js";
 import type { RouteDeps } from "./types.js";
@@ -14,8 +16,24 @@ const execAsync = promisify(exec);
 export function registerProjectRoutes(app: FastifyInstance, deps: RouteDeps) {
   const { db, broadcastView, hive } = deps;
 
-  app.get("/api/projects", async () => {
-    const projects = db.prepare("SELECT * FROM projects ORDER BY name").all() as any[];
+  app.get("/api/projects", async (req) => {
+    // Scoped to the caller's memberships, exactly like the WebSocket view.
+    // Scoping only buildView was not enough — this REST route is what the
+    // project picker calls, and it happily listed every floor in the database
+    // (with its commander's name and agent count) to any signed-in account.
+    //
+    // The empty-table fallback matches view.ts: an install that predates
+    // memberships must not lock its owner out of their own projects.
+    const me = userForToken(db, tokenFromRequest(req));
+    const scoped = Boolean(db.prepare("SELECT 1 FROM project_members LIMIT 1").get());
+    const projects = (scoped
+      ? db.prepare(
+          `SELECT p.* FROM projects p
+           JOIN project_members pm ON pm.project_id = p.id
+           WHERE pm.user_id = ?
+           ORDER BY p.name`
+        ).all(me?.id ?? "")
+      : db.prepare("SELECT * FROM projects ORDER BY name").all()) as any[];
     const result = projects.map((p) => {
       const agents = db.prepare("SELECT id, name, role, is_god FROM agents WHERE project_id = ? AND retired = 0").all(p.id) as any[];
       const taskCount = (db.prepare("SELECT COUNT(*) as count FROM tasks WHERE project_id = ?").get(p.id) as any)?.count || 0;
@@ -239,14 +257,13 @@ export function registerProjectRoutes(app: FastifyInstance, deps: RouteDeps) {
       spawnOrGetPtySession(db, ptyName, commanderId, 100, 30, hive);
     } catch {}
 
+    // The creator owns it — NOT every user in the database, which is what
+    // this did before and which quietly re-granted the whole workspace to
+    // everyone each time a project was made. Others join by invite.
     try {
-      const allUsers = db.prepare("SELECT id FROM users").all() as any[];
-      for (const u of allUsers) {
-        db.prepare(`
-          INSERT OR IGNORE INTO project_members (project_id, user_id, role, joined_at)
-          VALUES (?, ?, 'member', ?)
-        `).run(projectId, u.id, new Date().toISOString());
-      }
+      const creator = userForToken(db, tokenFromRequest(req));
+      const ownerId2 = creator?.id ?? ownerId;
+      if (ownerId2) setProjectMember(db, projectId, ownerId2, "owner");
     } catch {}
 
     broadcastView();

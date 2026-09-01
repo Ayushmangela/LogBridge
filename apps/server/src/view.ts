@@ -147,8 +147,38 @@ export function normalizeRole(role: string | null | undefined): OfficeCategory {
   return "developer";
 }
 
+/**
+ * The projects this user may see.
+ *
+ * `buildView` used to select every project in the database and hand them to
+ * whoever asked. Combined with a sign-up that joined new accounts to
+ * everything, that meant any account saw every floor, every agent and every
+ * live terminal — fine while the server only listened on localhost, an open
+ * door the moment it is reachable by the friend it is meant for.
+ *
+ * The fallback matters as much as the filter: a database whose
+ * `project_members` table is entirely empty predates memberships, and locking
+ * its owner out of their own workspace would be a worse failure than the one
+ * being fixed. `backfillProjectMemberships()` fills that table on boot, so
+ * this path is only reached by an install that has genuinely never had a user.
+ */
+function visibleProjects(db: Db, meId: string): any[] {
+  const anyMemberships = db.prepare("SELECT 1 FROM project_members LIMIT 1").get();
+  if (!anyMemberships) {
+    return db.prepare("SELECT * FROM projects ORDER BY id").all() as any[];
+  }
+  return db
+    .prepare(
+      `SELECT p.* FROM projects p
+       JOIN project_members pm ON pm.project_id = p.id
+       WHERE pm.user_id = ?
+       ORDER BY p.id`
+    )
+    .all(meId) as any[];
+}
+
 export function buildView(db: Db, positions: Positions, meId: string, hive?: HiveManager): WorkspaceViewT {
-  const projects = db.prepare("SELECT * FROM projects ORDER BY id").all() as any[];
+  const projects = visibleProjects(db, meId);
   const users = db.prepare("SELECT * FROM users ORDER BY rowid").all() as any[];
   const machines = db.prepare("SELECT * FROM machines").all() as any[];
   const agents = db.prepare("SELECT * FROM agents").all() as any[];

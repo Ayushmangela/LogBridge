@@ -538,6 +538,8 @@
       }
       const nameGrp = document.getElementById('auth-name-group');
       if (nameGrp) nameGrp.style.display = isLogin ? 'none' : 'flex';
+      const invGrp = document.getElementById('auth-invite-group');
+      if (invGrp) invGrp.style.display = isLogin ? 'none' : 'flex';
       const subBtn = document.getElementById('auth-submit-btn');
       if (subBtn) subBtn.textContent = isLogin ? 'Sign In →' : 'Create Account →';
       const err = document.getElementById('auth-error');
@@ -571,6 +573,31 @@
       if (dropEmail) dropEmail.textContent = currentUser.email || "";
     }
 
+    // Check the code as it is typed, so "this invite expired" arrives before
+    // the person fills in the rest of the form rather than after.
+    let inviteCheckTimer = null;
+    window.checkInviteCode = function () {
+      const input = document.getElementById('auth-invite');
+      const note = document.getElementById('auth-invite-note');
+      if (!input || !note) return;
+      const code = input.value.trim();
+      clearTimeout(inviteCheckTimer);
+      if (!code) { note.style.display = 'none'; return; }
+      inviteCheckTimer = setTimeout(async () => {
+        try {
+          const res = await fetch('/api/invites/' + encodeURIComponent(code));
+          const data = await res.json();
+          note.style.display = 'block';
+          note.style.color = res.ok ? 'var(--st-working)' : 'var(--st-fail)';
+          note.textContent = res.ok
+            ? 'Joins "' + data.projectName + '" as ' + data.role + '.'
+            : (data.error || 'That code is not valid.');
+        } catch {
+          note.style.display = 'none';
+        }
+      }, 350);
+    };
+
     window.handleAuthSubmit = async function(e) {
       if (e) e.preventDefault();
       const email = document.getElementById('auth-email')?.value?.trim();
@@ -583,7 +610,10 @@
       if (err) err.style.display = 'none';
 
       const url = authMode === 'signup' ? '/api/auth/signup' : '/api/auth/login';
-      const payload = authMode === 'signup' ? { name, email, password } : { email, password };
+      const inviteCode = document.getElementById('auth-invite')?.value?.trim() || '';
+      const payload = authMode === 'signup'
+        ? { name, email, password, inviteCode }
+        : { email, password };
 
       try {
         const res = await fetch(url, {
@@ -599,6 +629,16 @@
         if (data.token) localStorage.setItem('logbridge_auth_token', data.token);
 
         checkAuth();
+        // The server says whether the invite actually landed. Without this a
+        // new account with a bad code lands on an empty workspace with no
+        // explanation of why it is empty.
+        if (data.note && err) {
+          err.style.display = 'block';
+          err.style.background = 'rgba(93,179,192,0.10)';
+          err.style.borderColor = 'rgba(93,179,192,0.30)';
+          err.style.color = 'var(--text)';
+          err.textContent = data.note;
+        }
         goToProjectsPage();
       } catch (errObj) {
         if (err) {
@@ -1431,8 +1471,100 @@
       }
     }
 
+    // ---- invites --------------------------------------------------------
+    // Signing up no longer joins every project, so this is the only way a
+    // person gets onto a floor. Only an owner or admin can issue one; the
+    // server enforces that, this just does not offer it to anyone else.
+    async function renderInvitePanel() {
+      const sel = document.getElementById('invite-project');
+      if (!sel) return;
+      // From /api/projects, not latestView: settings is reachable before the
+      // WebSocket has delivered a view, and an empty dropdown there looks like
+      // "you have no projects" rather than "not connected yet". This endpoint
+      // is scoped to the caller's memberships, same as the view.
+      let rooms = [];
+      try {
+        const res = await fetch('/api/projects');
+        if (res.ok) rooms = (await res.json()).projects ?? [];
+      } catch { rooms = latestView?.rooms ?? []; }
+
+      const keep = sel.value;
+      sel.innerHTML = rooms.length
+        ? rooms.map((r) => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('')
+        : '<option value="">No projects yet</option>';
+      if (keep && rooms.some((r) => r.id === keep)) sel.value = keep;
+      loadInvites();
+    }
+
+    window.createInvite = async function () {
+      const projectId = document.getElementById('invite-project')?.value;
+      const role = document.getElementById('invite-role')?.value || 'member';
+      const out = document.getElementById('invite-result');
+      if (!projectId || !out) return;
+      out.innerHTML = '<div class="empty-note">Creating…</div>';
+      try {
+        const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/invites`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ role })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Could not create an invite.');
+        // Shown big and selectable: this is a thing a person reads out loud
+        // or pastes into a chat.
+        out.innerHTML =
+          '<div class="invite-code-card">' +
+            '<div class="invite-code-label">Send them this code</div>' +
+            `<div class="invite-code" onclick="copyInvite(this)" title="Click to copy">${escapeHtml(data.invite.code)}</div>` +
+            '<div class="invite-code-sub">Single use · expires in 72 hours · they enter it when creating their account</div>' +
+          '</div>';
+        loadInvites();
+      } catch (e) {
+        out.innerHTML = `<div class="empty-note" style="color:var(--st-fail)">${escapeHtml(e.message)}</div>`;
+      }
+    };
+
+    window.copyInvite = function (el) {
+      navigator.clipboard?.writeText(el.textContent.trim());
+      const was = el.getAttribute('title');
+      el.setAttribute('title', 'Copied');
+      setTimeout(() => el.setAttribute('title', was || 'Click to copy'), 1200);
+    };
+
+    window.revokeInvite = async function (projectId, code) {
+      await fetch(`/api/projects/${encodeURIComponent(projectId)}/invites/${encodeURIComponent(code)}`, { method: 'DELETE' });
+      loadInvites();
+    };
+
+    window.loadInvitesForSelected = () => loadInvites();
+
+    async function loadInvites() {
+      const projectId = document.getElementById('invite-project')?.value;
+      const list = document.getElementById('invite-list');
+      if (!projectId || !list) return;
+      try {
+        const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/invites`);
+        const data = await res.json();
+        // A member (not owner/admin) gets a 403 here — that is correct, and
+        // the panel simply shows nothing rather than an error they cannot act on.
+        if (!res.ok) { list.innerHTML = ''; return; }
+        const live = (data.invites || []).filter((i) => !i.revoked && i.uses < i.maxUses);
+        if (!live.length) { list.innerHTML = ''; return; }
+        list.innerHTML =
+          '<div class="section-label">Codes not yet used</div>' +
+          live.map((i) =>
+            '<div class="invite-row-item">' +
+              `<span class="mono">${escapeHtml(i.code)}</span>` +
+              `<span class="invite-meta">${escapeHtml(i.role)} · ${i.uses}/${i.maxUses} used</span>` +
+              `<button class="btn-ghost" onclick="revokeInvite('${escapeHtml(projectId)}','${escapeHtml(i.code)}')">Revoke</button>` +
+            '</div>'
+          ).join('');
+      } catch { list.innerHTML = ''; }
+    }
+
     function renderMachines(room) {
       renderCollabState(room);
+      renderInvitePanel();
       const el = document.getElementById('machines-list');
       el.innerHTML = '<div class="section-label" style="margin-top:0">Connected machines</div>';
       const list = latestView?.rooms?.[0]?.machines ?? [];

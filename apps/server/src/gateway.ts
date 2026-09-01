@@ -8,6 +8,7 @@ import {
 import { acceptPlan, orchestrate, resolveDelegationConsent, sendTaskOffer, deliverTaskLocally, type NodeSockets } from "./nodeGateway.js";
 import { planPrompt } from "./plan.js";
 import { buildView, Positions } from "./view.js";
+import { tokenFromRequest, userForToken } from "./sessions.js";
 import type { HiveManager } from "./hive.js";
 
 // `@agent-name the rest of the message` — see M4-KICKOFF.md. The "spec" this
@@ -70,6 +71,16 @@ export function registerGateway(
   // Which user is connected to each browser socket
   const userOf = new Map<WebSocket, string>();
 
+  // The AUTHENTICATED identity of each browser socket, from its session token.
+  // Separate from `userOf`, which is whatever `userId` the client put in a
+  // join/position message and is used for avatar placement.
+  //
+  // Scoping the view must use THIS one. The workspace view now shows only the
+  // projects you belong to, and deciding that from a client-supplied value
+  // would make the filter advisory — anyone could ask for someone else's
+  // floors by sending a different userId.
+  const authUserOf = new Map<WebSocket, string>();
+
   // Which room each browser is looking at, set by the `join` message.
   const roomOf = new Map<WebSocket, string>();
 
@@ -77,7 +88,7 @@ export function registerGateway(
     if (browserSockets.size === 0) return;
     for (const ws of browserSockets) {
       if (ws.readyState !== ws.OPEN) continue;
-      const meId = userOf.get(ws) || "you";
+      const meId = authUserOf.get(ws) ?? userOf.get(ws) ?? "you";
       const msg = { type: "view" as const, view: buildView(db, positions, meId, hive) };
       const parsed = ServerMessage.safeParse(msg);
       if (!parsed.success) {
@@ -120,10 +131,18 @@ export function registerGateway(
     // M1: browsers only. Node-runner auth (signed challenge) arrives in week 2.
     browserSockets.add(socket);
 
+    // Resolve who this is BEFORE the first view is built. This used the
+    // literal "you", which was harmless while every user could see every
+    // project — and became "your office is empty, forever" once the view was
+    // scoped to memberships, because no user has the id "you" so it matched
+    // nothing and the browser sat on "Connecting…".
+    const me = userForToken(db, tokenFromRequest(req as any));
+    if (me) authUserOf.set(socket, me.id);
+
     socket.send(
       JSON.stringify({
         type: "view",
-        view: buildView(db, positions, "you", hive),
+        view: buildView(db, positions, me?.id ?? "you", hive),
       })
     );
 
@@ -534,6 +553,7 @@ export function registerGateway(
       const uid = userOf.get(socket);
       if (uid) {
         userOf.delete(socket);
+        authUserOf.delete(socket);
         positions.delete(uid);
         broadcastView();
       }

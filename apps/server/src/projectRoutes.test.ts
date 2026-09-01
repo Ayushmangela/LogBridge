@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { buildServer } from "./index.js";
+import { createSession } from "./sessions.js";
 
 describe("Project Management & Single Commander Architecture", () => {
   test("POST /api/projects creates a project and spawns exactly ONE Commander agent", async () => {
@@ -9,10 +10,16 @@ describe("Project Management & Single Commander Architecture", () => {
     server.db.prepare("INSERT INTO users (id, name, avatar) VALUES ('usr_ayush', 'Ayush', 0)").run();
     server.db.prepare("INSERT INTO machines (id, owner_id, name, online) VALUES ('node_1', 'usr_ayush', 'ayush-mac', 1)").run();
 
+    // /api/projects is scoped to the caller's memberships now, so the request
+    // has to say who is asking. The auth gate itself is off under vitest, but
+    // the route still reads the session to decide what this user may see.
+    const auth = { authorization: `Bearer ${createSession(server.db, "usr_ayush")}` };
+
     // 1. Initially projects list is empty
     const res1 = await server.app.inject({
       method: "GET",
       url: "/api/projects",
+      headers: auth,
     });
     expect(res1.statusCode).toBe(200);
     const body1 = JSON.parse(res1.body);
@@ -22,7 +29,7 @@ describe("Project Management & Single Commander Architecture", () => {
     const res2 = await server.app.inject({
       method: "POST",
       url: "/api/projects",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...auth },
       body: JSON.stringify({
         name: "Nike Global Store",
         commanderName: "nike-commander",
@@ -54,6 +61,7 @@ describe("Project Management & Single Commander Architecture", () => {
     const res3 = await server.app.inject({
       method: "GET",
       url: "/api/projects",
+      headers: auth,
     });
     const body3 = JSON.parse(res3.body);
     expect(body3.projects.length).toBe(1);

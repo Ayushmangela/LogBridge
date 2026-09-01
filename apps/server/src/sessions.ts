@@ -63,6 +63,16 @@ const PUBLIC_PREFIXES = [
   "/healthz",
 ];
 
+/** Exactly one GET is public beyond the list above: checking whether an invite
+ *  code is valid, which by definition happens before the person has an
+ *  account. It answers with the project's NAME and role and nothing else — no
+ *  agents, no members, no machines — and it does not consume the code. The
+ *  method check matters: POST /api/invites/:code/redeem must stay gated,
+ *  because redeeming has to attach the code to a real signed-in user. */
+function isInvitePreflight(method: string, path: string): boolean {
+  return method === "GET" && /^\/api\/invites\/[^/]+$/.test(path);
+}
+
 // Sockets a browser opens. `/ws` carries the entire workspace view — every
 // project, agent, task and memory — so leaving it open made the API gate
 // mostly decorative. `/pty-ws` spawns a shell.
@@ -72,10 +82,11 @@ const PUBLIC_PREFIXES = [
 // user session in front of it would lock every runner out.
 const PROTECTED_SOCKETS = ["/ws", "/pty-ws"];
 
-function isPublic(url: string): boolean {
+function isPublic(url: string, method = "GET"): boolean {
   const path = url.split("?")[0];
   if (PROTECTED_SOCKETS.includes(path)) return false;
   if (!path.startsWith("/api/")) return true;   // static files, the office itself
+  if (isInvitePreflight(method, path)) return true;
   return PUBLIC_PREFIXES.some((p) => path === p || path.startsWith(p + "/"));
 }
 
@@ -89,7 +100,7 @@ function isPublic(url: string): boolean {
  */
 export function registerAuthGate(app: FastifyInstance, db: Db): void {
   app.addHook("onRequest", async (req: FastifyRequest, reply: FastifyReply) => {
-    if (isPublic(req.url)) return;
+    if (isPublic(req.url, req.method)) return;
     const user = userForToken(db, tokenFromRequest(req));
     if (!user) {
       return reply.code(401).send({ ok: false, error: "authentication required" });

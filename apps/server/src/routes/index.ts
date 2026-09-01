@@ -10,6 +10,7 @@ import { registerCommunicationRoutes } from "./communication.js";
 import { registerHiveRoutes } from "./hive.js";
 import { registerProjectRoutes } from "./projects.js";
 import { registerAuthRoutes } from "./auth.js";
+import { registerInviteRoutes } from "./invites.js";
 
 export * from "./types.js";
 export * from "./agents.js";
@@ -34,4 +35,5 @@ export function registerAllRoutes(app: FastifyInstance, deps: RouteDeps) {
   registerHiveRoutes(app, deps);
   registerProjectRoutes(app, deps);
   registerAuthRoutes(app, deps);
+  registerInviteRoutes(app, deps);
 }

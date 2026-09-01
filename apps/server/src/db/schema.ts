@@ -94,6 +94,26 @@ CREATE TABLE IF NOT EXISTS project_members (
   joined_at TEXT,
   PRIMARY KEY (project_id, user_id)
 );
+-- How a person joins a floor. Before this there was no way to invite anyone:
+-- signing up joined you to EVERY project, which is both the only onboarding
+-- path that existed and an open door the moment the server leaves localhost.
+--
+-- Single-use and expiring by default. A uses/max_uses counter rather than a
+-- boolean, so one code can seed a whole group without reissuing.
+CREATE TABLE IF NOT EXISTS project_invites (
+  code TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'member',
+  created_by TEXT,
+  created_at TEXT NOT NULL,
+  expires_at TEXT,
+  max_uses INTEGER NOT NULL DEFAULT 1,
+  uses INTEGER NOT NULL DEFAULT 0,
+  revoked INTEGER NOT NULL DEFAULT 0,
+  last_redeemed_by TEXT,
+  last_redeemed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_invites_project ON project_invites (project_id, revoked);
 CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
   project_id TEXT,
@@ -544,6 +564,47 @@ export function clearGeneratedCommanderGoals(db: Db): void {
   }
 }
 
+/**
+ * Give every EXISTING user membership of every EXISTING project, once.
+ *
+ * The workspace view is now scoped to what you are a member of. Until this
+ * change nothing needed a membership row — signup joined you to everything and
+ * `buildView` filtered by nothing — so an install upgrading into the scoped
+ * version would find its own users suddenly locked out of their own floors.
+ *
+ * This preserves exactly the access those users already had, and no more: it
+ * only ever runs where memberships are absent, and new users created after
+ * this get in through an invite instead.
+ *
+ * The oldest user becomes `owner` of each project, because someone has to be
+ * able to issue the first invite.
+ */
+export function backfillProjectMemberships(db: Db): void {
+  try {
+    const projects = db.prepare("SELECT id FROM projects").all() as any[];
+    if (!projects.length) return;
+    const users = db.prepare("SELECT id FROM users ORDER BY rowid").all() as any[];
+    if (!users.length) return;
+
+    const insert = db.prepare(
+      `INSERT OR IGNORE INTO project_members (project_id, user_id, role, joined_at)
+       VALUES (?, ?, ?, ?)`
+    );
+    const now = new Date().toISOString();
+    for (const p of projects) {
+      // Already governed — an operator may have deliberately removed someone,
+      // and re-adding them on every boot would make removal impossible.
+      const existing = db
+        .prepare("SELECT COUNT(*) AS n FROM project_members WHERE project_id = ?")
+        .get(p.id) as any;
+      if ((existing?.n ?? 0) > 0) continue;
+      users.forEach((u, i) => insert.run(p.id, u.id, i === 0 ? "owner" : "member", now));
+    }
+  } catch {
+    // A database predating these tables must not stop the server booting.
+  }
+}
+
 export function openDb(dbPath?: string): Db {
   const path = dbPath ?? process.env.DB_PATH ?? join(process.cwd(), "data.db");
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
@@ -643,6 +704,7 @@ export function openDb(dbPath?: string): Db {
   // how to add columns.
   migrateMemoryDedupe(db);
   clearGeneratedCommanderGoals(db);
+  backfillProjectMemberships(db);
 
   try {
     db.exec(`
@@ -653,10 +715,15 @@ export function openDb(dbPath?: string): Db {
         joined_at TEXT,
         PRIMARY KEY (project_id, user_id)
       );
-      INSERT OR IGNORE INTO project_members (project_id, user_id, role, joined_at)
-      SELECT p.id, u.id, 'member', datetime('now')
-      FROM projects p CROSS JOIN users u;
     `);
+    // The CROSS JOIN that used to live here — every user × every project, on
+    // EVERY boot — was the real root of the auto-join, deeper than the two
+    // sign-up paths. It silently re-granted the whole workspace to every
+    // account each time the server restarted, so removing a member was
+    // impossible and any new account became a member of everything within one
+    // restart. backfillProjectMemberships() is the deliberate, once-only
+    // version: it seeds memberships for a project that has none, and never
+    // touches one that is already governed.
   } catch {}
 
   try {

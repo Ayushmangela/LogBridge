@@ -1677,3 +1677,32 @@
       box-shadow: 0 0 0 3px rgba(93,179,192,0.18);
     }
     .auth-doc-btn .arrow { color: var(--accent); font-size: 12px; }
+
+    /* ---- Invites (Settings) ---- */
+    .settings-note { font-size: 12.5px; line-height: 1.6; color: var(--text-dim); margin: 0 0 12px; max-width: 60ch; }
+    .invite-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+    .invite-row select {
+      padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--surface-2); color: var(--text); font: inherit; font-size: 12.5px;
+    }
+    .invite-code-card {
+      background: var(--surface-2); border: 1px solid rgba(93,179,192,0.30);
+      border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; max-width: 460px;
+    }
+    .invite-code-label {
+      font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase;
+      color: var(--accent); margin-bottom: 8px;
+    }
+    .invite-code {
+      font-family: 'IBM Plex Mono', ui-monospace, monospace;
+      font-size: 21px; font-weight: 600; letter-spacing: .09em; color: var(--text);
+      cursor: pointer; user-select: all; padding: 6px 0;
+    }
+    .invite-code:hover { color: var(--accent); }
+    .invite-code-sub { font-size: 11.5px; color: var(--text-dim); margin-top: 6px; line-height: 1.5; }
+    .invite-row-item {
+      display: flex; align-items: center; gap: 12px; padding: 8px 0;
+      border-bottom: 1px solid var(--border); font-size: 12.5px;
+    }
+    .invite-row-item .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; letter-spacing: .05em; }
+    .invite-meta { color: var(--text-dim); font-size: 11.5px; margin-right: auto; }

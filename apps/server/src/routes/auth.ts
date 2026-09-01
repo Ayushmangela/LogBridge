@@ -2,6 +2,16 @@ import type { FastifyInstance } from "fastify";
 import { randomBytes, scryptSync } from "node:crypto";
 import type { RouteDeps } from "./types.js";
 import { createSession, destroySession, tokenFromRequest, userForToken } from "../sessions.js";
+import { redeemInvite, REDEEM_MESSAGES } from "../invites.js";
+import { setProjectMember } from "../db.js";
+
+/** ::1, 127.0.0.0/8, and the IPv4-mapped form Node reports on a dual-stack
+ *  socket (::ffff:127.0.0.1). Anything else is another machine. */
+export function isLoopback(ip: string | undefined): boolean {
+  if (!ip) return false;
+  const a = ip.replace(/^::ffff:/, "");
+  return a === "::1" || a === "localhost" || /^127\./.test(a);
+}
 
 export function registerAuthRoutes(app: FastifyInstance, deps: RouteDeps) {
   const { db } = deps;
@@ -11,6 +21,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: RouteDeps) {
     const name = String(body?.name || "").trim();
     const email = String(body?.email || "").trim().toLowerCase();
     const password = String(body?.password || "");
+    const inviteCode = String(body?.inviteCode || "").trim();
 
     if (!name) return reply.code(400).send({ error: "Name is required" });
     if (!email) return reply.code(400).send({ error: "Email or username is required" });
@@ -20,6 +31,10 @@ export function registerAuthRoutes(app: FastifyInstance, deps: RouteDeps) {
     if (existing) {
       return reply.code(400).send({ error: "An account with that email or name already exists" });
     }
+
+    // Read BEFORE the insert below, or the account being created counts
+    // itself and no one is ever the first user.
+    const isFirstUser = !db.prepare("SELECT 1 FROM users LIMIT 1").get();
 
     const salt = randomBytes(16).toString("hex");
     const hash = scryptSync(password, salt, 64).toString("hex");
@@ -32,13 +47,31 @@ export function registerAuthRoutes(app: FastifyInstance, deps: RouteDeps) {
       VALUES (?, ?, ?, 0, ?, ?, ?)
     `).run(userId, email, name, email, password_hash, createdAt);
 
+    // Membership, deliberately narrow.
+    //
+    // This used to be `SELECT id FROM projects` followed by a membership row
+    // for every one of them — so signing up granted the whole workspace. That
+    // was the ONLY onboarding path, which is why it existed, and it is exactly
+    // what makes exposing the server unsafe. A new account now gets in through
+    // an invite and reaches nothing else.
+    let joinedProject: string | null = null;
+    let joinNote: string | null = null;
     try {
-      const allProjects = db.prepare("SELECT id FROM projects").all() as any[];
-      for (const p of allProjects) {
-        db.prepare(`
-          INSERT OR IGNORE INTO project_members (project_id, user_id, role, joined_at)
-          VALUES (?, ?, 'member', ?)
-        `).run(p.id, userId, createdAt);
+      if (isFirstUser) {
+        // Bootstrap: whoever creates the first account owns what is already
+        // here. Without this the person who ran the server has no membership,
+        // cannot see their own floors, and cannot issue the first invite —
+        // locked out of their own machine by a security fix.
+        for (const p of db.prepare("SELECT id FROM projects").all() as any[]) {
+          setProjectMember(db, p.id, userId, "owner");
+          joinedProject = joinedProject ?? p.id;
+        }
+      } else if (inviteCode) {
+        const result = redeemInvite(db, inviteCode, userId);
+        if (result.ok) joinedProject = result.projectId;
+        else joinNote = REDEEM_MESSAGES[result.reason];
+      } else {
+        joinNote = "Your account is ready. Ask a teammate for an invite code to join their workspace.";
       }
     } catch {}
 
@@ -51,6 +84,10 @@ export function registerAuthRoutes(app: FastifyInstance, deps: RouteDeps) {
         name,
         email,
       },
+      // So the browser can say what happened rather than showing an empty
+      // workspace with no explanation.
+      joinedProject,
+      note: joinNote,
       token,
     };
   });
@@ -102,7 +139,16 @@ export function registerAuthRoutes(app: FastifyInstance, deps: RouteDeps) {
   // is no wider than `/api/auth/signup`, which is also public and grants the
   // whole workspace (D29) — but both must go before this server is reachable
   // by anyone outside the trusted group. See SECURITY-REVIEW.md.
-  app.post("/api/auth/demo", async () => {
+  app.post("/api/auth/demo", async (req, reply) => {
+    // Loopback only. This mints a real session for anyone who asks and joins
+    // it to every project — which is precisely the hole the invite flow was
+    // built to close, so leaving it reachable off-machine would undo that fix
+    // with one button. On the developer's own laptop it stays a single click.
+    if (!isLoopback(req.ip)) {
+      return reply.code(403).send({
+        error: "Demo access only works on the machine running the server. Sign in, or ask for an invite code.",
+      });
+    }
     const email = "demo@logbridge.local";
     const id = "usr_demo";
     // Look up by id, not just email: an install that predates the login
@@ -121,13 +167,15 @@ export function registerAuthRoutes(app: FastifyInstance, deps: RouteDeps) {
       db.prepare("UPDATE users SET email = ? WHERE id = ?").run(email, user.id);
       user.email = email;
     }
-    // Same auto-join as signup, so the demo account sees the workspace —
-    // needed every call, not just on first creation, in case a project was
-    // added after the demo user already existed.
+    // Joins every project, every call — a project added since the demo user
+    // was created should still be visible. Safe only because the route is
+    // loopback-gated above; that gate is what this line depends on.
+    // setProjectMember, not INSERT OR IGNORE: the demo account may already
+    // hold a stale 'member' row from before this granted owner, and IGNORE
+    // would leave it there — leaving the developer unable to issue an invite
+    // on their own machine.
     for (const p of db.prepare("SELECT id FROM projects").all() as any[]) {
-      db.prepare(
-        "INSERT OR IGNORE INTO project_members (project_id, user_id, role, joined_at) VALUES (?,?,?,?)"
-      ).run(p.id, user.id, "member", new Date().toISOString());
+      setProjectMember(db, p.id, user.id, "owner");
     }
     return { ok: true, user, token: createSession(db, user.id) };
   });
