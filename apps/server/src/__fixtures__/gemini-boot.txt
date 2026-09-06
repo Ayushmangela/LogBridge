@@ -1,0 +1,67 @@
+[8m[?u]11;?\[>q[>4;?m[c[2K[0m]0;◇  Ready (LogBridge)                                                            [?25l
+[38;5;229m⚠ [39m [38;5;229mWarning: True color (24-bit) support not detected. Using a terminal with true color enabled will[39m
+   [38;5;229mresult in a better visual experience.[39m
+
+
+[38;5;244m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+[38;5;244m│[39m                                                                                                  [38;5;244m│[39m
+[38;5;244m│[39m ⠋ Waiting for authentication... (Press Esc or Ctrl+C to cancel)                                  [38;5;244m│[39m
+[38;5;244m│[39m                                                                                                  [38;5;244m│[39m
+[38;5;244m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+[?25l[?1006l[?1002l[?1004h]0;◇  Ready (LogBridge)                                                            [?2004h[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+[38;5;229m⚠ [39m [38;5;229mWarning: True color (24-bit) support not detected. Using a terminal with true color enabled will[39m
+   [38;5;229mresult in a better visual experience.[39m
+
+
+ [38;5;229m╭────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+ [38;5;229m│[39m                                                                                                [38;5;229m│[39m
+ [38;5;229m│[39m [1m[38;5;231mDo you trust the files in this folder?[22m[39m                                                         [38;5;229m│[39m
+ [38;5;229m│[39m                                                                                                [38;5;229m│[39m
+ [38;5;229m│[39m [38;5;231mTrusting a folder allows Gemini CLI to load its local configurations, including custom[39m         [38;5;229m│[39m
+ [38;5;229m│[39m [38;5;231mcommands, hooks, MCP servers, agent skills, and settings. These configurations could execute[39m   [38;5;229m│[39m
+ [38;5;229m│[39m [38;5;231mcode on your behalf or change the behavior of the CLI.[39m                                         [38;5;229m│[39m
+ [38;5;229m│[39m                                                                                                [38;5;229m│[39m
+ [38;5;229m│[39m                                                                                                [38;5;229m│[39m
+ [38;5;229m│[39m [38;5;194m[48;5;28m●[39m [38;5;194m1.[39m [38;5;194mTrust folder (LogBridge)[39m     [49m                                                             [38;5;229m│[39m
+ [38;5;229m│[39m [38;5;231m [39m [38;5;231m2.[39m [38;5;231mTrust parent folder (Project)[39m                                                             [38;5;229m│[39m
+ [38;5;229m│[39m [38;5;231m [39m [38;5;231m3.[39m [38;5;231mDon't trust[39m                                                                               [38;5;229m│[39m
+ [38;5;229m│[39m                                                                                                [38;5;229m│[39m
+ [38;5;229m╰────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+ [38;5;74m▝[38;5;110m▜[38;5;140m▄[38;5;139m [38;5;174m [39m    [38;5;231m▗█▀▀▜▙▝█▛▀▀▌▜██▖▟██▘▜█▘▜██▖▝█▛▝█▛[39m
+ [38;5;74m [38;5;110m [38;5;140m▝[38;5;139m▜[38;5;174m▄[39m    [38;5;231m█▌     █▙▟  ▐█▝█▛▐█ ▐█ ▐█▝█▖█▌ █▌[39m
+ [38;5;74m [38;5;110m▗[38;5;140m▟[38;5;139m▀[38;5;174m [39m    [38;5;231m▜▙ ▝█▛ █▌▝ ▖▐█   ▐█ ▐█ ▐█ ▝██▌ █▌[39m
+ [38;5;74m▝[38;5;110m▀[38;5;140m  [38;5;139m [38;5;174m [39m   [38;5;231m ▀▀▀▀▘▝▀▀▀▀▘▀▀▘  ▀▀▘▀▀▘▀▀▘ ▝▀▀▝▀▀[39m
+
+ [1m[38;5;231mGemini CLI[22m[38;5;248m v0.58.0[39m
+
+
+
+[38;5;231mTips for getting started:[39m
+[38;5;231m1. [38;5;248m/help[38;5;231m for more information[39m
+[38;5;231m2. Ask coding questions, edit code or run commands[39m
+[38;5;231m3. Be specific for the best results[39m
+
+[38;5;229mℹ Skipping project agents due to untrusted folder. To enable, ensure that the project root is[39m
+  [38;5;229mtrusted.[39m
+[?25l
+[38;5;229m⚠ [39m [38;5;229mWarning: True color (24-bit) support not detected. Using a terminal with true color enabled will[39m
+   [38;5;229mresult in a better visual experience.[39m
+
+
+ [38;5;229m╭────────────────────────────────────────────────────────────────────────────────────────────────╮[39m
+ [38;5;229m│[39m                                                                                                [38;5;229m│[39m
+ [38;5;229m│[39m [1m[38;5;231mDo you trust the files in this folder?[22m[39m                                                         [38;5;229m│[39m
+ [38;5;229m│[39m                                                                                                [38;5;229m│[39m
+ [38;5;229m│[39m [38;5;231mTrusting a folder allows Gemini CLI to load its local configurations, including custom[39m         [38;5;229m│[39m
+ [38;5;229m│[39m [38;5;231mcommands, hooks, MCP servers, agent skills, and settings. These configurations could execute[39m   [38;5;229m│[39m
+ [38;5;229m│[39m [38;5;231mcode on your behalf or change the behavior of the CLI.[39m                                         [38;5;229m│[39m
+ [38;5;229m│[39m                                                                                                [38;5;229m│[39m
+ [38;5;229m│[39m                                                                                                [38;5;229m│[39m
+ [38;5;229m│[39m [38;5;194m[48;5;28m●[39m [38;5;194m1.[39m [38;5;194mTrust folder (LogBridge)[39m     [49m                                                             [38;5;229m│[39m
+ [38;5;229m│[39m [38;5;231m [39m [38;5;231m2.[39m [38;5;231mTrust parent folder (Project)[39m                                                             [38;5;229m│[39m
+ [38;5;229m│[39m [38;5;231m [39m [38;5;231m3.[39m [38;5;231mDon't trust[39m                                                                               [38;5;229m│[39m
+ [38;5;229m│[39m                                                                                                [38;5;229m│[39m
+ [38;5;229m╰────────────────────────────────────────────────────────────────────────────────────────────────╯[39m
+

@@ -127,6 +127,20 @@ export function describeEvent(
     case "github.room_linked":
       return { ...base, actor: null, summary: `linked repository ${short(body.repo, 50)} to this room` };
 
+    case "agent.blocked": {
+      // A blocked agent is waiting on a PERSON and will wait forever. The
+      // reason is the whole value of the line — "agent blocked" (what the
+      // default case produced) tells you something is wrong and nothing about
+      // what to do, which for a modal that needs one keypress is the entire
+      // difference between fixable and mysterious.
+      const name = body.agentName ?? "An agent";
+      return {
+        ...base,
+        actor: name,
+        summary: `is waiting for you — ${short(body.reason ?? "a dialog needs an answer", 90)}`,
+      };
+    }
+
     default:
       // Unknown types still show up rather than vanishing: a silent feed
       // during a new feature is worse than an ugly line.

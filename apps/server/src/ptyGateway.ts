@@ -452,8 +452,13 @@ export function spawnOrGetPtySession(
       clearTimeout(readyFallbackTimer);
       try {
         db.prepare("UPDATE agents SET status = 'needs_input' WHERE id = ?").run(agentId);
+        // The NAME goes in the body: describeEvent() renders the activity
+        // feed from the event alone and has no database access, so an event
+        // that carries only an id renders as an id.
         appendEvent(db, agent?.project_id ?? null, null, "agent.blocked", {
-          agentId, reason: verdict.reason ?? "waiting on a dialog",
+          agentId,
+          agentName: agent?.name ?? null,
+          reason: verdict.reason ?? "waiting on a dialog",
         });
       } catch {}
     }

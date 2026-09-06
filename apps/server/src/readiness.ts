@@ -64,6 +64,13 @@ const READY: Record<string, string[]> = {
   opencode: ["Ask anything", "tab agents", "ctrl+p commands", "Tip Run /connect"],
   // __fixtures__/claude-ready.txt
   claude: ["shift+tab to cycle", "auto mode on", 'Try "'],
+  // Gemini CLI has NO verified ready markers here on purpose. Reaching its
+  // prompt requires choosing an auth method and completing a sign-in, which is
+  // not something this project should automate, so there is no capture to
+  // derive them from. Inventing plausible strings is exactly the mistake the
+  // original list made. Until someone signs in and re-captures, a gemini
+  // session falls through to READY_ANY and, failing that, to the 45s ceiling —
+  // and its BLOCKED states are detected, which is the case that actually bites.
 };
 
 /** Checked when the provider is unknown, or as a second chance for a CLI that
@@ -79,6 +86,7 @@ const READY_ANY = [...new Set(Object.values(READY).flat())];
  * rather than "something is blocked".
  */
 const BLOCKED: Array<{ match: string; reason: string }> = [
+  // Claude Code — __fixtures__/claude-boot.txt
   {
     match: "Is this a project you created or one you trust",
     reason: "Claude Code is asking whether you trust this folder",
@@ -87,9 +95,29 @@ const BLOCKED: Array<{ match: string; reason: string }> = [
     match: "Yes, I trust this folder",
     reason: "Claude Code is asking whether you trust this folder",
   },
+  // Gemini CLI — __fixtures__/gemini-boot.txt. A THIRD CLI with a folder-trust
+  // modal, which is what settled that this is a category and not a Claude
+  // quirk: every one of these tools now guards against being pointed at a
+  // hostile directory, and every one of them does it before the prompt.
+  {
+    match: "Do you trust the files in this folder",
+    reason: "Gemini CLI is asking whether you trust this folder",
+  },
+  // Gemini CLI — __fixtures__/gemini-ready.txt. Not signed in, so it cannot
+  // reach a prompt at all until a person chooses an auth method and completes
+  // a sign-in. An agent on this screen will never become ready on its own.
+  {
+    match: "No authentication method selected",
+    reason: "Gemini CLI is not signed in and is asking for an auth method",
+  },
+  // Generic modal footers, last so a specific reason wins when one applies.
   {
     match: "Enter to confirm",
     reason: "the CLI is waiting on a confirmation dialog",
+  },
+  {
+    match: "(Use Enter to select)",
+    reason: "the CLI is waiting on a menu selection",
   },
 ];
 

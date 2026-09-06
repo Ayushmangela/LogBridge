@@ -68,6 +68,26 @@ describe("the blocking dialogs — the state that did not exist before", () => {
     expect(v.reason).toBeTruthy();
   });
 
+  test("Gemini CLI's folder-trust dialog is blocked", () => {
+    // A THIRD CLI with a folder-trust modal. Finding it in Gemini too is what
+    // settled that this is a category, not a Claude quirk — and it caught a
+    // real gap: with only the Claude wordings, this capture read as "booting",
+    // so LogBridge would have pasted the identity prompt into the menu.
+    const d = new ReadinessDetector("gemini");
+    const v = play(d, capture("gemini-boot.txt"), 512);
+    expect(v.state).toBe("blocked");
+    expect(v.reason).toContain("trust this folder");
+  });
+
+  test("Gemini CLI's sign-in chooser is blocked, and says so", () => {
+    // This one never resolves on its own: without an auth method there is no
+    // prompt to become ready at, ever. Reporting it is the only useful move.
+    const d = new ReadinessDetector("gemini");
+    const v = play(d, capture("gemini-ready.txt"), 512);
+    expect(v.state).toBe("blocked");
+    expect(v.reason).toMatch(/signed in|auth|trust/);
+  });
+
   test("a dialog that was dismissed does not keep the session blocked", () => {
     // claude-ready.txt contains the dialog AND the prompt that followed it.
     const d = new ReadinessDetector("claude");
