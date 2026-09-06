@@ -345,6 +345,9 @@ export function materializePlan(
       creatorId,
       workflowId,
       requiredCapability: s.requiredCapabilities?.[0] ?? null,
+      // Carried as DATA now, not just interpolated into the spec text. This
+      // is what verification.ts checks before letting the task complete.
+      expectedOutputs: s.expectedOutputs,
     });
 
     // Tag suggested role, wave, and goal_id on task

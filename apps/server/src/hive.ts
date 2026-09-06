@@ -25,6 +25,13 @@ export type MessageAct = "request" | "inform" | "propose" | "query" | "agree" | 
 
 export interface HiveMessage {
   id: string;
+  /** What the sender says it produced. PROTOCOL.md has told agents to send
+   *  this since the hive was written — `{"diff": "path/to/patch"}` — and
+   *  nothing read it until verification.ts needed the evidence. Either shape
+   *  is accepted, because both appear in the wild:
+   *    { "diff": "src/auth.ts" }
+   *    [ { "kind": "diff", "path": "src/auth.ts", "title": "…" } ] */
+  artifacts?: Record<string, string> | Array<Record<string, string>>;
   conversation: string;
   in_reply_to: string | null;
   from: string;
@@ -227,6 +234,49 @@ export function renderIdentityMd(meta: HiveAgentMeta): string {
     `${brief}\n\n` +
     `Read \`PROTOCOL.md\` in the hive root to communicate with other agents via \`inbox/\` and \`outbox/\`.\n`
   );
+}
+
+/**
+ * The artifacts a message declares, in one shape.
+ *
+ * Agents write prose-adjacent JSON, not a schema. The object form is what
+ * PROTOCOL.md shows and what they mostly send; the array form is what a model
+ * produces when it wants to add a title. Accepting only one of them would mean
+ * silently discarding half the evidence the gate depends on.
+ */
+export function normalizeArtifacts(
+  raw: unknown
+): Array<{ kind: string; path: string | null; title: string | null }> {
+  const out: Array<{ kind: string; path: string | null; title: string | null }> = [];
+  if (!raw) return out;
+
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (!item || typeof item !== "object") continue;
+      const o = item as Record<string, unknown>;
+      const kind = String(o.kind ?? o.type ?? "").trim();
+      if (!kind) continue;
+      const path = o.path ?? o.file ?? o.file_path ?? o.filePath;
+      out.push({
+        kind,
+        path: typeof path === "string" && path ? path : null,
+        title: typeof o.title === "string" && o.title ? o.title : null,
+      });
+    }
+    return out;
+  }
+
+  if (typeof raw === "object") {
+    for (const [kind, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (!kind) continue;
+      out.push({
+        kind: kind.trim(),
+        path: typeof value === "string" && value ? value : null,
+        title: null,
+      });
+    }
+  }
+  return out;
 }
 
 function shortRand(): string {

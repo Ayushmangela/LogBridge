@@ -10,6 +10,7 @@ import {
 import type { NodeSockets } from "./types.js";
 import { spawnAndSubmit, watchForCompletion, extractRecentReply } from "../ptyGateway.js";
 import type { HiveManager } from "../hive.js";
+import { gateCompletion } from "../completionGate.js";
 
 export function taskCancelEnvelope(taskId: string, projectId: string, machineId: string, by: string, reason: string | null): EnvelopeT {
   return {
@@ -146,6 +147,15 @@ export function completeLocalTask(db: Db, nodeSockets: NodeSockets, taskId: stri
       errorMessage: null,
       costUsd: 0,
     });
+  }
+
+  // The gate. A task that declared outputs cannot be called done until the
+  // evidence is on record — completion CASCADES (dependents are offered out
+  // below), so an unchecked "done" starts the next agent on inputs that were
+  // never produced.
+  if (ok) {
+    const verdict = gateCompletion(db, task);
+    if (!verdict.allow) return false;
   }
 
   const finalState = ok ? "completed" : "failed";

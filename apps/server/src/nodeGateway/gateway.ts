@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "ws";
 import { canTransition, isSideEffecting, parseEnvelope, type ChatMessageT, type EnvelopeT } from "@logbridge/protocol";
 import type { Db } from "../db.js";
+import { gateCompletion } from "../completionGate.js";
 import {
   appendEvent,
   expiredLeaseTasks,
@@ -535,6 +536,16 @@ function handleNodeEnvelope(
     if (!canTransition(t.state, body.state)) {
       appendEvent(db, t.project_id, t.id, "task.result.rejected", { attempted: body.state, from: t.state });
       return;
+    }
+
+    // Same gate as the local path (completeLocalTask). A runner reporting
+    // "completed" is a claim, not proof — and the claim unblocks the next wave.
+    if (body.state === "completed") {
+      const verdict = gateCompletion(db, t);
+      if (!verdict.allow) {
+        onChange();
+        return;
+      }
     }
 
     const activeAttempt = getActiveTaskAttempt(db, t.id);

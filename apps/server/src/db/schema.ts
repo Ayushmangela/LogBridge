@@ -687,6 +687,12 @@ export function openDb(dbPath?: string): Db {
     // or change what an agent was permitted to do.
     "ALTER TABLE agents ADD COLUMN allow_tools TEXT",
     "ALTER TABLE agents ADD COLUMN deny_paths TEXT",
+    // What a task is supposed to PRODUCE, as a JSON array of artifact kinds
+    // ("diff", "test_report", "review_verdict"). The planner has emitted this
+    // per step since it was written and it went nowhere: it was interpolated
+    // into the spec TEXT and never stored, so nothing could check whether a
+    // task that reported "completed" had produced anything at all.
+    "ALTER TABLE tasks ADD COLUMN expected_outputs TEXT",
   ]) {
     try {
       db.exec(alter);

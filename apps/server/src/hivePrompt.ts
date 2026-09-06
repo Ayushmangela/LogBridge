@@ -38,6 +38,10 @@ function commonProtocol(): string {
     `  $HIVE_ROOT/PROTOCOL.md the full message schema, if you need it.\n\n` +
     `SENDING A MESSAGE\n` +
     `Write ONE JSON file into $AGENT_DIR/outbox/. Never write into another agent's folder — the router delivers for you. Reference file paths or artifact ids; never paste diffs or code dumps into a message body.\n\n` +
+    `DECLARING WHAT YOU PRODUCED\n` +
+    `When you finish work, add an "artifacts" object to your message naming what you made and where:\n` +
+    `  "artifacts": { "diff": "src/auth.ts", "test_report": "reports/auth.txt" }\n` +
+    `This is how the floor checks the work is real. A task that was asked for a specific output is NOT accepted as done until you have declared it — you will be sent back with the list of what is missing. If you genuinely cannot produce it, say so and explain why; that is a real answer, and reporting "done" instead is not.\n\n` +
     `LIMITS\n` +
     `A circuit breaker watches the floor. If you receive "Circuit breaker: steer/constrain" you are looping or overspending: stop repeating, summarise what you tried, and follow the instruction. Be token-frugal — there is a budget and it can pause you.\n`
   );

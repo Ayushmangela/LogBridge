@@ -114,7 +114,15 @@ describe("prompt cost and portability", () => {
     const commander = buildCommanderHivePrompt({ commanderName: "cmd", folder: "/tmp/p" });
     const employee = buildEmployeeHivePrompt({ agentId: "a", agentName: "n", folder: "/tmp/p" });
     // Rough guard, not a style rule: these are re-sent on every cold start.
-    expect(commander.length).toBeLessThan(3200);
-    expect(employee.length).toBeLessThan(2400);
+    //
+    // Raised from 3200/2400 when the artifact-declaration section was added
+    // (~430 chars, in the shared commonProtocol so both prompts carry it).
+    // That section is what makes the completion gate fair: it is the only
+    // place an agent is told how to declare what it produced, and the gate
+    // refuses "done" without that declaration. Paying it once per cold start
+    // is cheaper than a plan whose five steps all report success and produce
+    // nothing.
+    expect(commander.length).toBeLessThan(3700);
+    expect(employee.length).toBeLessThan(2750);
   });
 });

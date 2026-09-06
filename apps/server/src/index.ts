@@ -15,6 +15,8 @@ import { registerAuthGate } from "./sessions.js";
 import { wakeRecipient, defaultInject, roomLineFor } from "./hiveWake.js";
 import { tripBreakers } from "./circuitBreaker.js";
 import { superviseOnce } from "./supervisorLoop.js";
+import { recordDeclaredArtifacts } from "./artifactIntake.js";
+import { configureCompletionGate } from "./completionGate.js";
 import { recordDelivery, checkForAcks, sweepDeliveries } from "./hiveDelivery.js";
 import type { ChatMessageT } from "@logbridge/protocol";
 import { registerGateway } from "./gateway.js";
@@ -70,6 +72,11 @@ export async function buildServer(
         const sender = db.prepare("SELECT * FROM agents WHERE id = ?").get(fromId) as any;
         const receiver = db.prepare("SELECT * FROM agents WHERE id = ?").get(toId) as any;
         const projectId = sender?.project_id || receiver?.project_id || (db.prepare("SELECT id FROM projects LIMIT 1").get() as any)?.id || "prj_main";
+
+        // Record what the sender says it produced. This is the ONLY writer of
+        // the artifacts table — it existed with `kind` and `file_path` and
+        // nothing ever filled it, which is why "done" could never be checked.
+        recordDeclaredArtifacts(db, msg, fromId, projectId);
 
         emitSequenceEvent(db, {
           projectId,
@@ -140,6 +147,23 @@ export async function buildServer(
       }
     } catch {}
     hive.startRouter(1500);
+
+    // The completion gate needs a way to speak to the agent and the office.
+    configureCompletionGate({
+      log: (m) => app.log.info(m),
+      postChat: (projectId, text) => {
+        const line: ChatMessageT = {
+          id: crypto.randomUUID(),
+          roomId: projectId,
+          from: { kind: "system" as any, id: "verify", name: "Verification" },
+          text,
+          ts: new Date().toISOString(),
+          ask: null,
+        };
+        appendEvent(db, projectId, null, "chat", line);
+        broadcastChatRef?.(line);
+      },
+    });
 
     const getActiveHiveRoots = () => {
       const roots = [hiveHome];
