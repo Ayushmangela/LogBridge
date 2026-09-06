@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { deliverTask } from "../agentChannel.js";
 import type { Db } from "../db.js";
 import { assignPendingTasks } from "../orchestrator.js";
 import { sendTaskOffer } from "./task-offers.js";
@@ -10,6 +11,6 @@ import type { NodeSockets } from "./types.js";
 export function orchestrate(db: Db, nodeSockets: NodeSockets, app?: FastifyInstance) {
   for (const { taskId, agentId } of assignPendingTasks(db)) {
     app?.log.info({ taskId, agentId }, "orchestrator assigned task");
-    sendTaskOffer(db, nodeSockets, taskId);
+    deliverTask(db, nodeSockets, taskId).delivered;
   }
 }

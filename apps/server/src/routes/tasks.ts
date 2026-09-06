@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { deliverTask } from "../agentChannel.js";
 import { isAbsolute } from "node:path";
 import {
   createTask, getTask, pauseTask, resumeTask, haltTask,
@@ -45,7 +46,7 @@ export function registerTaskRoutes(app: FastifyInstance, deps: RouteDeps) {
         projectId: agent.project_id, title, spec, creatorId: "debug", agentId,
         budgetSeconds, budgetUsd,
       });
-      sendTaskOffer(db, nodeSockets, taskId);
+      deliverTask(db, nodeSockets, taskId).delivered;
       broadcastView();
       return { ok: true, taskId };
     }
@@ -123,7 +124,7 @@ export function registerTaskRoutes(app: FastifyInstance, deps: RouteDeps) {
     });
 
     if (targetAgentId) {
-      sendTaskOffer(db, nodeSockets, taskId);
+      deliverTask(db, nodeSockets, taskId).delivered;
       const promptText = title.trim() + (spec && spec.trim() ? `\n\n${spec.trim()}` : '');
       try {
         submitPromptToAgent(targetAgentId, promptText);
@@ -366,7 +367,7 @@ export function registerTaskRoutes(app: FastifyInstance, deps: RouteDeps) {
     db.prepare("UPDATE tasks SET agent_id = ? WHERE id = ?").run(toAgentId, taskId);
 
     if (task.state === "submitted" && isTaskDependenciesSatisfied(db, taskId)) {
-      sendTaskOffer(db, nodeSockets, taskId);
+      deliverTask(db, nodeSockets, taskId).delivered;
     }
     broadcastView();
     return { ok: true, taskId, handedTo: toAgentId };
@@ -434,7 +435,7 @@ export function registerTaskRoutes(app: FastifyInstance, deps: RouteDeps) {
       addTaskDependency(db, reworkTaskId, task.id);
 
       if (task.agent_id) {
-        sendTaskOffer(db, nodeSockets, reworkTaskId);
+        deliverTask(db, nodeSockets, reworkTaskId).delivered;
       } else {
         orchestrate(db, nodeSockets, app);
       }
@@ -517,7 +518,7 @@ export function registerTaskRoutes(app: FastifyInstance, deps: RouteDeps) {
     });
 
     if (agentId) {
-      sendTaskOffer(db, nodeSockets, retryTaskId);
+      deliverTask(db, nodeSockets, retryTaskId).delivered;
     } else {
       orchestrate(db, nodeSockets, app);
     }

@@ -7,6 +7,7 @@ import {
 } from "./db.js";
 import { acceptPlan, orchestrate, resolveDelegationConsent, sendTaskOffer, deliverTaskLocally, type NodeSockets } from "./nodeGateway.js";
 import { planPrompt } from "./plan.js";
+import { deliverTask } from "./agentChannel.js";
 import { buildView, Positions } from "./view.js";
 import { tokenFromRequest, userForToken } from "./sessions.js";
 import type { HiveManager } from "./hive.js";
@@ -291,7 +292,7 @@ export function registerGateway(
           });
           appendEvent(db, msg.data.roomId, taskId, "plan.requested", { goal });
           const planRoomId = msg.data.roomId; // TS can't keep the "chat" narrowing across the closure below
-          sendTaskOffer(db, nodeSockets, taskId) || deliverTaskLocally(db, nodeSockets, taskId, hive, (agentId, agentName, text) => {
+          deliverTask(db, nodeSockets, taskId, hive, (agentId, agentName, text) => {
             const reply = agentReplyChat(planRoomId, agentId, agentName, text);
             appendEvent(db, planRoomId, taskId, "chat", reply);
             broadcastChat(reply);
@@ -362,7 +363,7 @@ export function registerGateway(
               agentId: agent.id,
             });
             const mentionRoomId = msg.data.roomId; // TS can't keep the "chat" narrowing across the closure below
-            sendTaskOffer(db, nodeSockets, taskId) || deliverTaskLocally(db, nodeSockets, taskId, hive, (agentId, agentName, text) => {
+            deliverTask(db, nodeSockets, taskId, hive, (agentId, agentName, text) => {
               const reply = agentReplyChat(mentionRoomId, agentId, agentName, text);
               appendEvent(db, mentionRoomId, taskId, "chat", reply);
               broadcastChat(reply);
@@ -494,7 +495,7 @@ export function registerGateway(
 
         if (task && task.state === "submitted" && task.agent_id) {
           if (msg.data.choice === "approve") {
-            sendTaskOffer(db, nodeSockets, task.id) || deliverTaskLocally(db, nodeSockets, task.id, hive, (agentId, agentName, text) => {
+            deliverTask(db, nodeSockets, task.id, hive, (agentId, agentName, text) => {
               const reply = agentReplyChat(task.project_id, agentId, agentName, text);
               appendEvent(db, task.project_id, task.id, "chat", reply);
               broadcastChat(reply);

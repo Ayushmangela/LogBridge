@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { deliverTask } from "../agentChannel.js";
 import type { WebSocket } from "ws";
 import { canTransition, isSideEffecting, parseEnvelope, type ChatMessageT, type EnvelopeT } from "@logbridge/protocol";
 import type { Db } from "../db.js";
@@ -216,7 +217,7 @@ export function registerNodeGateway(
         });
 
         if (altAgent) {
-          sendTaskOffer(db, nodeSockets, retryTaskId);
+          deliverTask(db, nodeSockets, retryTaskId).delivered;
         }
       } else if (attempts.length >= policy.maxAttempts) {
         appendEvent(db, t.project_id, t.id, "task.retry_exhausted", {
@@ -575,7 +576,7 @@ function handleNodeEnvelope(
           });
           const depTask = getTask(db, dep.taskId);
           if (depTask && depTask.state === "submitted" && depTask.agent_id) {
-            sendTaskOffer(db, nodeSockets, depTask.id);
+            deliverTask(db, nodeSockets, depTask.id).delivered;
           }
         }
       }
@@ -631,7 +632,7 @@ function handleNodeEnvelope(
         });
 
         if (altAgent) {
-          sendTaskOffer(db, nodeSockets, retryTaskId);
+          deliverTask(db, nodeSockets, retryTaskId).delivered;
         }
       } else if (attempts.length >= policy.maxAttempts) {
         appendEvent(db, t.project_id, t.id, "task.retry_exhausted", {

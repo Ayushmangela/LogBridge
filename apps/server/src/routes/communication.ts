@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { deliverTask } from "../agentChannel.js";
 import { createTask, appendEvent } from "../db.js";
 import { issueCfp, submitProposal, resolveContractNet } from "../experimental/contractNet.js";
 import { delegateHandoff } from "../communication/handoff.js";
@@ -232,7 +233,7 @@ export function registerCommunicationRoutes(app: FastifyInstance, deps: RouteDep
         budgetUsd: 2.0,
       });
       if (st.assignedTo) {
-        sendTaskOffer(db, nodeSockets, subId);
+        deliverTask(db, nodeSockets, subId).delivered;
       }
       createdSubtasks.push({ id: subId, title: st.title, agentId: st.assignedTo });
     }

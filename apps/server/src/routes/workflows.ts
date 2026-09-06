@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { deliverTask } from "../agentChannel.js";
 import {
   createWorkflow, getProjectWorkflows, getWorkflow, getWorkflowGraph,
   setWorkflowState, updateTaskWorkflow, addTaskDependency, createTask,
@@ -103,7 +104,7 @@ export function registerWorkflowRoutes(app: FastifyInstance, deps: RouteDeps) {
     }
 
     if (agentId) {
-      sendTaskOffer(db, nodeSockets, effectiveTaskId);
+      deliverTask(db, nodeSockets, effectiveTaskId).delivered;
     } else {
       orchestrate(db, nodeSockets, app);
     }

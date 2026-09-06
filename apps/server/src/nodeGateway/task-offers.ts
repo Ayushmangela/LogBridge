@@ -171,7 +171,13 @@ export function completeLocalTask(db: Db, nodeSockets: NodeSockets, taskId: stri
         });
         const depTask = getTask(db, dep.taskId);
         if (depTask && depTask.state === "submitted" && depTask.agent_id) {
-          sendTaskOffer(db, nodeSockets, depTask.id);
+          // Deliberately the two primitives rather than agentChannel's
+          // deliverTask(): this module OWNS both of them, so importing the
+          // front door here would make a cycle. The project has already been
+          // bitten once by an ESM loader resolving a module differently from
+          // vitest (see the @xterm/headless note in ptyGateway.ts), and a
+          // cycle is the same class of "works in tests, undefined at boot".
+          sendTaskOffer(db, nodeSockets, depTask.id) || deliverTaskLocally(db, nodeSockets, depTask.id);
         }
       }
     }
