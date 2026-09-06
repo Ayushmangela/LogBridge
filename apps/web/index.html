@@ -787,10 +787,17 @@
             </div>
             <div class="field wide">
               <label for="aa-isolation">Isolation</label>
+              <!-- Worktree is the default. Shared means several agents edit
+                   ONE working tree with no branch: git conflicts announce
+                   themselves, concurrent edits to one tree do not. That is how
+                   this project's own board once got "two design systems
+                   collided". Worktree degrades to shared by itself when the
+                   folder is not a git repo, so the safe default costs nothing
+                   when it cannot apply. -->
               <select id="aa-isolation">
-                <option value="shared" selected>Shared — work directly in that folder</option>
-                <option value="worktree">Worktree — its own git branch and checkout</option>
+                <option value="worktree" selected>Worktree — its own git branch and checkout</option>
                 <option value="copy">Copy — a separate copy of the folder</option>
+                <option value="shared">Shared — work directly in that folder</option>
               </select>
               <div class="provider-note" id="aa-isolation-note"></div>
             </div>

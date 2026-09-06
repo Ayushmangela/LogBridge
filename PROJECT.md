@@ -93,7 +93,7 @@ the "office" half of the product.
 | Create an agent from the browser — identity, sprite, folder, engine, briefing | ✅ |
 | Runs a **real CLI** you already have installed and authenticated | ✅ `claude` + `opencode` verified against captured output |
 | Per-agent provider/model, live engine swap | ✅ |
-| Workspace isolation: `shared` / `worktree` / `copy` | ✅ (see §4.2 — the default is wrong) |
+| Workspace isolation: `shared` / `worktree` / `copy` | ✅ defaults to `worktree`; new projects get a git repo so it applies |
 | Live terminal streamed to the browser | ✅ |
 | Edit · note · pause · retire · delete · steer · move · clone | ✅ |
 | Traces, per-agent git, context/budget monitor | ✅ |
@@ -233,10 +233,20 @@ fake process. Highest-priority fix.
 
 ## 4.2 New agents share one folder by default
 
-The Add Agent dialog defaults to `isolation: 'shared'` — agents edit the **same
-working tree** with no branch. Git conflicts announce themselves; concurrent
-edits to one tree don't. This is how the shared board once got "two design
-systems collided". **One-line fix:** default to `worktree`.
+**Fixed.** The Add Agent dialog defaulted to `isolation: 'shared'` — agents
+edited the **same working tree** with no branch. Git conflicts announce
+themselves; concurrent edits to one tree don't. This is how the shared board
+once got "two design systems collided".
+
+The one-line fix turned out to need a second line. Defaulting to `worktree`
+alone was decorative: `resolveWorktree()` degrades to shared when the folder is
+not a git repository, and **none of the project folders were** — every one was a
+plain directory, which is precisely why agents kept sharing a tree. Project
+creation now runs `git init` plus an empty initial commit (a worktree needs a
+HEAD to branch from) on folders it creates and that are not already inside a
+repo. Verified: two agents in one project resolve to
+`<folder>.worktrees/<agentId>` on `logbridge/<agentId>` branches, with no
+degradation.
 
 ## 4.3 Verification is a sentence, not a gate
 

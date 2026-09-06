@@ -152,6 +152,37 @@ export function registerProjectRoutes(app: FastifyInstance, deps: RouteDeps) {
       }
     } catch {}
 
+    // Make it a git repository, so workspace isolation can actually apply.
+    //
+    // Without this the "worktree" default is decorative: resolveWorktree()
+    // degrades to shared for a folder that is not a repo, so every agent lands
+    // in the same working tree anyway — which is how this project's own board
+    // once got "two design systems collided". Every existing project folder
+    // here is a plain directory, and that is exactly why.
+    //
+    // Only ever on a folder we just created and only when there is no repo
+    // already: `git init` inside someone's existing checkout, or on a
+    // subdirectory of one, is not ours to do.
+    try {
+      const alreadyInRepo = await execAsync("git rev-parse --is-inside-work-tree", { cwd: folder })
+        .then(() => true).catch(() => false);
+      if (!alreadyInRepo) {
+        await execAsync("git init -q", { cwd: folder });
+        // A worktree cannot be created from a repository with no commits —
+        // `git worktree add` needs a HEAD to branch from. An empty initial
+        // commit is the cheapest way to give it one.
+        await execAsync(
+          'git -c user.email=logbridge@local -c user.name=LogBridge commit -q --allow-empty -m "LogBridge: project created"',
+          { cwd: folder }
+        );
+        app.log.info({ folder }, "initialised a git repository so agents can work in isolation");
+      }
+    } catch (err) {
+      // A project without a repo still works — agents just share one tree, as
+      // they did before. Not worth failing project creation over.
+      app.log.warn({ folder, err }, "could not initialise a git repository; agents will share one working tree");
+    }
+
     db.prepare("INSERT INTO projects (id, gh_repo, name, layout) VALUES (?, ?, ?, 'office')").run(
       projectId,
       folder,

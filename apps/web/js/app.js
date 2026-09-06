@@ -6748,7 +6748,10 @@
       note.textContent =
         v === 'worktree' ? 'Needs the folder to be a git repository. Falls back to shared if it is not.'
         : v === 'copy'   ? 'Copies the folder once. Changes do not flow back on their own.'
-        : 'Several agents in one folder share a git branch and index.';
+        // Named as a hazard, because it is one and it does not announce
+        // itself: two agents editing one tree overwrite each other silently,
+        // where two branches would have produced a conflict you could see.
+        : 'Several agents in one folder share a git branch and index — concurrent edits overwrite each other silently.';
     }
 
     function aaOpen() {
@@ -6786,7 +6789,7 @@
       document.getElementById('aa-allow').value = '';
       document.getElementById('aa-deny').value = '';
       document.getElementById('aa-folder').value = defaultFolder;
-      document.getElementById('aa-isolation').value = 'shared';
+      document.getElementById('aa-isolation').value = 'worktree';
       document.getElementById('aa-description').value = '';
       document.getElementById('aa-goal').value = '';
       aaCharacter = aaDefaultChar();

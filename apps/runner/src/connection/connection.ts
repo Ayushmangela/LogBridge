@@ -207,6 +207,16 @@ export class RunnerConnection {
       const workspace = resolveWorkspace({
         agentId: agent.id,
         folder: agent.folder ?? null,
+        // Still "shared" here, deliberately, while the Add Agent dialog now
+        // defaults to "worktree".
+        //
+        // This fallback only fires for a DECLARED agent — one the machine's
+        // owner configured with CLI flags and did not give an isolation. Their
+        // config says "work in folder X"; silently relocating that agent into
+        // a git worktree would move where its files land, and any uncommitted
+        // work already in the main tree would vanish from its view. An agent
+        // created in the browser always carries an explicit isolation, so it
+        // never reaches this line.
         isolation: (agent.isolation ?? "shared") as Isolation,
         fallbackDir: join(this.opts.dataDir, "work", agent.id),
       });
