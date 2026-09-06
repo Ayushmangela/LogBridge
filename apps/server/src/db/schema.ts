@@ -605,6 +605,35 @@ export function backfillProjectMemberships(db: Db): void {
   }
 }
 
+/**
+ * Reuse prepared statements instead of recompiling the same SQL every call.
+ *
+ * `db.prepare()` compiles its SQL each time, and this server calls it in the
+ * hot path constantly: ONE `buildView()` makes **75 prepare() calls for 20
+ * distinct statements**, and a view is rebuilt on every broadcast. Measured
+ * against the real database, caching takes a build from 1.94ms to 1.26ms.
+ *
+ * Safe here specifically because nothing in this codebase uses `.pluck()`,
+ * `.raw()` or a half-consumed `.iterate()` — those put a MODE on the statement
+ * object, and a shared statement would then leak that mode to the next caller.
+ * If one is ever added, it must not go through this cache.
+ *
+ * The cache lives on the connection, so an in-memory test database gets its
+ * own and nothing leaks between tests.
+ */
+function cacheStatements(db: Database.Database): void {
+  const cache = new Map<string, any>();
+  const real = db.prepare.bind(db);
+  (db as any).prepare = (sql: string) => {
+    let stmt = cache.get(sql);
+    if (!stmt) {
+      stmt = real(sql);
+      cache.set(sql, stmt);
+    }
+    return stmt;
+  };
+}
+
 export function openDb(dbPath?: string): Db {
   const path = dbPath ?? process.env.DB_PATH ?? join(process.cwd(), "data.db");
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
@@ -612,6 +641,7 @@ export function openDb(dbPath?: string): Db {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA);
+  cacheStatements(db);
   // No migration framework (D7: SQLite, deliberately minimal) — `CREATE
   // TABLE IF NOT EXISTS` is a no-op against a db file from before a column
   // existed, so every column added after the fact is replayed here.

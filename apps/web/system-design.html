@@ -1410,6 +1410,48 @@ sequenceDiagram
       </p>
     </div>
 
+
+    <h3>One door to reach an agent</h3>
+    <p>
+      There used to be two channels with no front door — a <code>task.offer</code> envelope to a
+      runner, and a PTY on this machine — and every caller had to know both existed. Three sites tried
+      them in order; <strong>twelve tried only the runner</strong>, which returns false for a local
+      agent because it has no socket. Those twelve silently dropped the task: state stayed
+      <code>submitted</code>, the agent stayed <code>idle</code>. That included the orchestrator's own
+      delivery step.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Agent's machine</th><th>Where the work goes</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>runner connected</td><td><span class="chip a">envelope</span></td>
+              <td>the machine that owns the agent runs it</td></tr>
+          <tr><td>runner down</td><td><span class="chip w">waits</span></td>
+              <td>its workspace, tool policy and CLI are all there — <code>reconcileOnConnect</code> redelivers</td></tr>
+          <tr><td>no runner, ever</td><td><span class="chip g">local PTY</span></td>
+              <td>genuinely ours to run</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note warn">
+      <span class="tag">Why the middle row matters</span>
+      <p>
+        "No socket, therefore run it here" is the obvious rule and it is dangerous: a runner's socket
+        is closed while it restarts, and pulling its work over would run a teammate's agent on the
+        server's filesystem, under the server's permissions, with none of their tool policy. The
+        discriminator is <code>machines.pubkey</code> — set only by a real runner completing the signed
+        handshake, so it means "a runner owns this machine" whether or not it is connected this second.
+      </p>
+      <p>
+        The same gap ran through the five agent lifecycle envelopes, which had no handler at all:
+        <b>Pause</b> held back new offers while a friend's agent carried on mid-task, and <b>Delete</b>
+        removed the row here and left their CLI running — no roster entry, no terminal, still spending.
+        Both now reach the machine.
+      </p>
+    </div>
+
     <h3>Still true</h3>
     <p>
       Automatic recovery remains narrow by design: the lease sweep retrying work whose machine went

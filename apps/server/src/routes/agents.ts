@@ -7,7 +7,7 @@ import {
   setAgentSteer, getAgentHistory, moveAgent, cloneAgent,
   getAgentTraces, getAgentOutput, appendEvent, getAgentMetrics
 } from "../db.js";
-import { requestAgentGit, requestAgentCreate, notifyAgentPatched } from "../nodeGateway.js";
+import { requestAgentGit, requestAgentCreate, notifyAgentPatched, notifyAgentLifecycle } from "../nodeGateway.js";
 import { spawnOrGetPtySession, killAgentSession } from "../ptyGateway.js";
 import { registerAgentInProjectHive } from "../hive.js";
 import { listRoles, loadRole } from "../roles/loader.js";
@@ -119,6 +119,10 @@ export function registerAgentRoutes(app: FastifyInstance, deps: RouteDeps) {
     const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(id) as any;
     if (!agent) return reply.code(404).send({ ok: false, error: "no such agent" });
     setAgentPaused(db, id, true);
+    // Tell the machine that runs it. Locally the orchestrator's `paused = 0`
+    // filter is enough; on a friend's runner nothing heard, so a paused agent
+    // mid-task carried on.
+    notifyAgentLifecycle(db, nodeSockets, id, "agent.pause");
     broadcastView();
     return { ok: true };
   });
@@ -129,6 +133,7 @@ export function registerAgentRoutes(app: FastifyInstance, deps: RouteDeps) {
     const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(id) as any;
     if (!agent) return reply.code(404).send({ ok: false, error: "no such agent" });
     setAgentPaused(db, id, false);
+    notifyAgentLifecycle(db, nodeSockets, id, "agent.resume");
     broadcastView();
     return { ok: true };
   });
@@ -139,6 +144,7 @@ export function registerAgentRoutes(app: FastifyInstance, deps: RouteDeps) {
     const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(id) as any;
     if (!agent) return reply.code(404).send({ ok: false, error: "no such agent" });
     setAgentRetired(db, id, true);
+    notifyAgentLifecycle(db, nodeSockets, id, "agent.retire");
     broadcastView();
     return { ok: true };
   });
@@ -149,6 +155,7 @@ export function registerAgentRoutes(app: FastifyInstance, deps: RouteDeps) {
     const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(id) as any;
     if (!agent) return reply.code(404).send({ ok: false, error: "no such agent" });
     setAgentRetired(db, id, false);
+    notifyAgentLifecycle(db, nodeSockets, id, "agent.unretire");
     broadcastView();
     return { ok: true };
   });
@@ -161,10 +168,15 @@ export function registerAgentRoutes(app: FastifyInstance, deps: RouteDeps) {
     // live CLI running with nothing to attribute it to — no roster entry, no
     // terminal panel, no way to stop it short of finding the PID by hand,
     // while it kept spending real money.
+    // Order matters: the envelope needs the agent row to find its machine,
+    // so it goes BEFORE the delete. killAgentSession only reaches a PTY on
+    // this machine — without the envelope a friend's CLI kept running with
+    // nothing left to attribute it to, still spending.
+    const notified = notifyAgentLifecycle(db, nodeSockets, agentId, "agent.delete");
     const killed = killAgentSession(agentId);
     deleteAgent(db, agentId);
     broadcastView();
-    return { ok: true, sessionKilled: killed };
+    return { ok: true, sessionKilled: killed, machineNotified: notified };
   };
 
   app.delete<{ Params: { id: string } }>("/api/agents/:id", async (req, reply) => {

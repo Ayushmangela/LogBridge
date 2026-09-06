@@ -7,4 +7,5 @@ export * from "./plan-proposals.js";
 export * from "./agent-creation.js";
 export * from "./git-queries.js";
 export * from "./agent-patch.js";
+export * from "./agent-lifecycle.js";
 export * from "./gateway.js";

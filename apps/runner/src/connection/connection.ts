@@ -22,6 +22,7 @@ import {
 } from "./types.js";
 import { handleAgentCreate, handleAgentGit } from "./agent-creation-handler.js";
 import { handleAgentPatch } from "./agent-patch-handler.js";
+import { handleAgentLifecycle, isHalted } from "./agent-lifecycle-handler.js";
 import {
   handleDelegateRequest,
   handleReviewRequest,
@@ -181,6 +182,16 @@ export class RunnerConnection {
     if (env.type === "task.offer") {
       if (this.taskRunner.has(body.taskId)) return;
       this.sendEnvelope(this.acceptEnvelope(body.taskId, env.project));
+
+      // A paused or retired agent takes no new work. Enforced here because
+      // this is the only place an offer can actually be refused — the server
+      // filters candidates, but an offer already in flight, or one aimed at a
+      // specific agent, arrives regardless.
+      if (isHalted(body.agentId)) {
+        this.log(`refusing ${body.taskId}: ${body.agentId} is paused or retired here`);
+        this.sendEnvelope(this.resultEnvelope(body.taskId, "failed", "agent is paused", 0));
+        return;
+      }
 
       const named = this.agentById(body.agentId);
       const agent = named ?? (body.agentId ? undefined : this.opts.agents[0]);
@@ -353,6 +364,27 @@ export class RunnerConnection {
         log: (m) => this.log(m),
         agentById: (id) => this.agentById(id),
         publishCard: (a) => this.publishCard(a),
+      });
+      return;
+    }
+
+    if (
+      env.type === "agent.pause" || env.type === "agent.resume" ||
+      env.type === "agent.retire" || env.type === "agent.unretire" ||
+      env.type === "agent.delete"
+    ) {
+      handleAgentLifecycle(this.opts, this.createdAgents, env, body, {
+        log: (m) => this.log(m),
+        agentById: (id) => this.agentById(id),
+        stopTasksFor: (agentId) => {
+          const ids = this.taskRunner.activeIds().filter((t) => this.taskAgent.get(t) === agentId);
+          for (const t of ids) this.taskRunner.stop(t);
+          return ids;
+        },
+        forget: (agentId) => {
+          const i = this.opts.agents.findIndex((a) => a.id === agentId);
+          if (i >= 0) this.opts.agents.splice(i, 1);
+        },
       });
       return;
     }

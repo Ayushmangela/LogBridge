@@ -290,7 +290,14 @@ export function spawnOrGetPtySession(
       // commander's. A subordinate's identity already lives in its own
       // hive/agents/<id>/identity.md and is delivered directly into its PTY
       // below (initialPrompt), so it never needed the shared file.
-      if (isCommander) {
+      //
+      // ...and never into the SERVER'S OWN directory. `cwd` falls back to
+      // process.cwd() twice above (no folder set, or a folder that no longer
+      // exists), which for the dev server is apps/server — so an agent with a
+      // stale folder silently overwrote this repository's own tracked
+      // AGENTS.md with its identity prompt. Observed: the file had been
+      // clobbered with a pre-rewrite reviewer prompt from some earlier run.
+      if (isCommander && cwd !== process.cwd()) {
         const agentsMdPath = join(cwd, "AGENTS.md");
         writeFileSync(agentsMdPath, initialPrompt, "utf8");
       }

@@ -85,19 +85,69 @@ export function registerGateway(
   // Which room each browser is looking at, set by the `join` message.
   const roomOf = new Map<WebSocket, string>();
 
-  const broadcastView = () => {
+  // How long a burst of broadcastView() calls is allowed to collapse for.
+  // One frame: shorter than anyone can perceive, long enough that the several
+  // calls a single operation makes become one rebuild.
+  const COALESCE_MS = 16;
+  let flushTimer: NodeJS.Timeout | null = null;
+
+  /**
+   * Build and send the view.
+   *
+   * Two things this does that the old loop did not, both measured against the
+   * real database: one `buildView` costs **75 prepared statements**, ~2ms.
+   *
+   *  1. ONE BUILD PER VIEWER, not per socket. Sockets belonging to the same
+   *     person — a second tab, a phone — get the identical bytes, so they are
+   *     built and serialised once. Views genuinely differ BETWEEN people now
+   *     that the workspace is scoped to memberships, which is why the memo is
+   *     keyed on the viewer rather than shared outright.
+   *  2. Serialise once per viewer too. The old code called JSON.stringify per
+   *     socket on a payload of several KB.
+   */
+  const flushView = () => {
+    flushTimer = null;
     if (browserSockets.size === 0) return;
+
+    const payloadFor = new Map<string, string | null>();
     for (const ws of browserSockets) {
       if (ws.readyState !== ws.OPEN) continue;
       const meId = authUserOf.get(ws) ?? userOf.get(ws) ?? "you";
-      const msg = { type: "view" as const, view: buildView(db, positions, meId, hive) };
-      const parsed = ServerMessage.safeParse(msg);
-      if (!parsed.success) {
-        app.log.error({ err: parsed.error }, "view failed contract validation — not sent");
-        continue;
+
+      if (!payloadFor.has(meId)) {
+        const msg = { type: "view" as const, view: buildView(db, positions, meId, hive) };
+        const parsed = ServerMessage.safeParse(msg);
+        if (!parsed.success) {
+          app.log.error({ err: parsed.error }, "view failed contract validation — not sent");
+          payloadFor.set(meId, null);
+        } else {
+          payloadFor.set(meId, JSON.stringify(parsed.data));
+        }
       }
-      ws.send(JSON.stringify(parsed.data));
+
+      const payload = payloadFor.get(meId);
+      if (payload) ws.send(payload);
     }
+  };
+
+  /**
+   * Ask for a view update.
+   *
+   * Called from 76 places, several of which fire within one operation — a task
+   * changing state, its agent changing status and the hive emitting an event
+   * are three calls describing one thing. Rebuilding for each was three full
+   * projections to send three nearly identical snapshots. Coalescing makes a
+   * burst cost one.
+   *
+   * The delay is the only behaviour change, and nothing awaits this: the view
+   * is a broadcast, not a reply.
+   */
+  const broadcastView = () => {
+    if (browserSockets.size === 0) return;
+    if (flushTimer) return;
+    flushTimer = setTimeout(flushView, COALESCE_MS);
+    // Must not hold the process open on its own.
+    if (typeof flushTimer.unref === "function") flushTimer.unref();
   };
 
   const broadcastChat = (chat: ChatMessageT) => {
