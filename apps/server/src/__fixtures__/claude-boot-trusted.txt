@@ -1,0 +1,15 @@
+7[r8[?25h[?25l[?2004h[?1004h[?2031h[>0q[c
+[38;5;153m────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[3G[38;5;153m[1mClaude[10Gin[13GChrome[20Gextension[30Gdetected[22m[39m
+
+[3GClaude[10Gwill[15Guse[19Gyour[24GChrome[31Gbrowser[39Gby[42Gdefault[50G—[52Gnavigating[63Gsites,[70Gfilling[78Gforms,[85Gand[89Gcapturing
+[3Gscreenshots[15Gin[18Gyour[23Gexisting[32Gsession.
+
+[3G[38;5;246mThis[8Gsession[16Gis[19Gin[22GAuto[27Gmode,[33Gso[36Gan[39GAI[42Gclassifier[53Gapproves[62Groutine[70Gbrowser[78Gactions[86G—[88Gyou[92Gare[39m
+[3G[38;5;246monly[8Gprompted[17Gwhen[22Git[25Gis[28Gunsure.[36GTurn[41Gbrowser[49Gtools[55Goff[59Gfor[63Gfuture[70Gsessions[79Gwith[84G[38;5;153m[1m/chrome[22m[38;5;246m.[39m
+
+[3G[38;5;153m❯[5GNo,[9Gkeep[14Gbrowser[22Gtools[28Goff[39m
+[5GYes,[10Guse[14Gmy[17Gbrowser
+
+[3G[38;5;246m[3mEnter[9Gto[12Gconfirm[20G·[22GEsc[26Gto[29Gkeep[34Gbrowser[42Gtools[48Goff[23m[39m
+[2C[4A

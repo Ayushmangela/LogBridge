@@ -893,7 +893,7 @@ flowchart TB
           <tr><td>Text sent</td><td>one-line notice</td><td>full <code>subject + "\n\n" + body</code></td></tr>
           <tr><td>Write path</td><td colspan="2"><code>queueWrite()</code> — chained, so a wake never interleaves with a human's keystrokes on the same pipe</td></tr>
           <tr><td>Encoding</td><td colspan="2">bracketed paste <code>ESC[200~ … ESC[201~</code>, then <code>\r</code> after 250 ms</td></tr>
-          <tr><td>Readiness</td><td>immediate</td><td><code>whenReady()</code> — waits for the CLI's own prompt banner, 45 s ceiling</td></tr>
+          <tr><td>Readiness</td><td>immediate</td><td><code>whenReady()</code> — waits for the CLI's own prompt banner, matched against real recordings of each CLI (<code>readiness.ts</code>), 45 s ceiling. A CLI sitting on a startup dialog reports <b>blocked</b>, not ready</td></tr>
           <tr><td>Status shown</td><td><code>working</code></td><td><code>starting</code> → <code>idle</code> → <code>working</code></td></tr>
         </tbody>
       </table>

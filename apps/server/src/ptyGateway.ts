@@ -18,6 +18,7 @@ import { execSync } from "node:child_process";
 import { getAgentOutput, appendEvent } from "./db.js";
 import { buildCommanderHivePrompt, buildEmployeeHivePrompt } from "./hivePrompt.js";
 import { loadRole } from "./roles/loader.js";
+import { ReadinessDetector } from "./readiness.js";
 
 interface PtySession {
   id: string;
@@ -100,18 +101,17 @@ function queueWrite(session: PtySession, write: () => void): void {
     .catch(() => {});
 }
 
-// "The input prompt is showing right now." Used to answer two different
-// questions about the same signal: is a freshly booted CLI ready for its
-// FIRST prompt (below), and — watchForCompletion, near submitPromptToAgent
-// — is a CLI that was mid-task ready for its NEXT one, which only happens
-// once the current turn has actually finished.
-const READY_MARKERS = [
-  "Ask anything", "ctrl+p", "OpenCode", "tab agents", "connected to",
-  "What would you like", "Tip Run /connect", "Tip", "commands",
-];
-
+// Readiness now lives in readiness.ts, matched against recordings of the real
+// CLIs (see __fixtures__). The list that used to be here matched single generic
+// words — "Tip", "commands", "OpenCode", "connected to" — which appear in
+// ordinary agent output, so a CLI could be called ready mid-sentence and have
+// the identity prompt typed into a terminal that was not at a prompt.
+//
+// `looksReady` is kept as the boolean shim for watchForCompletion, which asks a
+// DIFFERENT question of the same signal ("has the current turn finished?") and
+// has no session-lifetime detector to hold state in.
 function looksReady(data: string): boolean {
-  return READY_MARKERS.some((m) => data.includes(m));
+  return new ReadinessDetector().feed(data).state === "ready";
 }
 
 function formatBanner(title: string, version: string, desc: string, cwd: string, accentHex: string): string {
@@ -380,6 +380,9 @@ export function spawnOrGetPtySession(
   }, isCli ? 6000 : 1200);
 
   const currentSession = session;
+  /** Reported once: a dialog stays on screen, so every subsequent chunk would
+   *  otherwise re-announce it. */
+  let blockedReported = false;
 
   // ---- readiness: "starting" until the CLI's prompt actually appears ----
   //
@@ -430,30 +433,52 @@ export function spawnOrGetPtySession(
     }
   }
 
+  // One detector per session, fed every chunk. Stateful because readiness is a
+  // property of the STREAM: a PTY splits wherever it likes, and the old
+  // per-chunk test could not see a banner delivered two bytes at a time.
+  const readiness = new ReadinessDetector(provider);
+
   proc.onData((data: string) => {
+    const verdict = readiness.feed(data);
+
+    // A modal is up and the CLI is waiting on a person — Claude Code's
+    // folder-trust and browser-tools prompts both do this. It is neither
+    // booting nor ready, and it is the case the 6-second seed fallback used to
+    // handle by pasting a 2,600-character identity prompt into a Yes/No
+    // dialog. Cancel the fallback and put the question in front of a human.
+    if (verdict.state === "blocked" && !blockedReported) {
+      blockedReported = true;
+      clearTimeout(seedFallbackTimer);
+      clearTimeout(readyFallbackTimer);
+      try {
+        db.prepare("UPDATE agents SET status = 'needs_input' WHERE id = ?").run(agentId);
+        appendEvent(db, agent?.project_id ?? null, null, "agent.blocked", {
+          agentId, reason: verdict.reason ?? "waiting on a dialog",
+        });
+      } catch {}
+    }
+
     // The same readiness signal that decides when to seed a prompt also
     // decides when the agent stops booting — checked unconditionally, because
     // an agent with no initial prompt still finishes starting up.
-    if (markedStarting && looksReady(data)) {
+    if (markedStarting && verdict.state === "ready") {
       clearTimeout(readyFallbackTimer);
       clearStarting();
     }
     // One readiness signal, three consumers: the `starting` status above, the
     // prompt seeder below, and anything awaiting whenReady() — which is how
     // the wake path stopped guessing at six seconds.
-    if (!currentSession.ready && looksReady(data)) {
+    if (!currentSession.ready && verdict.state === "ready") {
       currentSession.ready = true;
       const waiters = currentSession.readyWaiters.splice(0);
       for (const w of waiters) { try { w(); } catch {} }
     }
-    // Detect when OpenCode / Claude Code is ready for user input
-    if (!promptSeeded && initialPrompt) {
-      if (looksReady(data)) {
-        clearTimeout(seedFallbackTimer);
-        setTimeout(() => {
-          doSeed();
-        }, 500);
-      }
+    // Seed only once the CLI is genuinely at its prompt.
+    if (!promptSeeded && initialPrompt && verdict.state === "ready") {
+      clearTimeout(seedFallbackTimer);
+      setTimeout(() => {
+        doSeed();
+      }, 500);
     }
     if (currentSession.scrollback.length > 200_000) {
       currentSession.scrollback = currentSession.scrollback.slice(-100_000);
