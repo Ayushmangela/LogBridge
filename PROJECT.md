@@ -263,6 +263,7 @@ the claimed files exist before a task is marked done.
 | **Six unverified CLIs** | `codex`/`gemini`/`qwen`/`crush`/`copilot`/`grok`/`kimi` run through a plain-text reader |
 | **Voice has zero tests** | ~674 lines, the only microphone surface |
 | **Semantic memory** | recall is keyword (BM25). "use pnpm" won't surface for "package manager" |
+| **~~`suggested_role` unread~~** | fixed — the orchestrator now scores it as a preference (`roleFit`), exact role +25, office category +12, never a gate |
 | **Never tested on two real laptops** | every cross-machine test is in-process |
 
 ---

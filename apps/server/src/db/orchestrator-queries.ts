@@ -12,11 +12,18 @@ import { isTaskDependenciesSatisfied } from "./workflows.js";
 export function pendingUnassignedTasks(db: Db) {
   const tasks = db
     .prepare(
-      `SELECT id, project_id, required_capability, workflow_id FROM tasks
+      `SELECT id, project_id, required_capability, suggested_role, workflow_id FROM tasks
        WHERE state = 'submitted' AND agent_id IS NULL
        ORDER BY created_at ASC, rowid ASC`
     )
-    .all() as { id: string; project_id: string; required_capability: string | null; workflow_id: string | null }[];
+    .all() as {
+      id: string; project_id: string;
+      required_capability: string | null;
+      // What the plan asked for. Read by the orchestrator's roleFit() as a
+      // preference — before that, nothing read this column at all.
+      suggested_role: string | null;
+      workflow_id: string | null;
+    }[];
 
   return tasks.filter((t) => {
     // If task is in a workflow, workflow must be active
@@ -45,7 +52,7 @@ export function activeTaskCountsByAgent(db: Db): Map<string, number> {
 export function candidateAgents(db: Db, projectId: string) {
   const rows = db
     .prepare(
-      `SELECT a.id, a.name, a.capabilities, a.concurrency, m.online
+      `SELECT a.id, a.name, a.capabilities, a.concurrency, a.role, a.role_id, m.online
        FROM agents a JOIN machines m ON m.id = a.machine_id
        WHERE a.project_id = ? AND COALESCE(a.paused, 0) = 0 AND COALESCE(a.retired, 0) = 0`
     )
@@ -56,6 +63,11 @@ export function candidateAgents(db: Db, projectId: string) {
     capabilities: (() => { try { return JSON.parse(r.capabilities ?? "[]"); } catch { return []; } })(),
     concurrency: Number(r.concurrency ?? 1),
     machineOnline: Boolean(r.online),
+    // Both, because a task's suggested role can name either: `role_id` is the
+    // role DEFINITION this agent was briefed from ("security-auditor"), while
+    // `role` is the office category it was filed under ("review").
+    roleId: r.role_id ?? null,
+    role: r.role ?? null,
   }));
 }
 

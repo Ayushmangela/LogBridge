@@ -17,10 +17,15 @@ export interface AgentCandidate {
   capabilities: string[];
   concurrency: number;
   machineOnline: boolean;
+  /** The role DEFINITION this agent is briefed from, e.g. "security-auditor". */
+  roleId?: string | null;
+  /** The office CATEGORY it was filed under, e.g. "review". */
+  role?: string | null;
 }
 
 export interface RoutingScoreBreakdown {
   capabilityScore: number;
+  roleScore: number;
   availabilityScore: number;
   reliabilityScore: number;
   loadPenalty: number;
@@ -43,6 +48,41 @@ export interface IntelligentPickResult {
   explanation: string;
 }
 
+/** An exact role-definition match. Strong enough to beat a reliability gap,
+ *  so the right specialist wins a close call. */
+const ROLE_EXACT = 25;
+/** The agent is filed in the right room but is not that exact role. Enough to
+ *  prefer a reviewer over a developer, not enough to override capability. */
+const ROLE_CATEGORY = 12;
+
+/**
+ * How well this agent matches the role the plan asked for.
+ *
+ * A PREFERENCE, added to the score — never a gate, and that distinction is the
+ * whole point. Making the suggested role a hard requirement would recreate the
+ * exact failure this project already had once: when the planner emitted role
+ * names no agent could hold, four of every five planned tasks became
+ * unassignable and the supervisor blocked them with "No online agent has
+ * required capability". A task whose ideal specialist is absent should still
+ * get done by whoever is qualified, just with a lower score.
+ *
+ * `suggested_role` had NO reader at all before this: the planner wrote it,
+ * contextBuilder pasted it into the agent's prompt as a line of text, and
+ * routing ignored it entirely. So a plan could ask for a reviewer and the work
+ * would land on whoever happened to score highest.
+ */
+export function roleFit(candidate: AgentCandidate, suggestedRole: string | null): number {
+  if (!suggestedRole) return 0;
+  const want = suggestedRole.trim().toLowerCase();
+  if (!want) return 0;
+  if ((candidate.roleId ?? "").toLowerCase() === want) return ROLE_EXACT;
+  // The office category is the coarser answer: a plan that asked for
+  // "security-auditor" is better served by anyone in the review room than by
+  // a developer.
+  if ((candidate.role ?? "").toLowerCase() === want) return ROLE_CATEGORY;
+  return 0;
+}
+
 /**
  * Score and evaluate all candidate agents for a task deterministically.
  */
@@ -53,6 +93,8 @@ export function evaluateAgentCandidates(
   opts?: {
     historyByAgent?: Map<string, { successRate: number; tasksCompleted: number }>;
     failedAgentIds?: Set<string>;
+    /** The role the plan asked for. A PREFERENCE, never a gate — see roleFit. */
+    suggestedRole?: string | null;
   }
 ): IntelligentPickResult {
   if (candidates.length === 0) {
@@ -87,13 +129,14 @@ export function evaluateAgentCandidates(
     const capabilityScore = requiredCapability
       ? (c.capabilities.includes(requiredCapability) ? 40 : 0)
       : 30;
+    const roleScore = roleFit(c, opts?.suggestedRole ?? null);
     const availabilityScore = c.machineOnline ? 20 : 0;
     const loadPenalty = eligible ? -Math.round((currentLoad / Math.max(1, c.concurrency)) * 10) : -30;
     const reliabilityScore = Math.round((history.successRate ?? 1.0) * 20);
     const failurePenalty = previouslyFailed ? -15 : 0;
 
     const totalScore = eligible
-      ? capabilityScore + availabilityScore + reliabilityScore + loadPenalty + failurePenalty
+      ? capabilityScore + roleScore + availabilityScore + reliabilityScore + loadPenalty + failurePenalty
       : -100;
 
     scores.push({
@@ -103,6 +146,7 @@ export function evaluateAgentCandidates(
       score: totalScore,
       breakdown: {
         capabilityScore,
+        roleScore,
         availabilityScore,
         reliabilityScore,
         loadPenalty,
@@ -199,7 +243,7 @@ export function assignPendingTasks(db: Db): AssignmentResult[] {
       candidates,
       load,
       task.required_capability ?? null,
-      { historyByAgent, failedAgentIds }
+      { historyByAgent, failedAgentIds, suggestedRole: task.suggested_role ?? null }
     );
 
     const chosen = evaluation.chosen;
