@@ -29,7 +29,7 @@ export function registerTaskRoutes(app: FastifyInstance, deps: RouteDeps) {
     async (req, reply) => {
       const task = getTask(db, req.params.id);
       if (!task) return reply.code(404).send({ ok: false, error: "no such task" });
-      const applied = completeLocalTask(db, nodeSockets, req.params.id, req.body?.ok !== false);
+      const applied = await completeLocalTask(db, nodeSockets, req.params.id, req.body?.ok !== false);
       broadcastView();
       return { ok: applied };
     }

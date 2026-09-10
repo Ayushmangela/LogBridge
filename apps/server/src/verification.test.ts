@@ -12,6 +12,7 @@ import { verifyTask, expectedOutputsOf, rejectionMessage, MAX_REJECTIONS } from 
 import { gateCompletion, configureCompletionGate, resetCompletionGate } from "./completionGate.js";
 import { normalizeArtifacts } from "./hive.js";
 import { recordDeclaredArtifacts } from "./artifactIntake.js";
+import { setCheck } from "./checks.js";
 
 let tmp = "";
 afterEach(() => {
@@ -39,34 +40,34 @@ function seed(db: Db, expected: string[] | null, folder: string | null = null) {
 const taskOf = (db: Db) => db.prepare("SELECT * FROM tasks WHERE id = 'tsk_v'").get() as any;
 
 describe("what a task promised", () => {
-  test("a task that declared nothing is not gated at all", () => {
+  test("a task that declared nothing is not gated at all", async () => {
     // Most tasks are ad-hoc chat instructions with no plan behind them. They
     // must keep completing exactly as before.
     const db = seed(openDb(":memory:"), null);
     const r = verifyTask(db, taskOf(db));
     expect(r.unchecked).toBe(true);
     expect(r.ok).toBe(true);
-    expect(gateCompletion(db, taskOf(db)).allow).toBe(true);
+    expect((await gateCompletion(db, taskOf(db))).allow).toBe(true);
     db.close();
   });
 
-  test("declared outputs survive the round-trip through the column", () => {
+  test("declared outputs survive the round-trip through the column", async () => {
     const db = seed(openDb(":memory:"), ["diff", "test_report"]);
     expect(expectedOutputsOf(taskOf(db))).toEqual(["diff", "test_report"]);
     db.close();
   });
 
-  test("a corrupt column degrades to 'nothing declared', not a crash", () => {
+  test("a corrupt column degrades to 'nothing declared', not a crash", async () => {
     const db = seed(openDb(":memory:"), null);
     db.prepare("UPDATE tasks SET expected_outputs = '{not json' WHERE id = 'tsk_v'").run();
     expect(expectedOutputsOf(taskOf(db))).toEqual([]);
-    expect(() => gateCompletion(db, taskOf(db))).not.toThrow();
+    await expect(gateCompletion(db, taskOf(db))).resolves.toBeTruthy();
     db.close();
   });
 });
 
 describe("the gate", () => {
-  test("refuses a completion with no evidence, and does NOT fail the task", () => {
+  test("refuses a completion with no evidence, and does NOT fail the task", async () => {
     // The work is usually nearly right — an agent that wrote the code but did
     // not declare it has skipped the last step, not failed. Failing would
     // throw away a run that cost real money.
@@ -74,18 +75,18 @@ describe("the gate", () => {
     const sent: string[] = [];
     configureCompletionGate({ inject: (_a, t) => { sent.push(t); return true; } });
 
-    const verdict = gateCompletion(db, taskOf(db));
+    const verdict = await gateCompletion(db, taskOf(db));
     expect(verdict.allow).toBe(false);
     expect(verdict.missing).toEqual(["diff"]);
     expect(taskOf(db).state).toBe("submitted");   // untouched, not failed
     db.close();
   });
 
-  test("tells the agent exactly what is missing and how to declare it", () => {
+  test("tells the agent exactly what is missing and how to declare it", async () => {
     const db = seed(openDb(":memory:"), ["diff", "test_report"]);
     const sent: string[] = [];
     configureCompletionGate({ inject: (_a, t) => { sent.push(t); return true; } });
-    gateCompletion(db, taskOf(db));
+    await gateCompletion(db, taskOf(db));
 
     expect(sent[0]).toContain("diff");
     expect(sent[0]).toContain("test_report");
@@ -96,21 +97,21 @@ describe("the gate", () => {
     db.close();
   });
 
-  test("allows a completion once the evidence is on record", () => {
+  test("allows a completion once the evidence is on record", async () => {
     const db = seed(openDb(":memory:"), ["diff"]);
     storeArtifact(db, { projectId: "prj_v", taskId: "tsk_v", creatorId: "agt_v", kind: "diff", title: "auth" });
-    expect(gateCompletion(db, taskOf(db)).allow).toBe(true);
+    expect((await gateCompletion(db, taskOf(db))).allow).toBe(true);
     db.close();
   });
 
-  test("kind matching ignores case, because agents do not respect it", () => {
+  test("kind matching ignores case, because agents do not respect it", async () => {
     const db = seed(openDb(":memory:"), ["Diff"]);
     storeArtifact(db, { projectId: "prj_v", taskId: "tsk_v", creatorId: "agt_v", kind: "diff", title: "auth" });
     expect(verifyTask(db, taskOf(db)).ok).toBe(true);
     db.close();
   });
 
-  test("an artifact naming a file that does not exist is not evidence", () => {
+  test("an artifact naming a file that does not exist is not evidence", async () => {
     // The cheapest way to defeat a gate that only counts records is to claim
     // a file. So a claimed path is checked.
     tmp = mkdtempSync(join(tmpdir(), "lb-verify-"));
@@ -125,7 +126,7 @@ describe("the gate", () => {
     db.close();
   });
 
-  test("a file that really is there passes", () => {
+  test("a file that really is there passes", async () => {
     tmp = mkdtempSync(join(tmpdir(), "lb-verify-"));
     writeFileSync(join(tmp, "real.ts"), "export const x = 1;\n");
     const db = seed(openDb(":memory:"), ["diff"], tmp);
@@ -137,7 +138,7 @@ describe("the gate", () => {
     db.close();
   });
 
-  test("an artifact with no path is taken on trust — not everything is a file", () => {
+  test("an artifact with no path is taken on trust — not everything is a file", async () => {
     // "review_verdict" is a judgement, not a file. Requiring a path would
     // make the gate unsatisfiable for reviewers.
     const db = seed(openDb(":memory:"), ["review_verdict"]);
@@ -146,7 +147,7 @@ describe("the gate", () => {
     db.close();
   });
 
-  test("an unknown project folder does not punish the agent for the server's ignorance", () => {
+  test("an unknown project folder does not punish the agent for the server's ignorance", async () => {
     const db = seed(openDb(":memory:"), ["diff"], null);
     storeArtifact(db, {
       projectId: "prj_v", taskId: "tsk_v", creatorId: "agt_v",
@@ -158,7 +159,7 @@ describe("the gate", () => {
 });
 
 describe("the gate cannot deadlock", () => {
-  test("after the send-back limit it lets the task through, marked unverified", () => {
+  test("after the send-back limit it lets the task through, marked unverified", async () => {
     // A plan that asked for the wrong artifact, or work that is genuinely
     // impossible, must not be sent back forever.
     const db = seed(openDb(":memory:"), ["diff"]);
@@ -166,9 +167,9 @@ describe("the gate cannot deadlock", () => {
     configureCompletionGate({ inject: () => true, postChat: (_p, t) => chats.push(t) });
 
     for (let i = 0; i < MAX_REJECTIONS; i++) {
-      expect(gateCompletion(db, taskOf(db)).allow).toBe(false);
+      expect((await gateCompletion(db, taskOf(db))).allow).toBe(false);
     }
-    const final = gateCompletion(db, taskOf(db));
+    const final = await gateCompletion(db, taskOf(db));
     expect(final.allow).toBe(true);
     expect(final.unverified).toBe(true);
     // And it is never mistaken for checked work.
@@ -178,11 +179,11 @@ describe("the gate cannot deadlock", () => {
     db.close();
   });
 
-  test("an agent with no live terminal is reported, not silently blocked", () => {
+  test("an agent with no live terminal is reported, not silently blocked", async () => {
     const db = seed(openDb(":memory:"), ["diff"]);
     const chats: string[] = [];
     configureCompletionGate({ inject: () => false, postChat: (_p, t) => chats.push(t) });
-    gateCompletion(db, taskOf(db));
+    await gateCompletion(db, taskOf(db));
     expect(chats[0]).toContain("no live terminal");
     // It is waiting on a person now, not working.
     expect((db.prepare("SELECT status FROM agents WHERE id='agt_v'").get() as any).status).toBe("needs_input");
@@ -191,23 +192,23 @@ describe("the gate cannot deadlock", () => {
 });
 
 describe("reading what agents actually write", () => {
-  test("the object form from PROTOCOL.md", () => {
+  test("the object form from PROTOCOL.md", async () => {
     expect(normalizeArtifacts({ diff: "src/auth.ts" }))
       .toEqual([{ kind: "diff", path: "src/auth.ts", title: null }]);
   });
 
-  test("the array form a model produces when it wants a title", () => {
+  test("the array form a model produces when it wants a title", async () => {
     expect(normalizeArtifacts([{ kind: "diff", path: "a.ts", title: "Auth" }]))
       .toEqual([{ kind: "diff", path: "a.ts", title: "Auth" }]);
   });
 
-  test("junk is ignored rather than throwing", () => {
+  test("junk is ignored rather than throwing", async () => {
     expect(normalizeArtifacts(null)).toEqual([]);
     expect(normalizeArtifacts("nope")).toEqual([]);
     expect(normalizeArtifacts([{ path: "no-kind.ts" }])).toEqual([]);
   });
 
-  test("a declaration in a message becomes evidence attributed to the task", () => {
+  test("a declaration in a message becomes evidence attributed to the task", async () => {
     const db = seed(openDb(":memory:"), ["diff"]);
     const msg: any = { id: "m1", from: "agt_v", to: "god", act: "done", subject: "did it",
                        artifacts: { diff: "src/auth.ts" } };
@@ -218,7 +219,7 @@ describe("reading what agents actually write", () => {
     db.close();
   });
 
-  test("a path that tries to escape the project is not stored as a path", () => {
+  test("a path that tries to escape the project is not stored as a path", async () => {
     const db = seed(openDb(":memory:"), ["diff"]);
     const msg: any = { id: "m1", from: "agt_v", to: "god", act: "done",
                        artifacts: { diff: "../../../etc/passwd" } };
@@ -228,9 +229,52 @@ describe("reading what agents actually write", () => {
     db.close();
   });
 
-  test("a message with no artifacts field changes nothing", () => {
+  test("a message with no artifacts field changes nothing", async () => {
     const db = seed(openDb(":memory:"), ["diff"]);
     expect(recordDeclaredArtifacts(db, { id: "m1", from: "agt_v", to: "god", act: "inform" } as any, "agt_v", "prj_v")).toBe(0);
+    db.close();
+  });
+});
+
+describe("acceptance checks gate the completion too", () => {
+  test("a failing check blocks 'done', even with the artifact on record", async () => {
+    // Artifacts prove the output exists. This proves it works.
+    const db = seed(openDb(":memory:"), ["diff"], tmp = mkdtempSync(join(tmpdir(), "lb-gate-")));
+    storeArtifact(db, { projectId: "prj_v", taskId: "tsk_v", creatorId: "agt_v", kind: "diff", title: "auth" });
+    setCheck(db, "prj_v", "tests", "echo 'FAIL: 1 of 12' >&2; exit 1");
+    db.prepare("UPDATE tasks SET acceptance_checks = ? WHERE id = 'tsk_v'").run(JSON.stringify(["tests"]));
+
+    const sent: string[] = [];
+    configureCompletionGate({ inject: (_a, t) => { sent.push(t); return true; } });
+
+    const verdict = await gateCompletion(db, taskOf(db));
+    expect(verdict.allow).toBe(false);
+    // The agent is given the real output, not "a check failed".
+    expect(sent[0]).toContain("tests");
+    expect(sent[0]).toContain("FAIL: 1 of 12");
+    db.close();
+  });
+
+  test("a passing check lets it through", async () => {
+    const db = seed(openDb(":memory:"), ["diff"], tmp = mkdtempSync(join(tmpdir(), "lb-gate-")));
+    storeArtifact(db, { projectId: "prj_v", taskId: "tsk_v", creatorId: "agt_v", kind: "diff", title: "auth" });
+    setCheck(db, "prj_v", "tests", "exit 0");
+    db.prepare("UPDATE tasks SET acceptance_checks = ? WHERE id = 'tsk_v'").run(JSON.stringify(["tests"]));
+
+    configureCompletionGate({ inject: () => true });
+    expect((await gateCompletion(db, taskOf(db))).allow).toBe(true);
+    db.close();
+  });
+
+  test("the run is recorded either way, so 'never checked' is visible", async () => {
+    const db = seed(openDb(":memory:"), null, tmp = mkdtempSync(join(tmpdir(), "lb-gate-")));
+    setCheck(db, "prj_v", "tests", "exit 0");
+    db.prepare("UPDATE tasks SET acceptance_checks = ? WHERE id = 'tsk_v'").run(JSON.stringify(["tests"]));
+
+    configureCompletionGate({ inject: () => true });
+    await gateCompletion(db, taskOf(db));
+    const row = db.prepare("SELECT body FROM events WHERE type = 'task.checks_run'").get() as any;
+    expect(JSON.parse(row.body).results[0]).toMatchObject({ name: "tests", passed: true });
     db.close();
   });
 });

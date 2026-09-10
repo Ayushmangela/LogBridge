@@ -114,6 +114,22 @@ CREATE TABLE IF NOT EXISTS project_invites (
   last_redeemed_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_invites_project ON project_invites (project_id, revoked);
+-- Named commands a task can be required to pass before it is called done.
+--
+-- The command lives HERE, in the database, and never on the task. Tasks are
+-- created from agent-authored content in places (plan-proposals.ts takes the
+-- title and capability straight out of a plan an agent wrote), so a task field
+-- holding a shell command would be arbitrary code execution handed to a model.
+-- A task may only ever NAME a check; introducing one takes an authenticated
+-- owner or admin.
+CREATE TABLE IF NOT EXISTS project_checks (
+  project_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  command TEXT NOT NULL,
+  created_by TEXT,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, name)
+);
 CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
   project_id TEXT,
@@ -723,6 +739,9 @@ export function openDb(dbPath?: string): Db {
     // into the spec TEXT and never stored, so nothing could check whether a
     // task that reported "completed" had produced anything at all.
     "ALTER TABLE tasks ADD COLUMN expected_outputs TEXT",
+    // Names of project_checks this task must pass. NAMES ONLY — see the
+    // table's own note on why a command must never live on a task row.
+    "ALTER TABLE tasks ADD COLUMN acceptance_checks TEXT",
   ]) {
     try {
       db.exec(alter);

@@ -11,6 +11,7 @@ import {
   createInvite, listInvites, revokeInvite, redeemInvite, getInvite,
   inviteProblem, REDEEM_MESSAGES,
 } from "../invites.js";
+import { listChecks, setCheck, deleteCheck, isValidCheckName } from "../checks.js";
 
 export function registerInviteRoutes(app: FastifyInstance, deps: RouteDeps) {
   const { db, broadcastView } = deps;
@@ -99,6 +100,58 @@ export function registerInviteRoutes(app: FastifyInstance, deps: RouteDeps) {
     const project = db.prepare("SELECT name FROM projects WHERE id = ?").get(result.projectId) as any;
     return { ok: true, projectId: result.projectId, projectName: project?.name ?? result.projectId, role: result.role };
   });
+
+  // ---- acceptance checks -------------------------------------------------
+  //
+  // Deliberately behind the SAME owner/admin gate as invites, and deliberately
+  // in this file rather than routes/tasks.ts: defining a check means handing
+  // the server a command to run, so it belongs with the other things only a
+  // project's owners may do — not next to the routes agents' work flows
+  // through.
+
+  app.get<{ Params: { id: string } }>("/api/projects/:id/checks", async (req, reply) => {
+    const projectId = req.params.id;
+    const me = caller(req);
+    if (!me) return reply.code(401).send({ ok: false, error: "Sign in first." });
+    // A member may SEE the checks their work will be judged by; only an
+    // owner or admin may change them.
+    if (!getUserProjectRole(db, projectId, me.id)) {
+      return reply.code(404).send({ ok: false, error: "No such project." });
+    }
+    return { ok: true, checks: listChecks(db, projectId) };
+  });
+
+  app.put<{ Params: { id: string }; Body: { name?: string; command?: string } }>(
+    "/api/projects/:id/checks",
+    async (req, reply) => {
+      const projectId = req.params.id;
+      const me = requireManager(req, reply, projectId);
+      if (!me) return;
+
+      const name = String(req.body?.name ?? "").trim();
+      const command = String(req.body?.command ?? "");
+      if (!isValidCheckName(name)) {
+        return reply.code(400).send({
+          ok: false,
+          error: "A check name is letters, digits, dash or underscore — up to 40 characters.",
+        });
+      }
+      try {
+        return { ok: true, check: setCheck(db, projectId, name, command, me.id) };
+      } catch (err) {
+        return reply.code(400).send({ ok: false, error: (err as Error).message });
+      }
+    }
+  );
+
+  app.delete<{ Params: { id: string; name: string } }>(
+    "/api/projects/:id/checks/:name",
+    async (req, reply) => {
+      const projectId = req.params.id;
+      if (!requireManager(req, reply, projectId)) return;
+      return { ok: true, deleted: deleteCheck(db, projectId, req.params.name) };
+    }
+  );
 
   // Member listing and removal already exist in routes/governance.ts — this
   // file deliberately does not duplicate them.

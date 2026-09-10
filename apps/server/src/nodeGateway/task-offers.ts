@@ -135,7 +135,9 @@ export function deliverTaskLocally(
  * dependent-task wakeup — for the case where a human (or, later, a real
  * output-completion detector) is the one reporting it, not a runner.
  */
-export function completeLocalTask(db: Db, nodeSockets: NodeSockets, taskId: string, ok = true): boolean {
+/** Async because the completion gate may run this project's acceptance
+ *  checks — a real command with a real exit code — before allowing "done". */
+export async function completeLocalTask(db: Db, nodeSockets: NodeSockets, taskId: string, ok = true): Promise<boolean> {
   const task = getTask(db, taskId);
   if (!task || task.state === "completed" || task.state === "failed") return false;
 
@@ -154,7 +156,7 @@ export function completeLocalTask(db: Db, nodeSockets: NodeSockets, taskId: stri
   // below), so an unchecked "done" starts the next agent on inputs that were
   // never produced.
   if (ok) {
-    const verdict = gateCompletion(db, task);
+    const verdict = await gateCompletion(db, task);
     if (!verdict.allow) return false;
   }
 

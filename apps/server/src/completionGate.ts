@@ -11,6 +11,7 @@ import {
   verifyTask, rejectionMessage, rejectionCount, MAX_REJECTIONS,
 } from "./verification.js";
 import { submitPromptToAgent } from "./ptyGateway.js";
+import { runAcceptanceChecks, failureSummary, type CheckRun } from "./checks.js";
 
 export interface GateVerdict {
   allow: boolean;
@@ -51,13 +52,26 @@ export function resetCompletionGate(): void {
  * `projectFolder` comes from the agent's own folder, which is where a relative
  * artifact path is meaningful.
  */
-export function gateCompletion(db: Db, task: any): GateVerdict {
+export async function gateCompletion(db: Db, task: any): Promise<GateVerdict> {
   const agent = task.agent_id
     ? (db.prepare("SELECT id, name, folder FROM agents WHERE id = ?").get(task.agent_id) as any)
     : null;
 
   const result = verifyTask(db, task, agent?.folder ?? null);
-  if (result.ok) return { allow: true };
+
+  // Artifacts prove an output EXISTS. A check proves it WORKS — an exit code
+  // is evidence, where another model opinion would just be another claim.
+  const runs = result.ok ? await runAcceptanceChecks(db, task, agent?.folder ?? null) : [];
+  const failedChecks = runs.filter((r) => !r.passed);
+
+  if (runs.length) {
+    appendEvent(db, task.project_id, task.id, "task.checks_run", {
+      agentId: task.agent_id ?? null,
+      results: runs.map((r) => ({ name: r.name, passed: r.passed, exitCode: r.exitCode, skipped: r.skipped })),
+    });
+  }
+
+  if (result.ok && failedChecks.length === 0) return { allow: true };
 
   // Past the limit the gate stops blocking. A task whose artifact the plan
   // asked for wrongly, or whose work is genuinely impossible, must not be
@@ -66,6 +80,7 @@ export function gateCompletion(db: Db, task: any): GateVerdict {
     appendEvent(db, task.project_id, task.id, "task.completed_unverified", {
       missing: result.missing,
       vanished: result.vanished,
+      failedChecks: failedChecks.map((r) => r.name),
       agentId: task.agent_id ?? null,
     });
     hooks.postChat?.(
@@ -81,11 +96,17 @@ export function gateCompletion(db: Db, task: any): GateVerdict {
   appendEvent(db, task.project_id, task.id, "task.verification_failed", {
     missing: result.missing,
     vanished: result.vanished,
+    failedChecks: failedChecks.map((r) => ({ name: r.name, exitCode: r.exitCode, skipped: r.skipped })),
     agentId: task.agent_id ?? null,
   });
 
   const inject = hooks.inject ?? submitPromptToAgent;
-  const told = task.agent_id ? inject(task.agent_id, rejectionMessage(task, result)) : false;
+  const reason = failedChecks.length
+    ? `Your task "${task.title}" is not done yet — its acceptance checks did not pass:\n\n` +
+      `${failureSummary(runs)}\n\n` +
+      `Fix what the output shows and finish. If the check itself is wrong, say so rather than reporting done.`
+    : rejectionMessage(task, result);
+  const told = task.agent_id ? inject(task.agent_id, reason) : false;
 
   // The agent is working again, not idle — it was never actually finished.
   if (task.agent_id) {
@@ -95,17 +116,23 @@ export function gateCompletion(db: Db, task: any): GateVerdict {
   hooks.postChat?.(
     task.project_id,
     told
-      ? `Sent "${task.title}" back to ${agent?.name ?? "the agent"} — ${describe(result)}.`
-      : `"${task.title}" reported done but ${describe(result)}, and there is no live terminal to send it back to.`
+      ? `Sent "${task.title}" back to ${agent?.name ?? "the agent"} — ${describe(result, failedChecks)}.`
+      : `"${task.title}" reported done but ${describe(result, failedChecks)}, and there is no live terminal to send it back to.`
   );
-  hooks.log?.(`completion gate: ${task.id} rejected — ${describe(result)}`);
+  hooks.log?.(`completion gate: ${task.id} rejected — ${describe(result, failedChecks)}`);
 
   return { allow: false, missing: result.missing };
 }
 
-function describe(r: { missing: string[]; vanished: string[] }): string {
+function describe(
+  r: { missing: string[]; vanished: string[] },
+  failedChecks: CheckRun[] = []
+): string {
   const bits: string[] = [];
   if (r.missing.length) bits.push(`no ${r.missing.join(", no ")} on record`);
   if (r.vanished.length) bits.push(`missing file${r.vanished.length === 1 ? "" : "s"}: ${r.vanished.join("; ")}`);
+  for (const c of failedChecks) {
+    bits.push(c.skipped ? `${c.name}: ${c.skipped}` : `${c.name} failed`);
+  }
   return bits.join(" and ");
 }

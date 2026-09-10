@@ -150,7 +150,9 @@ export function registerNodeGateway(
         app.log.warn({ err: parsed.error }, "node sent an invalid envelope");
         return;
       }
-      handleNodeEnvelope(db, parsed.envelope, app, onChange, LEASE_SECONDS, parsed.body, send, nodeSockets, {
+      // Fire-and-forget, as it always was — the socket handler cannot await.
+      // `void` marks that deliberately now that the function is async.
+      void handleNodeEnvelope(db, parsed.envelope, app, onChange, LEASE_SECONDS, parsed.body, send, nodeSockets, {
         onChat: opts.onChat,
         consentTimeoutMs: CONSENT_TIMEOUT_MS,
       });
@@ -233,7 +235,7 @@ export function registerNodeGateway(
   }, SWEEP_INTERVAL_MS);
 }
 
-function handleNodeEnvelope(
+async function handleNodeEnvelope(
   db: Db,
   env: EnvelopeT,
   app: FastifyInstance,
@@ -542,7 +544,7 @@ function handleNodeEnvelope(
     // Same gate as the local path (completeLocalTask). A runner reporting
     // "completed" is a claim, not proof — and the claim unblocks the next wave.
     if (body.state === "completed") {
-      const verdict = gateCompletion(db, t);
+      const verdict = await gateCompletion(db, t);
       if (!verdict.allow) {
         onChange();
         return;
