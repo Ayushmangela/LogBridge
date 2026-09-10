@@ -12,6 +12,7 @@ import {
 } from "./verification.js";
 import { submitPromptToAgent } from "./ptyGateway.js";
 import { runAcceptanceChecks, failureSummary, type CheckRun } from "./checks.js";
+import { checkReviewGate, reviewGateMessage, MAX_REVIEW_CYCLES } from "./reviewGate.js";
 
 export interface GateVerdict {
   allow: boolean;
@@ -71,7 +72,46 @@ export async function gateCompletion(db: Db, task: any): Promise<GateVerdict> {
     });
   }
 
-  if (result.ok && failedChecks.length === 0) return { allow: true };
+  if (result.ok && failedChecks.length === 0) {
+    // Third and last question: has anyone actually looked at this?
+    //
+    // Asked only once the work is real — there is no point asking a reviewer
+    // to look at a task whose output does not exist or whose tests fail.
+    const review = checkReviewGate(db, task);
+
+    if (review.required && !review.satisfied) {
+      if (review.reason === "exhausted") {
+        appendEvent(db, task.project_id, task.id, "task.completed_unverified", {
+          reason: "review never accepted",
+          agentId: task.agent_id ?? null,
+        });
+        hooks.postChat?.(
+          task.project_id,
+          `"${task.title}" was marked done WITHOUT an accepted review — ${MAX_REVIEW_CYCLES} cycles went by. Worth a look.`
+        );
+        return { allow: true, unverified: true };
+      }
+
+      const inject = hooks.inject ?? submitPromptToAgent;
+      if (task.agent_id) inject(task.agent_id, reviewGateMessage(task, review));
+      // Waiting on someone else, which is what `waiting` means. NOT idle: an
+      // idle agent gets offered new work, and this one is not finished.
+      if (task.agent_id) {
+        try { setAgentStatus(db, task.agent_id, "waiting", task.id); } catch {}
+      }
+
+      hooks.postChat?.(
+        task.project_id,
+        review.reason === "no_reviewer"
+          ? `"${task.title}" needs a review and no reviewer is available. Add one, or clear the requirement.`
+          : `"${task.title}" is with a reviewer before it can be called done.`
+      );
+      hooks.log?.(`completion gate: ${task.id} held for review (${review.reason})`);
+      return { allow: false };
+    }
+
+    return { allow: true };
+  }
 
   // Past the limit the gate stops blocking. A task whose artifact the plan
   // asked for wrongly, or whose work is genuinely impossible, must not be

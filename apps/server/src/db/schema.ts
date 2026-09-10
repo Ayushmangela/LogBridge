@@ -742,6 +742,11 @@ export function openDb(dbPath?: string): Db {
     // Names of project_checks this task must pass. NAMES ONLY — see the
     // table's own note on why a command must never live on a task row.
     "ALTER TABLE tasks ADD COLUMN acceptance_checks TEXT",
+    // 1 = this task needs a reviewer's ACCEPT before it can be called done.
+    // Safe to set from anywhere, including an agent-authored plan: requiring
+    // review only ever ADDS rigour, so unlike an acceptance command there is
+    // nothing to smuggle in.
+    "ALTER TABLE tasks ADD COLUMN requires_review INTEGER",
   ]) {
     try {
       db.exec(alter);

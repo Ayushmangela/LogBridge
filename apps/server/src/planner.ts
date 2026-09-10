@@ -348,6 +348,11 @@ export function materializePlan(
       // Carried as DATA now, not just interpolated into the spec text. This
       // is what verification.ts checks before letting the task complete.
       expectedOutputs: s.expectedOutputs,
+      // Anything that produces a diff has to be looked at by someone else
+      // before it counts as done. The plan already contains a review STEP;
+      // this is what makes being reviewed a state the work passes through
+      // rather than a task somebody might get around to.
+      requiresReview: s.expectedOutputs.includes("diff"),
     });
 
     // Tag suggested role, wave, and goal_id on task

@@ -71,6 +71,8 @@ export function createTask(
     /** NAMES of project_checks this task must pass. Never a command — see
      *  the project_checks table's note on why. */
     acceptanceChecks?: string[] | null;
+    /** Needs a reviewer's ACCEPT before it may complete. */
+    requiresReview?: boolean;
   }
 ): string {
   if (opts.idem) {
@@ -87,8 +89,8 @@ export function createTask(
   }
   const taskId = `tsk_${crypto.randomUUID()}`;
   db.prepare(
-    `INSERT INTO tasks (id, project_id, title, spec, creator_id, agent_id, state, budget_seconds, budget_usd, cost_usd, required_capability, created_at, kind, parent_task, retry_of, workflow_id, idem, expected_outputs, acceptance_checks)
-     VALUES (?, ?, ?, ?, ?, ?, 'submitted', ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO tasks (id, project_id, title, spec, creator_id, agent_id, state, budget_seconds, budget_usd, cost_usd, required_capability, created_at, kind, parent_task, retry_of, workflow_id, idem, expected_outputs, acceptance_checks, requires_review)
+     VALUES (?, ?, ?, ?, ?, ?, 'submitted', ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     taskId, opts.projectId, opts.title, opts.spec ?? null, opts.creatorId, opts.agentId ?? null,
     opts.budgetSeconds ?? 60, opts.budgetUsd ?? 1.0, opts.requiredCapability ?? null, new Date().toISOString(),
@@ -96,7 +98,8 @@ export function createTask(
     // NULL, not "[]": "nothing declared" and "declared nothing" are different,
     // and only the first should skip verification entirely.
     opts.expectedOutputs?.length ? JSON.stringify(opts.expectedOutputs) : null,
-    opts.acceptanceChecks?.length ? JSON.stringify(opts.acceptanceChecks) : null
+    opts.acceptanceChecks?.length ? JSON.stringify(opts.acceptanceChecks) : null,
+    opts.requiresReview ? 1 : 0
   );
   return taskId;
 }
