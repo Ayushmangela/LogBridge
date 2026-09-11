@@ -471,7 +471,7 @@ footer p { max-width: var(--measure); }
   <p class="eyebrow">
     <span>Architecture reference</span><span class="sep">/</span>
     <span>Agent communication</span><span class="sep">/</span>
-    <span>Contract v1.29</span>
+    <span>Contract v1.32</span>
   </p>
   <h1>How a task crosses the floor</h1>
   <p class="standfirst">
@@ -509,6 +509,7 @@ footer p { max-width: var(--measure); }
     <a href="#p3"><span class="num">3</span>Waking</a>
     <a href="#p4"><span class="num">4</span>Across machines</a>
     <a href="#p5"><span class="num">5</span>Reporting back</a>
+    <a href="#gates"><span class="num">5b</span>Three questions</a>
     <a href="#p6"><span class="num">6</span>Guarantees</a>
     <a href="#p7"><span class="num">7</span>Done</a>
     <span class="rail-head" style="margin-top:1rem">Reference</span>
@@ -604,6 +605,12 @@ flowchart TB
       A project called <strong>Dashboard</strong> at <code>~/project_test/dashboard</code>, shared by two
       people. Ayush's laptop also runs the server. Sam's laptop runs a runner with
       <code>--allow-agent-creation</code> and delegation accepted.
+    </p>
+    <p>
+      Sam is on this floor because Ayush issued him an <strong>invite code</strong> — single use, 72
+      hours, revocable. Signing up on its own gets you an account and nothing else: the workspace
+      view is scoped to the projects you belong to, so someone who merely reaches the sign-up form
+      sees zero projects rather than every floor, agent and live terminal on the server.
     </p>
 
     <div class="cast">
@@ -960,6 +967,13 @@ sequenceDiagram
       picks one. Capability match is worth 40 points and is also a hard gate: an agent missing the
       task's <code>required_capability</code> is disqualified outright, not merely ranked lower.
     </p>
+    <p>
+      The role a plan asked for is worth 25 more (12 for the right room rather than the exact role) —
+      a <em>preference</em>, deliberately never a gate. Making it a requirement would recreate a
+      failure this floor has already had: when the planner emitted role names no agent could hold,
+      four of every five planned tasks became unassignable. A task whose ideal specialist is absent
+      should still get done by whoever is qualified, just with a lower score.
+    </p>
 
     <figure>
       <div class="blueprint">
@@ -1089,13 +1103,118 @@ flowchart LR
     </figure>
 
     <div class="note key">
-      <span class="tag">Verification is the commander's job</span>
+      <span class="tag">The commander checks — and so does the server</span>
       <p>
         Michael's prompt tells him to check the files a subordinate <em>claims</em> to have written against
         what he asked for. "Done" on its own is not a report — every employee prompt says so
         explicitly, and asks for file paths, commands, and real output instead.
       </p>
+      <p>
+        That used to be the <em>only</em> check, and it was a sentence in a prompt rather than a
+        rule. It is now backed by a gate the agent cannot talk its way past — see below.
+      </p>
     </div>
+  </section>
+
+  <!-- ═══════════════════════════ GATES ═══════════════════════════ -->
+  <section id="gates">
+    <div class="sec-head"><span class="sec-num">PHASE 5b</span><h2>Three questions before "done"</h2></div>
+
+    <p>
+      A task used to become <code>completed</code> on the agent's word alone. For a local agent that
+      word was not even words: completion is detected after <strong>8 seconds of terminal
+      silence</strong>, so an agent pausing to think for nine seconds was "finished". And completion
+      <em>cascades</em> — finishing a task unblocks its dependents and offers them out — so one
+      unchecked "done" starts the next agent on inputs that were never produced.
+    </p>
+
+    <p>
+      Every completion claim now passes the same gate, from both paths (a runner's
+      <code>task.result</code> and the local PTY's <code>completeLocalTask</code>). The questions are
+      asked in this order, and a later one is only asked when the earlier ones pass — there is no
+      point sending a reviewer at output that does not exist.
+    </p>
+
+    <figure>
+      <div class="blueprint">
+<pre class="mermaid">
+flowchart TB
+  C(["agent claims done"]) --> Q1{"declared any outputs?"}
+  Q1 -->|no| OK1["nothing to check&lt;br/&gt;completes as before"]
+  Q1 -->|yes| A{"an artifact of each kind&lt;br/&gt;on record?"}
+
+  A -->|no| R1["REFUSED&lt;br/&gt;task left untouched, not failed&lt;br/&gt;agent told exactly what is missing"]
+  A -->|"yes, and any named&lt;br/&gt;file exists on disk"| Q2{"named any&lt;br/&gt;acceptance checks?"}
+
+  Q2 -->|no| Q3
+  Q2 -->|yes| CH["run each named command&lt;br/&gt;in the agent's workspace"]
+  CH -->|"non-zero exit"| R2["REFUSED&lt;br/&gt;agent gets the real output"]
+  CH -->|"exit 0"| Q3{"requires review?"}
+
+  Q3 -->|no| DONE["completed"]
+  Q3 -->|"yes, newest verdict&lt;br/&gt;is ACCEPT"| DONE
+  Q3 -->|"yes, no verdict yet"| R3["HELD&lt;br/&gt;a Review task is dispatched&lt;br/&gt;to someone who is not the author"]
+
+  R1 -.->|"after 1 send-back"| UNV["completed, recorded as&lt;br/&gt;task.completed_unverified"]
+  R2 -.->|"after 1 send-back"| UNV
+  R3 -.->|"after 2 review cycles"| UNV
+</pre>
+      </div>
+      <figcaption>
+        <b>Every refusal leaves the task alone rather than failing it.</b> An agent that wrote the
+        code but skipped the declaration has not failed — it skipped the last step, and failing would
+        discard a run that cost real money. <b>And every gate has an escape:</b> a plan that asked
+        for the wrong artifact, or work nobody will ever accept, must not be sent back forever. A
+        gate with no ceiling is a deadlock wearing a safety jacket.
+      </figcaption>
+    </figure>
+
+    <h3>1 · Artifacts — does the output exist?</h3>
+    <p>
+      Three things already existed and none were connected to anything: the planner emitted
+      <code>expectedOutputs</code> per step (interpolated into the spec <em>text</em>, never stored),
+      the <code>artifacts</code> table had <code>kind</code> and <code>file_path</code> and
+      <strong>no writer at all</strong>, and <code>PROTOCOL.md</code> had always told agents to
+      declare <code>"artifacts": {"diff": "path"}</code> while nothing read the field. The router now
+      records what agents declare, and the gate checks it. Where an artifact names a file, that file
+      has to be on disk — the cheapest way to defeat a gate that only counts records is to claim one.
+    </p>
+
+    <h3>2 · Acceptance checks — does it work?</h3>
+    <p>
+      An artifact proves an output <em>exists</em>. It cannot prove the output is <em>right</em>. An
+      exit code can, and it costs no model tokens. A project defines named commands; a task may
+      require them to exit 0.
+    </p>
+    <div class="note warn">
+      <span class="tag">Why a task names a check instead of carrying a command</span>
+      <p>
+        Tasks are built from agent-authored content in places — <code>plan-proposals.ts</code> lifts
+        <code>title</code> and <code>capability</code> straight out of a plan a model wrote. A task
+        field holding a shell string would therefore be a path from "model writes JSON" to "server
+        runs shell". So commands live in the project, written only by an authenticated owner or
+        admin, and a task may only ever reference one <strong>by name</strong>. An agent naming
+        <code>rm -rf /</code> gets <em>"no check named rm -rf /"</em> — the string is a lookup key,
+        never a command.
+      </p>
+    </div>
+
+    <h3>3 · Review — has anyone looked at it?</h3>
+    <p>
+      The rework lifecycle was always complete: ACCEPT completes, REJECT opens a linked rework task
+      and escalates. What was missing is that nothing ever <em>required</em> a review, so the
+      reviewer role existed while being reviewed did not. A task that produces a diff now needs a
+      reviewer's ACCEPT, and the review is dispatched as a real task — scheduled, on the board, under
+      the same budget and lease machinery as any other work.
+    </p>
+    <ul>
+      <li><b>The author never reviews their own work.</b> Self-review is not review.</li>
+      <li><b>A non-reviewer is not accepted as a fallback.</b> "Anyone who is free" reviewing a diff
+          is a rubber stamp, and a rubber stamp is worse than an honest gap because it looks like
+          assurance. No reviewer available is reported, not waved through.</li>
+      <li><b>The newest verdict decides.</b> An ACCEPT, then more work, then a REJECT must not still
+          read as accepted.</li>
+    </ul>
   </section>
 
   <!-- ═══════════════════════════ PHASE 6 ═══════════════════════════ -->
@@ -1285,7 +1404,10 @@ sequenceDiagram
         <tbody>
           <tr>
             <td><b>SQLite</b><br/><span class="mono">data.db</span></td>
-            <td>agents, tasks, events, deliveries, grants, sessions, memories</td>
+            <td>agents, tasks, events, deliveries, grants, sessions, memories,
+                <b>project members and invites</b> (who may see this floor),
+                <b>artifacts</b> (what work produced), <b>project checks</b> (commands a task must
+                pass) and <b>review verdicts</b></td>
             <td>everything except a deleted file</td>
             <td>no — only through their prompt</td>
           </tr>
