@@ -14,7 +14,16 @@ import { orchestrate, sendTaskOffer, taskCancelEnvelope, completeLocalTask } fro
 import { submitPromptToAgent } from "../ptyGateway.js";
 import { evaluateAgentCandidates } from "../orchestrator.js";
 import { buildAgentContext } from "../contextBuilder.js";
+import { listChecks } from "../checks.js";
 import type { RouteDeps } from "./types.js";
+
+/** Trim, drop blanks, de-duplicate. A gate field is a set of names, and an
+ *  empty string in it would gate the task on an artifact kind that can never
+ *  be produced. */
+function cleanList(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return [...new Set(v.map((x) => String(x ?? "").trim()).filter(Boolean))];
+}
 
 export function registerTaskRoutes(app: FastifyInstance, deps: RouteDeps) {
   const { db, nodeSockets, broadcastView, hive } = deps;
@@ -99,6 +108,15 @@ export function registerTaskRoutes(app: FastifyInstance, deps: RouteDeps) {
       budgetUsd?: number;
       priority?: string;
       parentTask?: string | null;
+      // ★ 1.33 What "done" means for this task.
+      //
+      // `createTask()` has accepted these since the completion gate was built;
+      // this route simply never read them, so every task a HUMAN made bypassed
+      // all three gates while planner-made tasks were held to them. The gates
+      // were unreachable from the product that contains them.
+      expectedOutputs?: string[] | null;
+      acceptanceChecks?: string[] | null;
+      requiresReview?: boolean;
     };
   }>("/api/tasks", async (req, reply) => {
     const { projectId, agentId, title, spec, budgetSeconds, budgetUsd, parentTask } = req.body ?? {};
@@ -112,6 +130,18 @@ export function registerTaskRoutes(app: FastifyInstance, deps: RouteDeps) {
       if (!ag) return reply.code(404).send({ ok: false, error: `agent "${targetAgentId}" not found` });
     }
 
+    const knownChecks = cleanList(req.body?.acceptanceChecks);
+    if (knownChecks.length) {
+      const defined = new Set(listChecks(db, projectId).map((c) => c.name));
+      const unknown = knownChecks.filter((n) => !defined.has(n));
+      if (unknown.length) {
+        return reply.code(400).send({
+          ok: false,
+          error: `no check named ${unknown.map((n) => `"${n}"`).join(", ")} in this project — define it first`,
+        });
+      }
+    }
+
     const taskId = createTask(db, {
       projectId,
       title: title.trim(),
@@ -121,6 +151,12 @@ export function registerTaskRoutes(app: FastifyInstance, deps: RouteDeps) {
       budgetSeconds: budgetSeconds ? Number(budgetSeconds) : 60,
       budgetUsd: budgetUsd ? Number(budgetUsd) : 1.0,
       parentTask: parentTask ?? null,
+      expectedOutputs: cleanList(req.body?.expectedOutputs),
+      // Validated against the project's OWN checks: a name that does not exist
+      // would fail the task at completion for a reason nobody could act on,
+      // and the person defining the task is the one who can still fix it.
+      acceptanceChecks: knownChecks,
+      requiresReview: req.body?.requiresReview === true,
     });
 
     if (targetAgentId) {

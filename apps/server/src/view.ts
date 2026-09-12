@@ -1,5 +1,6 @@
 import type { Db } from "./db.js";
 import { lastSeq, recentMemories, tasksForProject, getProjectWorkflows, getProjectGoals } from "./db.js";
+import { gateStatesForProject } from "./gateState.js";
 import { getProjectApprovals } from "./approvals.js";
 import { getProjectEscalations } from "./escalations.js";
 import { getProjectDeadLetters } from "./deadLetter.js";
@@ -385,7 +386,11 @@ export function buildView(db: Db, positions: Positions, meId: string, hive?: Hiv
         allowUnsandboxed: Boolean(m.allow_unsandboxed),
       }));
 
-    const boardTasks: BoardTaskT[] = tasksForProject(db, p.id).map((t) => ({
+    const projectTasks = tasksForProject(db, p.id);
+    // Three statements for the whole board, not three per task — see the cost
+    // note in gateState.ts.
+    const gates = gateStatesForProject(db, p.id, projectTasks);
+    const boardTasks: BoardTaskT[] = projectTasks.map((t) => ({
       id: t.id,
       title: t.title,
       state: t.state,
@@ -397,6 +402,8 @@ export function buildView(db: Db, positions: Positions, meId: string, hive?: Hiv
       createdAt: t.created_at ?? t.started_at ?? new Date(0).toISOString(),
       startedAt: t.started_at ?? null,
       costUsd: t.cost_usd ?? 0,
+      // Absent, not empty, when nothing gates this task. See BoardTask.
+      gate: gates.get(t.id) ?? null,
     }));
 
     return {

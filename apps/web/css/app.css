@@ -1706,3 +1706,145 @@
     }
     .invite-row-item .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; letter-spacing: .05em; }
     .invite-meta { color: var(--text-dim); font-size: 11.5px; margin-right: auto; }
+
+/* ===================================================================
+   Definition of done — declaring it, and seeing it
+   -------------------------------------------------------------------
+   Every colour here is an EXISTING status token, not a new one. A gate
+   badge reading "in review" is the same blue as the meeting room the
+   reviewing agent is standing in, so the board and the floor say the
+   same thing in the same colour. A new palette would break that.
+   =================================================================== */
+
+.dod-block {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.dod-summary {
+  cursor: pointer; list-style: none;
+  padding: 9px 12px; font-size: 12px; font-weight: 600;
+  display: flex; align-items: center; gap: 8px;
+  user-select: none;
+}
+.dod-summary::-webkit-details-marker { display: none; }
+.dod-summary::before {
+  content: "▸"; color: var(--text-faint); font-size: 10px;
+  transition: transform 0.15s ease;
+}
+.dod-block[open] .dod-summary::before { transform: rotate(90deg); }
+.dod-hint {
+  margin-left: auto; font-weight: 500; font-size: 11px; color: var(--text-faint);
+}
+.dod-hint.is-set { color: var(--accent); }
+.dod-body {
+  padding: 4px 12px 14px;
+  display: flex; flex-direction: column; gap: 13px;
+  border-top: 1px solid var(--border);
+}
+.field label.dod-label, .dod-label {
+  font-size: 11px; font-weight: 700; color: var(--text-dim);
+  display: block; margin-bottom: 6px; letter-spacing: 0.5px; text-transform: uppercase;
+}
+.dod-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 7px; }
+.dod-chip {
+  padding: 4px 10px; border-radius: 20px; cursor: pointer;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-dim); font: inherit; font-size: 11.5px; font-weight: 600;
+  transition: all 0.12s ease;
+}
+.dod-chip:hover { border-color: var(--border-hover); color: var(--text); }
+.dod-chip.on {
+  background: var(--accent-soft); border-color: var(--accent); color: var(--accent);
+}
+.dod-input, .dod-body input[type="text"] {
+  width: 100%; box-sizing: border-box; padding: 7px 10px;
+  border: 1px solid var(--border); border-radius: 7px;
+  font: inherit; font-size: 12px;
+  background: var(--surface); color: var(--text);
+}
+.dod-checks { display: flex; flex-direction: column; gap: 5px; }
+
+/* Scoped under `.field` for the same reason `.bypass-row` above is: plain
+   `.field label` is a uppercase block label and outranks a bare class, and
+   `.field input` sets width:100%, which a checkbox inherits as a 390px bar. */
+.field label.dod-check, .dod-check {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 500; letter-spacing: normal; text-transform: none;
+  color: var(--text); cursor: pointer; margin: 0;
+}
+.field .dod-check input[type="checkbox"],
+.dod-check input[type="checkbox"] {
+  width: auto; min-width: 0; flex: 0 0 auto; margin: 0; padding: 0;
+}
+.dod-check > span { flex: 0 0 auto; }
+.dod-check code {
+  margin-left: auto; font-size: 10.5px; color: var(--text-faint);
+  font-family: "IBM Plex Mono", monospace;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dod-empty { font-size: 11.5px; color: var(--text-faint); font-style: italic; }
+.dod-empty a { color: var(--accent); cursor: pointer; text-decoration: underline; }
+.field label.dod-review, .dod-review {
+  display: flex; align-items: flex-start; gap: 8px;
+  font-size: 12px; font-weight: 500; letter-spacing: normal; text-transform: none;
+  color: var(--text); cursor: pointer; line-height: 1.45; margin: 0;
+}
+.dod-review input[type="checkbox"] {
+  width: auto; min-width: 0; flex: 0 0 auto; margin: 2px 0 0; padding: 0;
+}
+
+/* ---- gate badges on a board card ---------------------------------- */
+
+.gate-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.gate-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 7px; border-radius: 5px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.2px;
+  border: 1px solid transparent; white-space: nowrap;
+}
+.gate-badge.g-wait  { color: var(--st-reviewing); background: rgba(128,179,219,0.12); border-color: rgba(128,179,219,0.3); }
+.gate-badge.g-block { color: var(--st-blocked);   background: rgba(212,157,73,0.12);  border-color: rgba(212,157,73,0.32); }
+.gate-badge.g-fail  { color: var(--st-fail);      background: rgba(221,85,75,0.12);   border-color: rgba(221,85,75,0.32); }
+.gate-badge.g-ok    { color: var(--st-working);   background: rgba(116,175,125,0.12); border-color: rgba(116,175,125,0.3); }
+.gate-badge.g-todo  { color: var(--text-faint);   background: transparent;            border-color: var(--border); }
+
+/* Completed, but without the evidence it promised. Deliberately the
+   failure red on a done task — "done" and "done, unchecked" must never
+   look alike at a glance. */
+.gate-badge.g-unverified {
+  color: var(--st-fail); background: rgba(221,85,75,0.14);
+  border-color: rgba(221,85,75,0.4);
+}
+
+/* ---- project checks settings -------------------------------------- */
+
+.chk-list { display: flex; flex-direction: column; gap: 7px; margin-bottom: 14px; }
+.chk-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 11px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--surface-2);
+}
+.chk-name {
+  font-weight: 700; font-size: 12px; color: var(--text);
+  font-family: "IBM Plex Mono", monospace; flex-shrink: 0;
+}
+.chk-cmd {
+  font-size: 11.5px; color: var(--text-dim);
+  font-family: "IBM Plex Mono", monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
+}
+.chk-del {
+  border: none; background: transparent; color: var(--text-faint);
+  cursor: pointer; font-size: 14px; padding: 2px 6px; border-radius: 5px;
+}
+.chk-del:hover { color: var(--st-fail); background: rgba(221,85,75,0.12); }
+.chk-add { display: flex; gap: 8px; align-items: stretch; }
+.chk-add input {
+  padding: 8px 11px; border: 1px solid var(--border); border-radius: 7px;
+  font: inherit; font-size: 12px; background: var(--surface-2); color: var(--text);
+  box-sizing: border-box;
+}
+.chk-add input.n { width: 150px; flex-shrink: 0; font-family: "IBM Plex Mono", monospace; }
+.chk-add input.c { flex: 1; font-family: "IBM Plex Mono", monospace; }

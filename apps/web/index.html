@@ -687,6 +687,24 @@
                  which is why this is here and not in Workspace. -->
             <div class="section-label">System operations</div>
             <div id="settings-ops"></div>
+            <!-- Acceptance checks are commands the SERVER runs, so defining
+                 one is behind the same owner/admin gate as invites — which is
+                 why it lives beside them rather than next to the task board. -->
+            <div class="section-label">Acceptance checks</div>
+            <div id="checks-panel">
+              <p class="settings-note">
+                A named command that must exit <code>0</code> before a task using it can be called done.
+                A task references a check <b>by name</b> and never by command, so an agent can never
+                introduce one — the worst it can do is ask for a name that doesn't exist.
+              </p>
+              <div class="chk-add">
+                <input class="n" id="chk-name" type="text" placeholder="test" maxlength="40">
+                <input class="c" id="chk-cmd" type="text" placeholder="npm test">
+                <button class="btn-primary" onclick="saveCheck()">Add</button>
+              </div>
+              <div id="chk-err" class="settings-note" style="color:var(--red);display:none;"></div>
+              <div class="chk-list" id="chk-list" style="margin-top:12px;"></div>
+            </div>
             <div class="section-label">Invite someone</div>
             <div id="invite-panel">
               <p class="settings-note">
@@ -1086,6 +1104,27 @@
           <input id="dt-budget" type="number" value="1.0" step="0.5" min="0.1" max="20" style="width:100%;box-sizing:border-box;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font:inherit;background:var(--surface-2);color:var(--text);">
         </div>
       </div>
+      <details id="dt-dod" class="dod-block">
+        <summary class="dod-summary">
+          Definition of done
+          <span class="dod-hint" id="dt-dod-hint">completes on the agent's word</span>
+        </summary>
+        <div class="dod-body">
+          <div class="field">
+            <label class="dod-label">Must produce</label>
+            <div class="dod-chips" id="dt-outputs"></div>
+            <input id="dt-outputs-other" type="text" class="dod-input" placeholder="another kind, e.g. migration — comma separated">
+          </div>
+          <div class="field">
+            <label class="dod-label">Must pass</label>
+            <div class="dod-checks" id="dt-checks"><span class="dod-empty">Loading…</span></div>
+          </div>
+          <label class="dod-review">
+            <input type="checkbox" id="dt-requires-review">
+            <span>Needs a reviewer's accept — a second agent must look at it before it can be called done</span>
+          </label>
+        </div>
+      </details>
       <div id="dt-err" style="color:var(--red);font-size:12px;display:none;padding:8px 12px;border-radius:6px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);"></div>
       <div class="dialog-actions" style="display:flex;justify-content:flex-end;gap:10px;margin-top:10px;">
         <button class="btn-ghost" onclick="closeDispatchTaskModal()">Cancel</button>

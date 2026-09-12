@@ -1241,6 +1241,8 @@
 
           meta.append(who, when);
           card.append(id, title, meta);
+          const gateRow = renderGateBadges(t);
+          if (gateRow) card.appendChild(gateRow);
           // A task's most useful next click is the agent running it.
           if (t.agentId) {
             card.onclick = () => openCommandCenter(t.agentId);
@@ -1252,6 +1254,294 @@
         }
         cols.appendChild(el);
       }
+    }
+
+
+    // ---------------- definition of done ----------------
+    //
+    // A task used to sit on the board with no reason given: a reviewer could
+    // block work and the office would show an agent doing nothing. The server
+    // now ships a `gate` on each BoardTask saying what has to be true before
+    // the task may be called done, and how far it has got.
+    //
+    // `gate` is ABSENT on an ungated task, and that absence is meaningful —
+    // it says nothing is gating this one. An empty badge row would say the
+    // opposite. So this returns null and the card renders exactly as before.
+
+    /** Common artifact kinds, in the order the planner tends to ask for them. */
+    const OUTPUT_KINDS = ['diff', 'test_report', 'architecture_doc', 'plan', 'review_verdict'];
+
+    const GATE_BLOCK_LABEL = {
+      artifacts: 'missing output',
+      checks: 'checks failing',
+      review: 'in review',
+    };
+
+    function badge(cls, text, tip) {
+      const b = document.createElement('span');
+      b.className = 'gate-badge ' + cls;
+      b.textContent = text;         // never innerHTML — kinds and check names
+      if (tip) b.title = tip;       // are agent-authored strings
+      return b;
+    }
+
+    function renderGateBadges(t) {
+      const g = t.gate;
+      if (!g) return null;
+
+      const row = document.createElement('div');
+      row.className = 'gate-row';
+
+      // Completed without the evidence it promised. First, and in the failure
+      // colour, because "done" and "done, unchecked" must not look alike.
+      if (g.unverified) {
+        row.appendChild(badge('g-unverified', 'unverified',
+          'Marked done without its declared output — the send-back limit was reached.'));
+      }
+
+      // What is holding it, when something is. One badge, not three: the gate
+      // asks its questions in order and stops at the first failure, so naming
+      // all of them would invent blockers that were never reached.
+      if (g.blockedOn) {
+        const label = GATE_BLOCK_LABEL[g.blockedOn] || g.blockedOn;
+        const who = g.blockedOn === 'review' && g.review && g.review.reviewer
+          ? label + ' · ' + g.review.reviewer
+          : label;
+        row.appendChild(badge(
+          g.blockedOn === 'review' ? 'g-wait' : 'g-block',
+          who,
+          gateBlockTip(g)
+        ));
+      }
+
+      for (const o of g.outputs) {
+        row.appendChild(badge(o.present ? 'g-ok' : 'g-todo', o.kind,
+          o.present ? 'Recorded' : 'Declared, not yet produced'));
+      }
+
+      for (const c of g.checks) {
+        const cls = c.status === 'passed' ? 'g-ok'
+          : c.status === 'failed' ? 'g-fail'
+          : c.status === 'skipped' ? 'g-block' : 'g-todo';
+        // `note` is the server's own reason. Preferred over anything invented
+        // here, because the two skipped cases read very differently: one is a
+        // remote workspace, the other a check name that does not exist.
+        const tip = c.note ? c.name + ': ' + c.note
+          : c.status ? 'Acceptance check ' + c.status
+          : 'Acceptance check — not run yet';
+        row.appendChild(badge(cls, c.name, tip));
+      }
+
+      if (g.review && !g.blockedOn) {
+        // "required" is the declaration, not a state the task is stuck in —
+        // neutral, like an output that has not been produced yet.
+        const cls = g.review.status === 'accepted' ? 'g-ok'
+          : g.review.status === 'abandoned' ? 'g-fail'
+          : g.review.status === 'required' ? 'g-todo' : 'g-wait';
+        const text = g.review.status === 'required' ? 'needs review' : 'review ' + g.review.status;
+        const tip = g.review.status === 'required'
+          ? 'A reviewer must accept this before it can be done — none asked yet.'
+          : g.review.reviewer ? 'Reviewer: ' + g.review.reviewer : '';
+        row.appendChild(badge(cls, text, tip));
+      }
+
+      return row.children.length ? row : null;
+    }
+
+    function gateBlockTip(g) {
+      if (g.blockedOn === 'artifacts') {
+        const missing = g.outputs.filter((o) => !o.present).map((o) => o.kind);
+        return 'Sent back — no ' + missing.join(', no ') + ' on record.';
+      }
+      if (g.blockedOn === 'checks') {
+        return 'Failing: ' + g.checks.filter((c) => c.status === 'failed').map((c) => c.name).join(', ');
+      }
+      if (g.review && g.review.status === 'unavailable') {
+        return 'Needs a review and no reviewer is available on this floor.';
+      }
+      if (g.review && g.review.status === 'rejected') {
+        return 'A reviewer rejected this; rework is expected.';
+      }
+      return 'Waiting on a reviewer before it can be called done.';
+    }
+
+
+    // ---- the composer half: declaring what done means -------------------
+
+    /** Rebuild the picker each time the dialog opens. Checks are per project
+     *  and an owner may have added one since it was last shown. */
+    function resetDodBlock() {
+      const block = document.getElementById('dt-dod');
+      if (!block) return;
+      block.open = false;
+      document.getElementById('dt-outputs-other').value = '';
+      document.getElementById('dt-requires-review').checked = false;
+
+      const chips = document.getElementById('dt-outputs');
+      chips.innerHTML = '';
+      for (const kind of OUTPUT_KINDS) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'dod-chip';
+        b.dataset.kind = kind;
+        b.textContent = kind;
+        b.onclick = () => { b.classList.toggle('on'); updateDodHint(); };
+        chips.appendChild(b);
+      }
+
+      const box = document.getElementById('dt-checks');
+      box.innerHTML = '<span class="dod-empty">Loading…</span>';
+      const room = activeRoom();
+      if (!room) { box.innerHTML = '<span class="dod-empty">No project selected.</span>'; return; }
+
+      fetch('/api/projects/' + encodeURIComponent(room.id) + '/checks')
+        .then((r) => r.json())
+        .then((d) => {
+          const checks = (d && d.ok && d.checks) || [];
+          box.innerHTML = '';
+          if (!checks.length) {
+            // Naming the route rather than a dead end: a person who wants a
+            // gate here needs to know where it is defined.
+            const e = document.createElement('span');
+            e.className = 'dod-empty';
+            e.textContent = 'No checks defined for this project yet — add them in Settings → Acceptance checks.';
+            box.appendChild(e);
+            return;
+          }
+          for (const c of checks) {
+            const label = document.createElement('label');
+            label.className = 'dod-check';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.value = c.name;
+            cb.onchange = updateDodHint;
+            const name = document.createElement('span');
+            name.textContent = c.name;
+            const cmd = document.createElement('code');
+            cmd.textContent = c.command;      // textContent: a command is text
+            label.append(cb, name, cmd);
+            box.appendChild(label);
+          }
+        })
+        .catch(() => { box.innerHTML = '<span class="dod-empty">Could not load this project\'s checks.</span>'; });
+
+      updateDodHint();
+      document.getElementById('dt-outputs-other').oninput = updateDodHint;
+      document.getElementById('dt-requires-review').onchange = updateDodHint;
+    }
+
+    /** Read the three gate fields. Shape matches POST /api/tasks exactly. */
+    function readDodBlock() {
+      const kinds = [...document.querySelectorAll('#dt-outputs .dod-chip.on')].map((b) => b.dataset.kind);
+      const other = document.getElementById('dt-outputs-other').value
+        .split(',').map((x) => x.trim()).filter(Boolean);
+      const checks = [...document.querySelectorAll('#dt-checks input[type=checkbox]:checked')].map((c) => c.value);
+      return {
+        expectedOutputs: [...new Set([...kinds, ...other])],
+        acceptanceChecks: checks,
+        requiresReview: document.getElementById('dt-requires-review').checked,
+      };
+    }
+
+    /** The collapsed summary has to say whether anything is set, or the
+     *  section is a closed box hiding whether this task is gated at all. */
+    function updateDodHint() {
+      const hint = document.getElementById('dt-dod-hint');
+      if (!hint) return;
+      const d = readDodBlock();
+      const parts = [];
+      if (d.expectedOutputs.length) parts.push(d.expectedOutputs.length + ' output' + (d.expectedOutputs.length === 1 ? '' : 's'));
+      if (d.acceptanceChecks.length) parts.push(d.acceptanceChecks.length + ' check' + (d.acceptanceChecks.length === 1 ? '' : 's'));
+      if (d.requiresReview) parts.push('review');
+      hint.textContent = parts.length ? parts.join(' · ') : "completes on the agent's word";
+      hint.classList.toggle('is-set', parts.length > 0);
+    }
+
+
+    // ---- acceptance checks: the settings half ---------------------------
+    //
+    // Before this, the ONLY way to define a check was a hand-written
+    // PUT /api/projects/:id/checks. The gate that proves an agent's work
+    // actually runs was unreachable from the product.
+
+    function renderChecks(room) {
+      const list = document.getElementById('chk-list');
+      if (!list || !room) return;
+      fetch('/api/projects/' + encodeURIComponent(room.id) + '/checks')
+        .then((r) => r.json())
+        .then((d) => {
+          list.innerHTML = '';
+          const checks = (d && d.ok && d.checks) || [];
+          if (!checks.length) {
+            const e = document.createElement('div');
+            e.className = 'dod-empty';
+            e.textContent = 'No checks yet. A task with no check completes on its artifacts alone.';
+            list.appendChild(e);
+            return;
+          }
+          for (const c of checks) {
+            const row = document.createElement('div');
+            row.className = 'chk-row';
+            const n = document.createElement('span');
+            n.className = 'chk-name';
+            n.textContent = c.name;
+            const cmd = document.createElement('span');
+            cmd.className = 'chk-cmd';
+            cmd.textContent = c.command;     // textContent, always — this is a
+            cmd.title = c.command;           // shell string on display
+            const del = document.createElement('button');
+            del.className = 'chk-del';
+            del.textContent = '✕';
+            del.title = 'Delete this check';
+            del.onclick = () => deleteCheck(room.id, c.name);
+            row.append(n, cmd, del);
+            list.appendChild(row);
+          }
+        })
+        .catch(() => { list.innerHTML = '<div class="dod-empty">Could not load checks.</div>'; });
+    }
+
+    function checkErr(msg) {
+      const el = document.getElementById('chk-err');
+      if (!el) return;
+      el.textContent = msg || '';
+      el.style.display = msg ? 'block' : 'none';
+    }
+
+    window.saveCheck = async function () {
+      const room = activeRoom();
+      if (!room) return;
+      const name = document.getElementById('chk-name').value.trim();
+      const command = document.getElementById('chk-cmd').value.trim();
+      if (!name || !command) return checkErr('A check needs both a name and a command.');
+      checkErr('');
+      try {
+        const res = await fetch('/api/projects/' + encodeURIComponent(room.id) + '/checks', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name, command }),
+        });
+        const d = await res.json();
+        if (!res.ok || !d.ok) throw new Error(d.error || 'Could not save the check.');
+        document.getElementById('chk-name').value = '';
+        document.getElementById('chk-cmd').value = '';
+        renderChecks(room);
+      } catch (err) {
+        checkErr(err.message);
+      }
+    };
+
+    async function deleteCheck(projectId, name) {
+      // A task may already reference this check by name. Deleting it does not
+      // break that task — the gate reports it as skipped with a reason rather
+      // than failing work for a check that no longer exists.
+      if (!confirm('Delete the check "' + name + '"? Tasks that reference it will report it as unavailable.')) return;
+      try {
+        await fetch('/api/projects/' + encodeURIComponent(projectId) + '/checks/' + encodeURIComponent(name), {
+          method: 'DELETE',
+        });
+      } catch {}
+      renderChecks(activeRoom());
     }
 
     // ---------------- app shell ----------------
@@ -1315,7 +1605,7 @@
       if (currentView === 'memory')  renderMemory(room);
       if (currentView === 'agents')  renderAgentsFull(room);
       if (currentView === 'projects') renderProjects();
-      if (currentView === 'settings') renderMachines(room);
+      if (currentView === 'settings') { renderMachines(room); renderChecks(room); }
       if (currentView === 'agent')   renderCommandCenter();
     }
 
@@ -2056,6 +2346,7 @@
       document.getElementById('dt-title').value = '';
       document.getElementById('dt-spec').value = '';
       document.getElementById('dt-err').style.display = 'none';
+      resetDodBlock();
       document.getElementById('dispatch-task-modal').classList.add('open');
       setTimeout(() => document.getElementById('dt-title')?.focus(), 50);
     };
@@ -2094,6 +2385,7 @@
             spec,
             budgetSeconds: timeout,
             budgetUsd: budget,
+            ...readDodBlock(),
           }),
         });
         const data = await res.json();

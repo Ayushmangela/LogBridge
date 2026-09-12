@@ -65,6 +65,43 @@ export const TaskBrief = z.object({
   steps: z.number().int().nonnegative(),
 });
 
+// What has to be true before a task may be called done, and which parts are
+// already true. Produced by the server's gateState.ts, which reports only
+// what the completion gate has ALREADY said — never a prediction.
+export const TaskGateView = z.object({
+  /** Declared artifact kinds, and whether one is on record for each. */
+  outputs: z.array(z.object({ kind: z.string(), present: z.boolean() })),
+  /** Named acceptance checks. `status: null` means "not run yet" — which is
+   *  deliberately NOT the same as passing. "skipped" is the one case that
+   *  does NOT hold the task: a workspace on another machine, where running
+   *  the command here would test the wrong tree. A check name nobody defined
+   *  is "failed", because that is what the gate does with it. `note` carries
+   *  the reason. */
+  checks: z.array(
+    z.object({
+      name: z.string(),
+      status: z.enum(["passed", "failed", "skipped"]).nullable(),
+      note: z.string().nullable(),
+    })
+  ),
+  /** null when this task does not require a review. */
+  review: z
+    .object({
+      // "required" = declared but no reviewer dispatched yet (the agent is
+      // still working, nothing is held). "pending" = a reviewer HAS been
+      // asked and has not answered. Only the second one blocks.
+      status: z.enum(["required", "pending", "accepted", "rejected", "unavailable", "abandoned"]),
+      reviewer: z.string().nullable(),
+    })
+    .nullable(),
+  /** Which gate is holding the task right now, if any. */
+  blockedOn: z.enum(["artifacts", "checks", "review"]).nullable(),
+  /** Completed without its evidence, after the send-back limit was reached.
+   *  Surfaced so "done" and "done, unchecked" never look alike. */
+  unverified: z.boolean(),
+});
+const TaskGate = TaskGateView;
+
 // The Kanban board's row shape — every task in the room, not just an
 // agent's *current* one (TaskBrief above is scoped to a single agent and
 // has no state/identity fields; the board needs both). Deliberately not
@@ -79,6 +116,15 @@ export const BoardTask = z.object({
   createdAt: z.string(),
   startedAt: z.string().nullable(),
   costUsd: z.number(),
+  // ★ 1.33 What "done" means for this task, and how far it has got.
+  //
+  // Absent on most tasks, and that absence is meaningful: it says the task
+  // declared no outputs, no checks and no review, so nothing is gating it.
+  // An empty object would say the opposite — that it was gated and passed.
+  //
+  // Read-only. The office renders this; it never decides from it. The
+  // decision lives in completionGate.ts on the server.
+  gate: TaskGate.nullish(),
 });
 
 // What the team knows (MEMORY.md). Capped in the view for the same reason
@@ -408,6 +454,7 @@ export const WorkspaceView = z.object({
 
 export type TaskBriefT = z.infer<typeof TaskBrief>;
 export type BoardTaskT = z.infer<typeof BoardTask>;
+export type TaskGateViewT = z.infer<typeof TaskGateView>;
 export type MemoryViewT = z.infer<typeof MemoryView>;
 
 // One open/recent pull request, mirrored read-only from GitHub (M6, D10).
