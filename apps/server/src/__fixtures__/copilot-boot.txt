@@ -1,0 +1,35 @@
+[>4;2m[?u[?2026$p[?1049h[?2004h[?1004h[?1003h[?1006h[?25l[?12$p]10;?\]11;?\]4;0;?\]4;1;?\]4;2;?\]4;3;?\]4;4;?\]4;5;?\]4;6;?\]4;7;?\]4;8;?\]4;9;?\]4;10;?\]4;11;?\]4;12;?\]4;13;?\]4;14;?\]4;15;?\[>q[H[2J[?25l[22;0t]0;GitHub Copilot[H[2J [1;97;44m[Current][m  Sessions  [2m Issues [m [2m Pull requests [m  Gists[?996n]11;#0D1117]10;#F0F6FC[1;23H Issues   Pull requests 
+
+[34m  ╭─╮╭─╮
+  ╰─╯╰─╯[m  Copilot v1.0.83 uses AI.
+[35m  █ [96m▘▝[35m █[m  Check for mistakes.
+[35m   ▔▔▔▔ [m
+
+ [34m●[m [1mGitHub CLI (gh) is not installed. Install it with: brew install gh 
+[3C[m└ [4;36m]8;;https://cli.github.com/Open in browser[4B[0;90m]8;;╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│[m [1mConfirm folder trust[77C[0;90m│
+│[m [90m────────────────────────────────────────────────────────────────────────────────────────────────[m [90m│
+│[m [90m╭──────────────────────────────────────────────────────────────────────────────────────────────╮[m [90m│
+│[m [90m│[m /Users/ayush/Project/LogBridge[63C[90m│[m [90m│
+│[m [90m╰──────────────────────────────────────────────────────────────────────────────────────────────╯[m [90m│
+│[98C│
+│[m Copilot can read files in this folder and, with your permission, edit them or run code and shell [90m│
+│[m  commands. It will remember your permissions for the rest of this session.[23C[90m│
+│[98C│
+│[m Do you trust the files in this folder?[59C[90m│
+│[98C│
+│[m [97;44m❯ 1. Yes[39m                                                                                        [m [90m│
+│[m   2. Yes, and remember this folder for future sessions[43C[90m│
+│[m   3. No (Esc)[84C[90m│
+│[98C│
+│[m [1m↑/↓[m to navigate · [1menter[m to select · [1mesc[m to cancel[48C[90m│
+╰──────────────────────────────────────────────────────────────────────────────────────────────────[?7l╯[?7h[m[3;3H[34m╰─╯╰─╯[m  Copilot v1.0.83 uses AI.[65C[37m┃
+[35m  █ [96m▘▝[35m █[m  Check for mistakes.     [65C[37m┃
+[2C[35m ▔▔▔▔ [m                     [70C[37m┃
+[98C[m[1K [37m┃
+[C[34m●[m [1mGitHub CLI (gh) is not installed. Install it with: brew install gh [29C[0;37m┃
+[C[m  └ [4;36m]8;;https://cli.github.com/Open in browser[m]8;;                                                  [29C[37m┃
+[98C[m[1K [37m┃
+[C[34m●[m Tip: /resume[84C[37m┃
+[3C[m└ Switch to a different session (optionally specify session ID, task ID, or name)[15C[37m┃
+[99C┃[m[4;5H[96m╴╶[m[96m  [m[96m╴╶[m[96m▘▝[m[96m╴╶[m[96m  [m[96m╴╶[m[96m▘▝[m[96m╴╶[m[96m  [m[96m╴╶[m[96m▘▝[m

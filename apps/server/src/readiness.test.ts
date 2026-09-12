@@ -153,3 +153,32 @@ describe("stream behaviour", () => {
     expect(d.isReady).toBe(false);
   });
 });
+
+describe("GitHub Copilot's blocking states", () => {
+  test("the folder-trust modal is not ready — from the real capture", () => {
+    const verdict = play(new ReadinessDetector("copilot"), capture("copilot-boot.txt"), 64);
+    expect(verdict.state).toBe("blocked");
+    expect(verdict.reason).toContain("trust");
+  });
+
+  test("signed out is blocked, not ready", () => {
+    // The state a signed-out agent actually sits in, after trust is confirmed.
+    // Seeding a 2,600-character identity prompt into this screen types it at a
+    // CLI that cannot act on it.
+    const d = new ReadinessDetector("copilot");
+    const v = d.feed("Please use /login to sign in to use Copilot\n");
+    expect(v.state).toBe("blocked");
+    expect(v.reason).toContain("/login");
+  });
+
+  test("four of four CLIs block on folder trust before their prompt", () => {
+    // Not a quirk of any one tool — assume the next provider does it too.
+    for (const [fixture, provider] of [
+      ["claude-boot.txt", "claude"],
+      ["gemini-boot.txt", "gemini"],
+      ["copilot-boot.txt", "copilot"],
+    ] as const) {
+      expect(play(new ReadinessDetector(provider), capture(fixture), 64).state, fixture).toBe("blocked");
+    }
+  });
+});

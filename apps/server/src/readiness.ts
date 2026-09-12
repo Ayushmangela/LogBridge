@@ -106,6 +106,21 @@ const BLOCKED: Array<{ match: string; reason: string }> = [
   // Gemini CLI — __fixtures__/gemini-ready.txt. Not signed in, so it cannot
   // reach a prompt at all until a person chooses an auth method and completes
   // a sign-in. An agent on this screen will never become ready on its own.
+  // GitHub Copilot CLI — __fixtures__/copilot-boot.txt. The FOURTH CLI with a
+  // folder-trust modal. Four out of four now do this, which is no longer a
+  // pattern worth noting per-tool: assume any new provider blocks on trust
+  // before its prompt, and capture it rather than hoping.
+  {
+    match: "Confirm folder trust",
+    reason: "GitHub Copilot is asking whether you trust this folder",
+  },
+  // Copilot again, AFTER trust is confirmed — the state a signed-out agent
+  // actually sits in. Taken from a real session rather than the fixture,
+  // because the capture stops at the trust modal that precedes it.
+  {
+    match: "use /login to sign in",
+    reason: "GitHub Copilot is not signed in — run /login in its terminal",
+  },
   {
     match: "No authentication method selected",
     reason: "Gemini CLI is not signed in and is asking for an auth method",
